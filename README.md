@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/cortex-animation.gif" alt="Animated Cortex Logo" width="800" />
+  <img src="assets/make_this_an_mp_animation_ma.gif" alt="Animated Cortex Logo" width="800" />
 </p>
 
 <h1 align="center">cortex-cli</h1>
