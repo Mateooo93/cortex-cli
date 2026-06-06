@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/Mateooo93/cortex-cli/internal/config"
+	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
 )
 
@@ -193,6 +194,14 @@ func (rp *RightPanel) HandleKey(msg tea.KeyPressMsg) (RightPanelAction, string) 
 		case "enter":
 			if rp.keySel < len(rp.keys) {
 				provider := rp.keys[rp.keySel].Provider
+				// OAuth providers don't take an API key — they
+				// sign in with the user's existing subscription.
+				// Open the right-panel sign-in prompt instead of
+				// a "paste your key" form. The handler in
+				// model.go fires the browser OAuth flow.
+				if cortexconfig.ProviderAuthKind(provider) == "oauth" {
+					return rpActionCodexSignIn, provider + ":"
+				}
 				return rpActionNeedKey, provider + ":"
 			}
 		case "delete", "backspace":

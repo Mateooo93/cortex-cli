@@ -63,6 +63,48 @@ func (p *ModelPicker) IsVisible() bool {
 	return p.visible
 }
 
+// isPickerFilterKey reports whether a bubbletea key string should
+// be appended to the picker's filter query. We accept single-rune
+// printable characters (letters, digits, punctuation, space) and
+// reject any key that bubbletea v2 names (e.g. "up", "shift+a",
+// "ctrl+x", function keys, etc.). One space = " " so users can
+// still filter on multi-word phrases.
+func isPickerFilterKey(ks string) bool {
+	if ks == "" {
+		return false
+	}
+	// Multi-character names are always bubbletea aliases.
+	if len(ks) > 1 {
+		return false
+	}
+	r := rune(ks[0])
+	if r < 0x20 || r == 0x7f {
+		return false
+	}
+	return true
+}
+
+// VisibleHeight returns the recommended number of terminal rows
+// the picker wants to draw itself, used by the View orchestrator
+// to decide the modal's height before centering. The picker shows
+// a search box, at most 12 rows, and a footer — about 16 rows
+// total — so callers should clamp to viewport-4.
+func (p *ModelPicker) VisibleHeight() int {
+	if !p.visible {
+		return 0
+	}
+	const maxRows = 12
+	visible := maxRows
+	if visible > len(p.entries) {
+		visible = len(p.entries)
+	}
+	if visible < 1 {
+		visible = 1
+	}
+	// search box (1) + blank (1) + rows + blank (1) + footer (1)
+	return 2 + visible + 2
+}
+
 // Refresh re-applies the filter against the existing entries.
 func (p *ModelPicker) Refresh() {
 	all := buildModelPickerEntries()

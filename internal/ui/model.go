@@ -23,6 +23,7 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
 	"github.com/Mateooo93/cortex-cli/internal/provider/codex"
 	llmprovider "github.com/Mateooo93/cortex-cli/internal/provider"
+	"github.com/Mateooo93/cortex-cli/internal/updater"
 )
 
 // teaProgram holds the Bubble Tea program reference for event injection via Send().
@@ -324,6 +325,7 @@ type Model struct {
 	// Shared rendering
 	mdRenderer     *MarkdownRenderer
 	commandPalette CommandPalette
+	modelPicker    ModelPicker
 
 	// Tab alert blink (Chat tab label pulses when a session needs attention)
 	tabAlertActive   bool
@@ -977,6 +979,125 @@ func (m *Model) startOAuthLoginCmd(providerName string) tea.Cmd {
 	}
 }
 
+// runSelfUpdateCmd kicks off the self-update flow and reports
+// progress through selfUpdateFinishedMsg. The actual download /
+// SHA-256 / install lives in internal/updater so it can be reused
+// outside the TUI (the /update slash command and the future
+// `cortex update` CLI subcommand both call the same Run()).
+func (m *Model) runSelfUpdateCmd() tea.Cmd {
+	cmds := []tea.Cmd{
+		m.emitStatusMsg("Checking for updates\u2026", StatusMsgInfo),
+		func() tea.Msg {
+			res := updater.Run(context.Background())
+			return selfUpdateFinishedMsg{result: res}
+		},
+	}
+	return tea.Batch(cmds...)
+}
+
+// selfUpdateFinishedMsg is fired by runSelfUpdateCmd when the
+// download + verify + install round-trip completes. We surface
+// every failure mode (up-to-date, hash mismatch, no release for
+// this arch, etc.) to the status bar so the user always gets
+// feedback.
+type selfUpdateFinishedMsg struct {
+	result updater.Result
+}
+
+// applyModelPickerSelection routes a spec chosen from the /model
+// picker to the right action. OAuth providers (codex, claude-sub,
+// copilot) fire the OAuth flow directly — the user never sees the
+// "enter API key" form. API-key providers that already have a key
+// stored switch models immediately. API-key providers without a
+// key fall through to the right-panel key input form so the user
+// can paste one. Local / env-var providers switch models
+// immediately (no key needed).
+func (m *Model) applyModelPickerSelection(spec string) tea.Cmd {
+	if spec == "" {
+		return nil
+	}
+	provider, _, _ := cortexconfig.SplitModelSpec(spec)
+	if provider == "" {
+		provider = spec
+	}
+	provider = cortexconfig.NormalizeProviderName(provider)
+	authKind := cortexconfig.ProviderAuthKind(provider)
+
+	// OAuth providers: fire the browser flow. The user does NOT
+	// see any key/base-URL form.
+	if authKind == "oauth" {
+		if provider == "codex" {
+			return tea.Batch(
+				m.emitStatusMsg("Opening ChatGPT (codex) sign-in in your browser\u2026", StatusMsgInfo),
+				m.startCodexLoginCmd(spec),
+			)
+		}
+		// claude-sub / copilot: no browser flow yet; tell the
+		// user which env var to set.
+		var envVar, displayName string
+		switch provider {
+		case "claude-sub":
+			envVar = "CLAUDE_CODE_OAUTH_TOKEN"
+			displayName = "Claude Pro/Max"
+		case "copilot":
+			envVar = "COPILOT_OAUTH_TOKEN"
+			displayName = "GitHub Copilot"
+		default:
+			envVar = "<env var>"
+			displayName = provider
+		}
+		return m.emitStatusMsg(displayName+": set "+envVar+"=<token> in your environment, then restart cortex-cli.", StatusMsgInfo)
+	}
+
+	// Local / env-var providers: no key to collect, just switch.
+	if authKind == "none" || authKind == "env" {
+		m.setActiveModelSpec(spec)
+		if m.cortexCfg != nil {
+			m.cortexCfg.DefaultModel = spec
+			_ = cortexconfig.Save(m.cortexCfg)
+		}
+		sess := m.currentSession()
+		if sess != nil && sess.client != nil {
+			_ = sess.client.SendSetModel(spec)
+		}
+		return m.emitStatusMsg("Switched to "+spec, StatusMsgInfo)
+	}
+
+	// API-key providers: ensure the provider row exists, then
+	// check if a key is already stored. If yes, switch
+	// immediately. If no, drop the user into the right-panel
+	// key-input form so they can paste one.
+	if m.cortexCfg != nil {
+		_, model, _ := cortexconfig.SplitModelSpec(spec)
+		if ensured := m.cortexCfg.EnsureProviderModel(provider, model); ensured != "" {
+			spec = ensured
+		}
+	}
+	if key, _ := config.ResolveProviderKey(provider, false); key != "" {
+		m.setActiveModelSpec(spec)
+		if m.cortexCfg != nil {
+			m.cortexCfg.DefaultModel = spec
+			_ = cortexconfig.Save(m.cortexCfg)
+		}
+		sess := m.currentSession()
+		if sess != nil && sess.client != nil {
+			_ = sess.client.SendSetModel(spec)
+		}
+		return m.emitStatusMsg("Switched to "+spec, StatusMsgInfo)
+	}
+	// No key stored — open the right-panel key input form
+	// (which is the only place we ask for an API key now that
+	// the Settings wizard is gone).
+	sess := m.currentSession()
+	if sess != nil {
+		sess.rightPanel.OpenKeyInput(provider, spec, m.height)
+		m.updateChatWidth()
+		sess.focus = FocusRightPanel
+		sess.input.Blur()
+	}
+	return m.emitStatusMsg("API key needed for "+provider+" — paste it in the right panel", StatusMsgInfo)
+}
+
 // handleCodexLoginSuccess applies the freshly saved OAuth token by
 // switching the active model to pendingModel. Mirrors the API-key
 // "key stored" path.
@@ -1449,11 +1570,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// opens, they sign in, and we fire a tea.Cmd when
 				// done so the model can switch back to the chat
 				// without blocking the UI.
+				//
+				// The payload is the spec to switch to after the
+				// OAuth flow succeeds. The right-panel model
+				// picker passes the chosen model spec; the
+				// right-panel key manager passes "codex:" with no
+				// pending model (we don't switch the active model
+				// just because the user re-authenticated — they
+				// can still pick a codex model afterwards via
+				// /model).
 				pendingModel := payload
 				sess.rightPanel.Close()
 				m.updateChatWidth()
 				sess.input.Focus()
 				sess.focus = FocusEditor
+				// If the payload is "codex:" (key manager path)
+				// we still want to start the OAuth flow but
+				// don't auto-switch the active model afterwards.
+				// startCodexLoginCmd handles "" as "no pending
+				// model" already.
+				if pendingModel == "codex:" {
+					pendingModel = ""
+				}
 				return m, tea.Batch(
 					m.emitStatusMsg("Opening ChatGPT sign-in in your browser…", StatusMsgInfo),
 					m.startCodexLoginCmd(pendingModel),
@@ -1930,6 +2068,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	processKey:
+
+		// Model picker (opened by /model slash command)
+		if m.modelPicker.IsVisible() {
+			switch msg.String() {
+			case "up", "k":
+				m.modelPicker.MoveUp()
+			case "down", "j":
+				m.modelPicker.MoveDown()
+			case "esc":
+				m.modelPicker.Close()
+			case "enter":
+				spec := m.modelPicker.Selected()
+				m.modelPicker.Close()
+				if spec != "" {
+					cmds = append(cmds, m.applyModelPickerSelection(spec))
+				}
+			case "backspace":
+				q := m.modelPicker.Query()
+				if len(q) > 0 {
+					m.modelPicker.SetQuery(q[:len(q)-1])
+				}
+			default:
+				// Treat printable key strings as filter input.
+				// We re-use the key string instead of msg.Rune()
+				// (which doesn't exist on tea.KeyPressMsg in the
+				// current bubbletea v2) and we filter out all
+				// control / navigation keys by length and the
+				// bubbletea naming convention.
+				ks := msg.String()
+				if isPickerFilterKey(ks) {
+					m.modelPicker.SetQuery(m.modelPicker.Query() + ks)
+				}
+			}
+			return m, tea.Batch(cmds...)
+		}
 
 		// Slash menu
 		if sess.slashMenu.IsVisible() {
@@ -2483,6 +2656,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case codexLoginFailedMsg:
 		return m, m.handleCodexLoginFailed(msg.err, msg.authorizeURL)
+
+	case selfUpdateFinishedMsg:
+		// Surface the result in the status bar so the user
+		// gets explicit feedback regardless of outcome.
+		switch msg.result.Kind {
+		case "up-to-date":
+			return m, m.emitStatusMsg("Already on the latest version ("+msg.result.NewVersion+").", StatusMsgInfo)
+		case "updated":
+			return m, m.emitStatusMsg(msg.result.Message+". Restart cortex-cli to use the new version.", StatusMsgInfo)
+		default:
+			errMsg := "Update failed"
+			if msg.result.Error != nil {
+				errMsg = msg.result.Error.Error()
+			} else if msg.result.Message != "" {
+				errMsg = msg.result.Message
+			}
+			return m, m.emitStatusMsg(errMsg, StatusMsgError)
+		}
 
 	case animStepMsg:
 		// Route to whichever session owns this generation tick.
@@ -3413,6 +3604,26 @@ func (m Model) View() tea.View {
 		}
 	}
 
+	// Model picker overlay: drawn on top of everything else
+	// (above slash menu, above right panel). Same idea as
+	// quit-confirm: full-screen modal so the user can't miss it.
+	if m.modelPicker.IsVisible() {
+		pickerH := m.modelPicker.VisibleHeight()
+		if pickerH > m.height-4 {
+			pickerH = m.height - 4
+		}
+		if pickerH < 6 {
+			pickerH = 6
+		}
+		overlay := m.modelPicker.View(m.width, pickerH, m.styles)
+		h := lipgloss.Height(overlay)
+		popupY := (m.height - h) / 2
+		if popupY < 0 {
+			popupY = 0
+		}
+		uv.NewStyledString(overlay).Draw(canvas, image.Rect(0, popupY, m.width, popupY+h))
+	}
+
 	content := strings.ReplaceAll(canvas.Render(), "\r\n", "\n")
 	v := tea.NewView(content)
 	v.AltScreen = true
@@ -3426,6 +3637,17 @@ func (m Model) View() tea.View {
 func (m *Model) handleCommandAction(action string, sess *SessionState) []tea.Cmd {
 	var cmds []tea.Cmd
 	switch action {
+	case "open_model_picker":
+		// Open the centered /model picker overlay. The picker
+		// itself handles its own key events (filter, navigation,
+		// selection) via m.modelPicker in the main Update loop.
+		m.modelPicker.Open(m.cortexCfg)
+		// Blur the chat input so the picker gets all keystrokes.
+		if sess != nil {
+			sess.input.Blur()
+		}
+	case "self_update":
+		cmds = append(cmds, m.runSelfUpdateCmd())
 	case "change_model":
 		if sess != nil {
 			sess.rightPanel.OpenModelSelect(m.height, sess.modelName)
