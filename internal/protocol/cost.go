@@ -59,6 +59,62 @@ var pricingByProvider = map[string][]modelPricing{
 		{"o3", 2.00, 8.00, 0, 0.50},
 		{"gpt-4o", 2.50, 10.00, 0, 1.25},
 	},
+	"claude-sub": {
+		// Claude Pro/Max subscription routes. We price as the
+		// equivalent paid API model for the cost dashboard; the
+		// user's actual billing is subscription-based, not metered.
+		{"claude-opus-4-8", 5.00, 25.00, 6.25, 0.50},
+		{"claude-sonnet-4-6", 3.00, 15.00, 3.75, 0.30},
+		{"claude-haiku-4-6", 1.00, 5.00, 1.25, 0.10},
+	},
+	"copilot": {
+		// GitHub Copilot routes — bill via Copilot subscription,
+		// not per-token; cost table is for reference only.
+		{"gpt-5.5", 3.00, 12.00, 0, 0.30},
+		{"gpt-5", 2.50, 10.00, 0, 0.25},
+		{"claude-opus-4-8", 5.00, 25.00, 6.25, 0.50},
+		{"o3", 2.00, 8.00, 0, 0.50},
+	},
+	"gemini": {
+		// Google Gemini API (via the OpenAI-compat endpoint).
+		// Pricing per Google's public rate card (June 2026).
+		{"gemini-2.5-pro", 1.25, 10.00, 0, 0.31},
+		{"gemini-2.5-flash", 0.075, 0.30, 0, 0.02},
+		{"gemini-3.1-pro-preview", 2.00, 12.00, 0, 0.50},
+	},
+	"xai": {
+		// xAI (Grok) — per the published rate card.
+		{"grok-4", 3.00, 15.00, 0, 0.75},
+		{"grok-4-fast", 0.20, 0.50, 0, 0.05},
+		{"grok-3", 3.00, 15.00, 0, 0.75},
+	},
+	"deepseek": {
+		// DeepSeek — known for very aggressive pricing.
+		{"deepseek-chat", 0.27, 1.10, 0, 0.07},
+		{"deepseek-reasoner", 0.55, 2.19, 0, 0.14},
+	},
+	"mistral": {
+		// Mistral AI La Plateforme.
+		{"mistral-large-latest", 2.00, 6.00, 0, 0.60},
+		{"mistral-medium-latest", 0.40, 2.00, 0, 0.10},
+		{"codestral-latest", 0.30, 0.90, 0, 0.075},
+	},
+	"groq": {
+		// Groq — token-based, fast inference.
+		{"llama-3.3-70b-versatile", 0.59, 0.79, 0, 0.00},
+		{"llama-3.1-8b-instant", 0.05, 0.08, 0, 0.00},
+		{"mixtral-8x7b-32768", 0.24, 0.24, 0, 0.00},
+	},
+	"cohere": {
+		// Cohere Command R family.
+		{"command-r-plus", 2.50, 10.00, 0, 0.30},
+		{"command-r", 0.15, 0.60, 0, 0.04},
+	},
+	"perplexity": {
+		// Perplexity Sonar family — search-augmented.
+		{"sonar-pro", 3.00, 15.00, 0, 0.30},
+		{"sonar", 1.00, 1.00, 0, 0.10},
+	},
 	"minimax": {
 		// International endpoint, USD. cn endpoint is RMB-denominated and
 		// returns 0 here — callers display "—" in that case.

@@ -291,6 +291,8 @@ type SettingsInspectView struct {
 	Field       int
 	NeedsAPIKey bool
 	EnvVar      string
+	AuthKind    string // "oauth" | "apikey" | "none" | "env"
+	HelpURL     string
 }
 
 // SettingsWizardFieldView describes one editable row inside the
@@ -560,6 +562,31 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 			selectedStyle.Width(innerWidth).Render(fieldLabel(2, "API key")),
 			mutedStyle.Width(innerWidth).Render(settingsTruncate("    "+keyValue, innerWidth)),
 		)
+		// Show the auth kind as a one-line badge so the user knows
+		// whether the row expects an API key, an OAuth subscription
+		// sign-in, an env var, or nothing at all. This is the single
+		// most-confused field in the table; the badge is the
+		// quickest way to communicate it.
+		authLabel := "API key"
+		authHelp := "Paste the API key from the provider's dashboard."
+		switch inspect.AuthKind {
+		case "oauth":
+			authLabel = "OAuth (subscription)"
+			authHelp = "Sign in with your existing subscription; no API key needed."
+		case "none":
+			authLabel = "no key (local server)"
+			authHelp = "Local model server. Make sure it's running."
+		case "env":
+			authLabel = "env var only"
+			authHelp = "Read from " + inspect.EnvVar + " — paste the value into your environment."
+		}
+		lines = append(lines,
+			mutedStyle.Width(innerWidth).Render("    auth: "+authLabel),
+			dimStyle.Italic(true).Width(innerWidth).Render("    "+authHelp),
+		)
+		if inspect.HelpURL != "" {
+			lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("    "+settingsTruncate(inspect.HelpURL, innerWidth)))
+		}
 		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  ↑/↓ field · Enter edit · k edit key · b edit base URL · Del clear key · r refresh · Esc back"))
 	}
 	lines = append(lines, divider)

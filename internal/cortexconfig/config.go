@@ -15,6 +15,17 @@ import (
 )
 
 // ProviderPreset describes a built-in OpenAI-compatible provider preset.
+// AuthKind tells the Settings tab which auth path the user has to follow:
+//
+//	"oauth"   — no API key; the user signs in with their existing
+//	            subscription (ChatGPT Plus/Pro, Claude Pro/Max, …) via
+//	            the in-app browser flow. APIKeyEnvVar is a CI/headless
+//	            fallback only.
+//	"apikey"  — user pastes an API key from the provider's dashboard.
+//	"none"    — local server, no key needed (Cortex, Ollama, LM Studio,
+//	            vLLM). APIKeyEnvVar is unused.
+//	"env"     — same as "none" but the key is read from an env var
+//	            (e.g. AWS Bedrock with AWS_BEARER_TOKEN_BEDROCK).
 type ProviderPreset struct {
 	Name         string
 	DisplayName  string
@@ -22,19 +33,188 @@ type ProviderPreset struct {
 	APIKeyEnvVar string
 	DefaultModel string
 	NeedsAPIKey  bool
+	AuthKind     string // "oauth" | "apikey" | "none" | "env"
+	// HelpURL points at the provider's auth / API-key page; the
+	// Settings tab uses it for the "Get an API key" link.
+	HelpURL string
 }
 
-// BuiltinProviderPresets is the ordered set shown in Settings.
+// BuiltinProviderPresets is the ordered set shown in Settings. Order
+// matters: subscription (OAuth) providers come first so new users
+// who already pay for ChatGPT or Claude don't have to scroll past
+// the API-key options, then the API-key providers, then the
+// keyless local servers, then the catch-all "custom" entry.
 var BuiltinProviderPresets = []ProviderPreset{
-	{Name: "cortex", DisplayName: "Cortex", BaseURL: "http://127.0.0.1:8000/v1", APIKeyEnvVar: "CORTEX_API_KEY", DefaultModel: "cortex-code", NeedsAPIKey: false},
-	{Name: "openai", DisplayName: "OpenAI", BaseURL: "https://api.openai.com/v1", APIKeyEnvVar: "OPENAI_API_KEY", DefaultModel: "gpt-5.5", NeedsAPIKey: true},
-	{Name: "codex", DisplayName: "ChatGPT (codex)", BaseURL: "https://api.openai.com/v1", APIKeyEnvVar: "CODEX_CODEX_TOKEN", DefaultModel: "gpt-5.5", NeedsAPIKey: false},
-	{Name: "anthropic", DisplayName: "Anthropic", BaseURL: "https://api.anthropic.com/v1", APIKeyEnvVar: "ANTHROPIC_API_KEY", DefaultModel: "claude-opus-4-8", NeedsAPIKey: true},
-	{Name: "ollama", DisplayName: "Ollama", BaseURL: "http://127.0.0.1:11434/v1", APIKeyEnvVar: "", DefaultModel: "qwen3.5", NeedsAPIKey: false},
-	{Name: "openrouter", DisplayName: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", APIKeyEnvVar: "OPENROUTER_API_KEY", DefaultModel: "anthropic/claude-opus-4-8", NeedsAPIKey: true},
-	{Name: "opengateway", DisplayName: "OpenGateway", BaseURL: "https://opengateway.gitlawb.com/v1", APIKeyEnvVar: "OPENGATEWAY_API_KEY", DefaultModel: "minimax/minimax-m3", NeedsAPIKey: true},
-	{Name: "minimax", DisplayName: "MiniMax", BaseURL: "https://api.minimax.io/v1", APIKeyEnvVar: "MINIMAX_API_KEY", DefaultModel: "MiniMax-M2.7", NeedsAPIKey: true},
-	{Name: "mimo", DisplayName: "Xiaomi MiMo", BaseURL: "https://api.xiaomimimo.com/v1", APIKeyEnvVar: "MIMO_API_KEY", DefaultModel: "mimo-v2.5-pro", NeedsAPIKey: true},
+	// ===== Subscriptions (OAuth) — no API key =====
+	// Uses the user's existing subscription. The auth flow opens a
+	// local browser; the resulting token is stored in the OS keychain.
+	{
+		Name: "codex", DisplayName: "ChatGPT (codex)",
+		BaseURL: "https://api.openai.com/v1",
+		APIKeyEnvVar: "CODEX_CODEX_TOKEN",
+		DefaultModel: "gpt-5.5",
+		NeedsAPIKey: false, AuthKind: "oauth",
+		HelpURL: "https://chatgpt.com/auth/login",
+	},
+	{
+		Name: "claude-sub", DisplayName: "Claude (Pro/Max)",
+		BaseURL: "https://api.anthropic.com/v1",
+		APIKeyEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
+		DefaultModel: "claude-opus-4-8",
+		NeedsAPIKey: false, AuthKind: "oauth",
+		HelpURL: "https://claude.ai/login",
+	},
+	{
+		Name: "copilot", DisplayName: "GitHub Copilot",
+		BaseURL: "https://api.githubcopilot.com",
+		APIKeyEnvVar: "COPILOT_OAUTH_TOKEN",
+		DefaultModel: "gpt-5.5",
+		NeedsAPIKey: false, AuthKind: "oauth",
+		HelpURL: "https://github.com/settings/copilot",
+	},
+
+	// ===== API-key providers (paid) =====
+	{
+		Name: "openai", DisplayName: "OpenAI",
+		BaseURL: "https://api.openai.com/v1",
+		APIKeyEnvVar: "OPENAI_API_KEY",
+		DefaultModel: "gpt-5.5",
+		NeedsAPIKey: true, AuthKind: "apikey",
+		HelpURL: "https://platform.openai.com/api-keys",
+	},
+	{
+		Name: "anthropic", DisplayName: "Anthropic",
+		BaseURL: "https://api.anthropic.com/v1",
+		APIKeyEnvVar: "ANTHROPIC_API_KEY",
+		DefaultModel: "claude-opus-4-8",
+		NeedsAPIKey: true, AuthKind: "apikey",
+		HelpURL: "https://console.anthropic.com/settings/keys",
+	},
+	{
+		Name: "gemini", DisplayName: "Google Gemini",
+		BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+		APIKeyEnvVar: "GEMINI_API_KEY",
+		DefaultModel: "gemini-2.5-pro",
+		NeedsAPIKey: true, AuthKind: "apikey",
+		HelpURL: "https://aistudio.google.com/apikey",
+	},
+	{
+		Name: "xai", DisplayName: "xAI (Grok)",
+		BaseURL: "https://api.x.ai/v1",
+		APIKeyEnvVar: "XAI_API_KEY",
+		DefaultModel: "grok-4",
+		NeedsAPIKey: true, AuthKind: "apikey",
+		HelpURL: "https://console.x.ai",
+	},
+	{
+		Name: "deepseek", DisplayName: "DeepSeek",
+		BaseURL: "https://api.deepseek.com",
+		APIKeyEnvVar: "DEEPSEEK_API_KEY",
+		DefaultModel: "deepseek-chat",
+		NeedsAPIKey: true, AuthKind: "apikey",
+		HelpURL: "https://platform.deepseek.com/api_keys",
+	},
+	{
+		Name: "mistral", DisplayName: "Mistral AI",
+		BaseURL: "https://api.mistral.ai/v1",
+		APIKeyEnvVar: "MISTRAL_API_KEY",
+		DefaultModel: "mistral-large-latest",
+		NeedsAPIKey: true, AuthKind: "apikey",
+		HelpURL: "https://console.mistral.ai/api-keys",
+	},
+	{
+		Name: "groq", DisplayName: "Groq",
+		BaseURL: "https://api.groq.com/openai/v1",
+		APIKeyEnvVar: "GROQ_API_KEY",
+		DefaultModel: "llama-3.3-70b-versatile",
+		NeedsAPIKey: true, AuthKind: "apikey",
+		HelpURL: "https://console.groq.com/keys",
+	},
+	{
+		Name: "cohere", DisplayName: "Cohere",
+		BaseURL: "https://api.cohere.com/v1",
+		APIKeyEnvVar: "COHERE_API_KEY",
+		DefaultModel: "command-r-plus",
+		NeedsAPIKey: true, AuthKind: "apikey",
+		HelpURL: "https://dashboard.cohere.com/api-keys",
+	},
+	{
+		Name: "perplexity", DisplayName: "Perplexity",
+		BaseURL: "https://api.perplexity.ai",
+		APIKeyEnvVar: "PERPLEXITY_API_KEY",
+		DefaultModel: "sonar-pro",
+		NeedsAPIKey: true, AuthKind: "apikey",
+		HelpURL: "https://www.perplexity.ai/settings/api",
+	},
+
+	// ===== Aggregators / multi-model gateways =====
+	{
+		Name: "openrouter", DisplayName: "OpenRouter",
+		BaseURL: "https://openrouter.ai/api/v1",
+		APIKeyEnvVar: "OPENROUTER_API_KEY",
+		DefaultModel: "anthropic/claude-opus-4-8",
+		NeedsAPIKey: true, AuthKind: "apikey",
+		HelpURL: "https://openrouter.ai/keys",
+	},
+	{
+		Name: "opengateway", DisplayName: "OpenGateway",
+		BaseURL: "https://opengateway.gitlawb.com/v1",
+		APIKeyEnvVar: "OPENGATEWAY_API_KEY",
+		DefaultModel: "minimax/minimax-m3",
+		NeedsAPIKey: true, AuthKind: "apikey",
+	},
+	{
+		Name: "minimax", DisplayName: "MiniMax",
+		BaseURL: "https://api.minimax.io/v1",
+		APIKeyEnvVar: "MINIMAX_API_KEY",
+		DefaultModel: "MiniMax-M2.7",
+		NeedsAPIKey: true, AuthKind: "apikey",
+	},
+	{
+		Name: "mimo", DisplayName: "Xiaomi MiMo",
+		BaseURL: "https://api.xiaomimimo.com/v1",
+		APIKeyEnvVar: "MIMO_API_KEY",
+		DefaultModel: "mimo-v2.5-pro",
+		NeedsAPIKey: true, AuthKind: "apikey",
+	},
+	{
+		Name: "bedrock", DisplayName: "AWS Bedrock (OpenAI-compat)",
+		BaseURL: "https://bedrock-mantle.us-east-1.amazonaws.com/v1",
+		APIKeyEnvVar: "AWS_BEARER_TOKEN_BEDROCK",
+		DefaultModel: "anthropic.claude-opus-4-8",
+		NeedsAPIKey: true, AuthKind: "env",
+		HelpURL: "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions.html",
+	},
+
+	// ===== Local / self-hosted (no key) =====
+	{
+		Name: "cortex", DisplayName: "Cortex",
+		BaseURL: "http://127.0.0.1:8000/v1",
+		APIKeyEnvVar: "CORTEX_API_KEY",
+		DefaultModel: "cortex-code",
+		NeedsAPIKey: false, AuthKind: "none",
+	},
+	{
+		Name: "ollama", DisplayName: "Ollama",
+		BaseURL: "http://127.0.0.1:11434/v1",
+		APIKeyEnvVar: "",
+		DefaultModel: "qwen3.5",
+		NeedsAPIKey: false, AuthKind: "none",
+	},
+	{
+		Name: "lmstudio", DisplayName: "LM Studio",
+		BaseURL: "http://127.0.0.1:1234/v1",
+		APIKeyEnvVar: "",
+		DefaultModel: "qwen2.5-7b-instruct",
+		NeedsAPIKey: false, AuthKind: "none",
+	},
+	{
+		Name: "vllm", DisplayName: "vLLM",
+		BaseURL: "http://127.0.0.1:8001/v1",
+		APIKeyEnvVar: "",
+		DefaultModel: "meta-llama/Llama-3.3-70B-Instruct",
+		NeedsAPIKey: false, AuthKind: "none",
+	},
 }
 
 func presetForProvider(provider string) (ProviderPreset, bool) {
@@ -76,6 +256,34 @@ func ProviderNeedsAPIKey(provider string) bool {
 		return p.NeedsAPIKey
 	}
 	return true
+}
+
+// ProviderHelpURL returns the link the Settings tab shows next to the
+// auth-method badge. Empty string for providers that don't have a
+// "get a key" page (e.g. local servers).
+func ProviderHelpURL(provider string) string {
+	if p, ok := presetForProvider(provider); ok {
+		return p.HelpURL
+	}
+	return ""
+}
+
+// ProviderAuthKind returns "oauth" | "apikey" | "none" | "env" for a
+// built-in provider, or "apikey" for unknown / custom providers (the
+// safe default — the user has to bring their own key).
+func ProviderAuthKind(provider string) string {
+	if p, ok := presetForProvider(provider); ok {
+		if p.AuthKind != "" {
+			return p.AuthKind
+		}
+		// Backwards compat: if a preset was created before the
+		// AuthKind field existed, infer it from NeedsAPIKey.
+		if !p.NeedsAPIKey {
+			return "none"
+		}
+		return "apikey"
+	}
+	return "apikey"
 }
 
 // DefaultBaseURL returns the built-in base URL for a provider, if known.

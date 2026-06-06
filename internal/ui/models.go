@@ -31,19 +31,39 @@ type ProviderSettingsView struct {
 	KeyPrefix   string
 	EnvVar      string
 	NeedsAPIKey bool
+	AuthKind    string // "oauth" | "apikey" | "none" | "env"
+	HelpURL     string
+	// AuthLabel is the user-facing badge for AuthKind. Set in
+	// ProviderSettingsRows: "OAuth (subscription)" for OAuth,
+	// "API key" for apikey, "env" for env, "no key" for none.
+	AuthLabel string
 }
 
-// AvailableProviders is the static set of providers shown in the left
-// column of the Settings tab Model section. Order matters — it's the
-// order users see.
+// AvailableProviders is the static fallback list. The Settings tab
+// now reads providers from the live config (ProviderNames()), so
+// this slice is only used when no config is loaded yet.
 var AvailableProviders = []ProviderInfo{
-	{Name: "anthropic", DisplayName: "Anthropic"},
-	{Name: "openai", DisplayName: "OpenAI"},
 	{Name: "codex", DisplayName: "ChatGPT (codex)"},
+	{Name: "claude-sub", DisplayName: "Claude (Pro/Max)"},
+	{Name: "openai", DisplayName: "OpenAI"},
+	{Name: "anthropic", DisplayName: "Anthropic"},
+	{Name: "gemini", DisplayName: "Google Gemini"},
+	{Name: "xai", DisplayName: "xAI (Grok)"},
+	{Name: "deepseek", DisplayName: "DeepSeek"},
+	{Name: "mistral", DisplayName: "Mistral AI"},
+	{Name: "groq", DisplayName: "Groq"},
+	{Name: "cohere", DisplayName: "Cohere"},
+	{Name: "perplexity", DisplayName: "Perplexity"},
 	{Name: "openrouter", DisplayName: "OpenRouter"},
 	{Name: "opengateway", DisplayName: "OpenGateway"},
 	{Name: "minimax", DisplayName: "MiniMax"},
 	{Name: "mimo", DisplayName: "Xiaomi MiMo"},
+	{Name: "bedrock", DisplayName: "AWS Bedrock"},
+	{Name: "cortex", DisplayName: "Cortex"},
+	{Name: "ollama", DisplayName: "Ollama"},
+	{Name: "lmstudio", DisplayName: "LM Studio"},
+	{Name: "vllm", DisplayName: "vLLM"},
+	{Name: "copilot", DisplayName: "GitHub Copilot"},
 }
 
 // AvailableModels is the curated catalogue of selectable models. OpenRouter
@@ -99,6 +119,58 @@ var AvailableModels = []ModelInfo{
 	{Spec: "mimo/mimo-v2.5-pro", Provider: "mimo", DisplayName: "MiMo v2.5 Pro"},
 	{Spec: "mimo/mimo-v2.5", Provider: "mimo", DisplayName: "MiMo v2.5"},
 	{Spec: "mimo/mimo-v2-flash", Provider: "mimo", DisplayName: "MiMo v2 Flash"},
+	// AWS Bedrock (OpenAI-compat Mantle endpoint)
+	{Spec: "bedrock/anthropic.claude-opus-4-8", Provider: "bedrock", DisplayName: "Claude Opus 4.8 (via Bedrock)"},
+	{Spec: "bedrock/anthropic.claude-sonnet-4-6", Provider: "bedrock", DisplayName: "Claude Sonnet 4.6 (via Bedrock)"},
+	{Spec: "bedrock/amazon.nova-pro-v1", Provider: "bedrock", DisplayName: "Amazon Nova Pro (via Bedrock)"},
+	{Spec: "bedrock/meta.llama3-3-70b-instruct-v1", Provider: "bedrock", DisplayName: "Llama 3.3 70B (via Bedrock)"},
+	// Google Gemini (OpenAI-compat endpoint)
+	{Spec: "gemini/gemini-2.5-pro", Provider: "gemini", DisplayName: "Gemini 2.5 Pro"},
+	{Spec: "gemini/gemini-2.5-flash", Provider: "gemini", DisplayName: "Gemini 2.5 Flash"},
+	{Spec: "gemini/gemini-3.1-pro-preview", Provider: "gemini", DisplayName: "Gemini 3.1 Pro Preview"},
+	// xAI (Grok)
+	{Spec: "xai/grok-4", Provider: "xai", DisplayName: "Grok 4"},
+	{Spec: "xai/grok-4-fast", Provider: "xai", DisplayName: "Grok 4 Fast"},
+	{Spec: "xai/grok-3", Provider: "xai", DisplayName: "Grok 3"},
+	// DeepSeek
+	{Spec: "deepseek/deepseek-chat", Provider: "deepseek", DisplayName: "DeepSeek-V3 Chat"},
+	{Spec: "deepseek/deepseek-reasoner", Provider: "deepseek", DisplayName: "DeepSeek-R1 Reasoner"},
+	// Mistral
+	{Spec: "mistral/mistral-large-latest", Provider: "mistral", DisplayName: "Mistral Large"},
+	{Spec: "mistral/mistral-medium-latest", Provider: "mistral", DisplayName: "Mistral Medium"},
+	{Spec: "mistral/codestral-latest", Provider: "mistral", DisplayName: "Codestral"},
+	// Groq
+	{Spec: "groq/llama-3.3-70b-versatile", Provider: "groq", DisplayName: "Llama 3.3 70B (via Groq)"},
+	{Spec: "groq/llama-3.1-8b-instant", Provider: "groq", DisplayName: "Llama 3.1 8B (via Groq)"},
+	{Spec: "groq/mixtral-8x7b-32768", Provider: "groq", DisplayName: "Mixtral 8x7B (via Groq)"},
+	// Cohere
+	{Spec: "cohere/command-r-plus", Provider: "cohere", DisplayName: "Command R+"},
+	{Spec: "cohere/command-r", Provider: "cohere", DisplayName: "Command R"},
+	// Perplexity
+	{Spec: "perplexity/sonar-pro", Provider: "perplexity", DisplayName: "Sonar Pro"},
+	{Spec: "perplexity/sonar", Provider: "perplexity", DisplayName: "Sonar"},
+	// Claude (Pro/Max subscription)
+	{Spec: "claude-sub/claude-opus-4-8", Provider: "claude-sub", DisplayName: "Claude Opus 4.8 (Pro/Max)"},
+	{Spec: "claude-sub/claude-sonnet-4-6", Provider: "claude-sub", DisplayName: "Claude Sonnet 4.6 (Pro/Max)"},
+	{Spec: "claude-sub/claude-haiku-4-6", Provider: "claude-sub", DisplayName: "Claude Haiku 4.6 (Pro/Max)"},
+	// GitHub Copilot
+	{Spec: "copilot/gpt-5.5", Provider: "copilot", DisplayName: "GPT-5.5 (via Copilot)"},
+	{Spec: "copilot/gpt-5", Provider: "copilot", DisplayName: "GPT-5 (via Copilot)"},
+	{Spec: "copilot/claude-opus-4-8", Provider: "copilot", DisplayName: "Claude Opus 4.8 (via Copilot)"},
+	{Spec: "copilot/o3", Provider: "copilot", DisplayName: "o3 (via Copilot)"},
+	// Cortex (local gateway)
+	{Spec: "cortex/cortex-code", Provider: "cortex", DisplayName: "Cortex Code"},
+	// Ollama
+	{Spec: "ollama/qwen3.5", Provider: "ollama", DisplayName: "Qwen 3.5 (local)"},
+	{Spec: "ollama/llama3.3", Provider: "ollama", DisplayName: "Llama 3.3 (local)"},
+	{Spec: "ollama/gemma4", Provider: "ollama", DisplayName: "Gemma 4 (local)"},
+	{Spec: "ollama/deepseek-coder-v2", Provider: "ollama", DisplayName: "DeepSeek Coder V2 (local)"},
+	// LM Studio
+	{Spec: "lmstudio/qwen2.5-7b-instruct", Provider: "lmstudio", DisplayName: "Qwen 2.5 7B (LM Studio)"},
+	{Spec: "lmstudio/llama-3.3-8b-instruct", Provider: "lmstudio", DisplayName: "Llama 3.3 8B (LM Studio)"},
+	// vLLM
+	{Spec: "vllm/meta-llama/Llama-3.3-70B-Instruct", Provider: "vllm", DisplayName: "Llama 3.3 70B (vLLM)"},
+	{Spec: "vllm/Qwen/Qwen3-72B-Instruct", Provider: "vllm", DisplayName: "Qwen 3 72B (vLLM)"},
 }
 
 // ModelsForProvider returns the entries in AvailableModels whose Provider
@@ -164,9 +236,28 @@ func ProviderSettingsRows(cfg *cortexconfig.Config) []ProviderSettingsView {
 			KeyPrefix:   prefix,
 			EnvVar:      envVar,
 			NeedsAPIKey: cortexconfig.ProviderNeedsAPIKey(p.Name),
+			AuthKind:    cortexconfig.ProviderAuthKind(p.Name),
+			AuthLabel:   authLabel(cortexconfig.ProviderAuthKind(p.Name)),
+			HelpURL:     cortexconfig.ProviderHelpURL(p.Name),
 		})
 	}
 	return rows
+}
+
+// authLabel returns the user-facing badge text for an auth kind.
+func authLabel(kind string) string {
+	switch kind {
+	case "oauth":
+		return "OAuth (subscription)"
+	case "apikey":
+		return "API key"
+	case "env":
+		return "env var"
+	case "none":
+		return "no key"
+	default:
+		return "API key"
+	}
 }
 
 func normalizedModelForProvider(providerName, model string) string {

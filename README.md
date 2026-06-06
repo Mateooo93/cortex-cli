@@ -25,24 +25,70 @@ the swarm orchestrator.
 
 ## Providers
 
-cortex-cli ships with first-class support for the following
-providers. The default for each is the strongest publicly available
-model as of June 2026. The **ChatGPT (codex)** row is new — it
-authenticates with your existing ChatGPT subscription via OAuth,
-so you don't need a separate OpenAI API key.
+cortex-cli ships with **20+ built-in provider presets** so a new
+user can sign in without editing a config file. The list is grouped
+by auth method:
 
-| Provider | Default model | Auth | Notes |
-|----------|---------------|------|-------|
-| **Cortex** | `cortex-code` | none (local) | `http://127.0.0.1:8000/v1` |
-| **OpenAI** | `gpt-5.5` | `OPENAI_API_KEY` | also `gpt-5.4` (computer use), `gpt-5.3-codex`, `o3`, `o4-mini` |
-| **ChatGPT (codex)** | `gpt-5.5` | OAuth sign-in | uses your existing ChatGPT subscription — no API key required |
-| **Anthropic** | `claude-opus-4-8` | `ANTHROPIC_API_KEY` | also `claude-sonnet-4-6`, `claude-haiku-4-6` |
-| **Ollama** | `qwen3.5` | none (local) | `http://127.0.0.1:11434/v1` — also Gemma 4, Llama 3.3 |
-| **OpenRouter** | `claude-opus-4-8` | `OPENROUTER_API_KEY` | routes to any model on the OpenRouter catalog |
-| **OpenGateway** | `minimax/minimax-m3` | `OPENGATEWAY_API_KEY` | multi-provider gateway |
-| **MiniMax** | `MiniMax-M2.7` | `MINIMAX_API_KEY` | also M2.5, M2.7-highspeed |
-| **Xiaomi MiMo** | `mimo-v2.5-pro` | `MIMO_API_KEY` | also mimo-v2.5, mimo-v2-flash |
-| **Custom** | — | any | any OpenAI-compatible gateway (vLLM, LiteLLM, LM Studio) |
+### Subscriptions (OAuth sign-in, no API key needed)
+
+If you already pay for one of these, **use this row** — you don't
+need to buy API credits on top of your subscription.
+
+| Provider | Default model | OAuth flow |
+|----------|---------------|-----------|
+| **ChatGPT (codex)** | `gpt-5.5` | Sign in with your ChatGPT Plus / Pro / Team / Enterprise account. The flow opens your browser, you approve on `auth.openai.com`, and the resulting token is stored in the OS keychain. [Source](https://github.com/openai/codex) |
+| **Claude (Pro/Max)** | `claude-opus-4-8` | Sign in with your Claude Pro or Max plan. The token is captured via the Claude Code OAuth flow. |
+| **GitHub Copilot** | `gpt-5.5` | Sign in with your GitHub account that has Copilot Pro / Pro+ / Max / Business. |
+
+> **Important:** these providers do **not** use an API key. They
+> authenticate with your existing subscription via the in-app
+> browser flow. The `NeedsAPIKey` flag is `false` for all three.
+> If the Settings tab shows you an API-key input for any of
+> these, that's a bug — please open an issue.
+
+### API-key providers (paid)
+
+Get a key from the provider's dashboard, paste it into the
+Settings tab (or set the env var). The key is stored in the OS
+keychain.
+
+| Provider | Default model | Env var | Get a key |
+|----------|---------------|---------|-----------|
+| **OpenAI** | `gpt-5.5` | `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| **Anthropic** | `claude-opus-4-8` | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
+| **Google Gemini** | `gemini-2.5-pro` | `GEMINI_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+| **xAI (Grok)** | `grok-4` | `XAI_API_KEY` | [console.x.ai](https://console.x.ai) |
+| **DeepSeek** | `deepseek-chat` | `DEEPSEEK_API_KEY` | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
+| **Mistral AI** | `mistral-large-latest` | `MISTRAL_API_KEY` | [console.mistral.ai](https://console.mistral.ai/api-keys) |
+| **Groq** | `llama-3.3-70b-versatile` | `GROQ_API_KEY` | [console.groq.com/keys](https://console.groq.com/keys) |
+| **Cohere** | `command-r-plus` | `COHERE_API_KEY` | [dashboard.cohere.com](https://dashboard.cohere.com/api-keys) |
+| **Perplexity** | `sonar-pro` | `PERPLEXITY_API_KEY` | [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api) |
+
+### Aggregators (one key, many models)
+
+| Provider | Default model | Env var |
+|----------|---------------|---------|
+| **OpenRouter** | `anthropic/claude-opus-4-8` | `OPENROUTER_API_KEY` |
+| **OpenGateway** | `minimax/minimax-m3` | `OPENGATEWAY_API_KEY` |
+| **MiniMax** | `MiniMax-M2.7` | `MINIMAX_API_KEY` |
+| **Xiaomi MiMo** | `mimo-v2.5-pro` | `MIMO_API_KEY` |
+| **AWS Bedrock** | `anthropic.claude-opus-4-8` | `AWS_BEARER_TOKEN_BEDROCK` (OpenAI-compat Mantle endpoint) |
+
+### Local / self-hosted (no key)
+
+| Provider | Default model | Default URL |
+|----------|---------------|-------------|
+| **Cortex** | `cortex-code` | `http://127.0.0.1:8000/v1` |
+| **Ollama** | `qwen3.5` | `http://127.0.0.1:11434/v1` |
+| **LM Studio** | `qwen2.5-7b-instruct` | `http://127.0.0.1:1234/v1` |
+| **vLLM** | `Llama-3.3-70B-Instruct` | `http://127.0.0.1:8001/v1` |
+
+### Custom
+
+If your provider isn't listed, use **Settings → Add custom
+provider** and point it at any OpenAI-compatible gateway
+(vLLM, LiteLLM, LM Studio, an internal inference server, etc.).
+You can also edit `~/.cortex/config.yaml` directly.
 
 ## Features
 

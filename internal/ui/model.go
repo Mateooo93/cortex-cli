@@ -512,6 +512,8 @@ func (m *Model) settingsInspectView() SettingsInspectView {
 		Field:       m.settingsInspectField,
 		NeedsAPIKey: pk.NeedsAPIKey,
 		EnvVar:      pk.EnvVar,
+		AuthKind:    pk.AuthKind,
+		HelpURL:     pk.HelpURL,
 	}
 }
 
