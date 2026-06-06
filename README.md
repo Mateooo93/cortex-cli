@@ -1,6 +1,5 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="cortex-cli logo" width="200" />
 
 # cortex-cli
 
