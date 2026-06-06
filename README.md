@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="cortex-cli logo" width="200" />
-
 # cortex-cli
 
 A sleek, fast, token-efficient AI coding agent. Multi-provider
@@ -9,7 +7,6 @@ A sleek, fast, token-efficient AI coding agent. Multi-provider
 terminal UI.
 
 <p align="center">
-  <a href="https://github.com/Mateooo93/cortex-cli/releases"><img src="https://img.shields.io/github/v/release/Mateooo93/cortex-cli?style=for-the-badge&color=green" alt="Latest release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="AGPL-3.0 License" /></a>
   <a href="https://github.com/Mateooo93/cortex-cli/stargazers"><img src="https://img.shields.io/github/stars/Mateooo93/cortex-cli?style=for-the-badge" alt="GitHub stars" /></a>
 </p>
