@@ -190,3 +190,7 @@ The original vix copyright is preserved in the LICENSE file.
 * The Bubble Tea, Lip Gloss, and Glamour teams at Charmbracelet
   for the TUI primitives.
 * The cortex project for the provider gateway.
+
+---
+
+_This repo was transferred from my old account to this brand new one._
