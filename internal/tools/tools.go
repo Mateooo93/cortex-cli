@@ -1,0 +1,431 @@
+// Package tools implements the agent's tool set. Each tool is a small
+// function the LLM can invoke. The schema is converted into both a
+// human-readable description (for system prompts) and OpenAI-style
+// function-calling schema (for providers that support native tool use).
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// Tool is one callable tool.
+type Tool interface {
+	Name() string
+	Description() string
+	Parameters() map[string]Param
+	// Run executes the tool. args is a map of validated parameter values.
+	// ctx holds execution context (cwd, permissions).
+	Run(ctx Context, args map[string]any) (Result, error)
+}
+
+// Param describes a single parameter of a tool.
+type Param struct {
+	Type        string // "string" | "number" | "boolean"
+	Description string
+	Required    bool
+}
+
+// Context is the per-call context for a tool.
+type Context struct {
+	CWD        string
+	AllowShell bool
+	AllowWrite bool
+	AllowGit   bool
+}
+
+// Result is the output of a tool execution.
+type Result struct {
+	OK     bool
+	Output string
+	Error  string
+}
+
+// Registry holds the available tools.
+type Registry struct {
+	tools map[string]Tool
+}
+
+// NewRegistry constructs a Registry with the default toolset.
+func NewRegistry() *Registry {
+	r := &Registry{tools: map[string]Tool{}}
+	for _, t := range defaultTools() {
+		r.tools[t.Name()] = t
+	}
+	return r
+}
+
+// Get returns a tool by name.
+func (r *Registry) Get(name string) (Tool, bool) {
+	t, ok := r.tools[name]
+	return t, ok
+}
+
+// Names returns all registered tool names.
+func (r *Registry) Names() []string {
+	out := make([]string, 0, len(r.tools))
+	for n := range r.tools {
+		out = append(out, n)
+	}
+	return out
+}
+
+// ToProviderTools converts the registry into a slice of provider.Tool for
+// the LLM API.
+func (r *Registry) ToProviderTools() []ProviderTool {
+	out := make([]ProviderTool, 0, len(r.tools))
+	for _, t := range r.tools {
+		params := map[string]ParamInfo{}
+		required := []string{}
+		for k, p := range t.Parameters() {
+			params[k] = ParamInfo{Type: p.Type, Description: p.Description}
+			if p.Required {
+				required = append(required, k)
+			}
+		}
+		out = append(out, ProviderTool{
+			Name:        t.Name(),
+			Description: t.Description(),
+			Parameters: ProviderSchema{
+				Type:       "object",
+				Properties: params,
+				Required:   required,
+			},
+		})
+	}
+	return out
+}
+
+// ProviderTool and ProviderSchema are provider-agnostic mirrors of the
+// provider.Tool shape, used to avoid an import cycle.
+type ProviderTool struct {
+	Name        string
+	Description string
+	Parameters  ProviderSchema
+}
+
+type ProviderSchema struct {
+	Type       string
+	Properties map[string]ParamInfo
+	Required   []string
+}
+
+type ParamInfo struct {
+	Type        string
+	Description string
+}
+
+// ToSystemPrompt renders the registry as a markdown block for the system
+// prompt. Cortex-style tool_call block format.
+func (r *Registry) ToSystemPrompt() string {
+	var lines []string
+	lines = append(lines, "You have access to the following tools. To use one, respond with a JSON block in this exact format:")
+	lines = append(lines, "")
+	lines = append(lines, "```tool_call")
+	lines = append(lines, `{"name": "<tool_name>", "arguments": { ... }}`)
+	lines = append(lines, "```")
+	lines = append(lines, "")
+	lines = append(lines, "Available tools:")
+	for _, t := range r.tools {
+		lines = append(lines, fmt.Sprintf("- **%s**: %s", t.Name(), t.Description()))
+		var paramDescs []string
+		for k, p := range t.Parameters() {
+			req := ""
+			if p.Required {
+				req = ", required"
+			}
+			paramDescs = append(paramDescs, fmt.Sprintf("%s (%s%s)", k, p.Type, req))
+		}
+		if len(paramDescs) > 0 {
+			lines = append(lines, fmt.Sprintf("  Parameters: %s", strings.Join(paramDescs, ", ")))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// ── Built-in tools ──────────────────────────────────────────────────────
+
+type ReadFileTool struct{}
+
+func (t *ReadFileTool) Name() string { return "read_file" }
+func (t *ReadFileTool) Description() string {
+	return "Read the contents of a file. Returns up to maxBytes (default 16384)."
+}
+func (t *ReadFileTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"path":     {Type: "string", Description: "Absolute or relative path to the file", Required: true},
+		"maxBytes": {Type: "number", Description: "Maximum bytes to read (default 16384)"},
+	}
+}
+func (t *ReadFileTool) Run(ctx Context, args map[string]any) (Result, error) {
+	p, _ := args["path"].(string)
+	if p == "" {
+		return Result{OK: false, Error: "path is required"}, nil
+	}
+	maxBytes := 16384
+	if v, ok := args["maxBytes"]; ok {
+		if f, ok := v.(float64); ok {
+			maxBytes = int(f)
+		}
+	}
+	full := filepath.Join(ctx.CWD, p)
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return Result{OK: false, Error: err.Error()}, nil
+	}
+	if len(data) > maxBytes {
+		trunc := append(data[:maxBytes], []byte(fmt.Sprintf("\n... (truncated, %d more chars)", len(data)-maxBytes))...)
+		return Result{OK: true, Output: string(trunc)}, nil
+	}
+	return Result{OK: true, Output: string(data)}, nil
+}
+
+type WriteFileTool struct{}
+
+func (t *WriteFileTool) Name() string { return "write_file" }
+func (t *WriteFileTool) Description() string {
+	return "Write content to a file. Overwrites if it exists. Requires allowWrite."
+}
+func (t *WriteFileTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"path":    {Type: "string", Description: "Path to write to", Required: true},
+		"content": {Type: "string", Description: "Content to write", Required: true},
+	}
+}
+func (t *WriteFileTool) Run(ctx Context, args map[string]any) (Result, error) {
+	if !ctx.AllowWrite {
+		return Result{OK: false, Error: "File writing is disabled in config."}, nil
+	}
+	p, _ := args["path"].(string)
+	c, _ := args["content"].(string)
+	if p == "" || c == "" {
+		return Result{OK: false, Error: "path and content are required"}, nil
+	}
+	full := filepath.Join(ctx.CWD, p)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return Result{OK: false, Error: err.Error()}, nil
+	}
+	if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+		return Result{OK: false, Error: err.Error()}, nil
+	}
+	return Result{OK: true, Output: fmt.Sprintf("Wrote %d bytes to %s", len(c), full)}, nil
+}
+
+type EditFileTool struct{}
+
+func (t *EditFileTool) Name() string { return "edit_file" }
+func (t *EditFileTool) Description() string {
+	return "Edit a file by replacing an exact string match. Requires allowWrite."
+}
+func (t *EditFileTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"path":      {Type: "string", Description: "Path to file", Required: true},
+		"oldString": {Type: "string", Description: "The exact string to replace", Required: true},
+		"newString": {Type: "string", Description: "Replacement string", Required: true},
+	}
+}
+func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
+	if !ctx.AllowWrite {
+		return Result{OK: false, Error: "File editing is disabled in config."}, nil
+	}
+	p, _ := args["path"].(string)
+	oldStr, _ := args["oldString"].(string)
+	newStr, _ := args["newString"].(string)
+	if p == "" || oldStr == "" {
+		return Result{OK: false, Error: "path and oldString are required"}, nil
+	}
+	full := filepath.Join(ctx.CWD, p)
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return Result{OK: false, Error: err.Error()}, nil
+	}
+	content := string(data)
+	if !strings.Contains(content, oldStr) {
+		return Result{OK: false, Error: "oldString not found in file"}, nil
+	}
+	newContent := strings.Replace(content, oldStr, newStr, 1)
+	if err := os.WriteFile(full, []byte(newContent), 0o644); err != nil {
+		return Result{OK: false, Error: err.Error()}, nil
+	}
+	return Result{OK: true, Output: fmt.Sprintf("Edited %s (replaced %d chars)", full, len(oldStr))}, nil
+}
+
+type ListDirTool struct{}
+
+func (t *ListDirTool) Name() string { return "list_dir" }
+func (t *ListDirTool) Description() string { return "List files in a directory." }
+func (t *ListDirTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"path": {Type: "string", Description: "Directory path (default: cwd)"},
+	}
+}
+func (t *ListDirTool) Run(ctx Context, args map[string]any) (Result, error) {
+	p, _ := args["path"].(string)
+	if p == "" {
+		p = "."
+	}
+	full := filepath.Join(ctx.CWD, p)
+	entries, err := os.ReadDir(full)
+	if err != nil {
+		return Result{OK: false, Error: err.Error()}, nil
+	}
+	var lines []string
+	for _, e := range entries {
+		if e.IsDir() {
+			lines = append(lines, e.Name()+"/")
+		} else {
+			lines = append(lines, e.Name())
+		}
+	}
+	return Result{OK: true, Output: strings.Join(lines, "\n")}, nil
+}
+
+type SearchTool struct{}
+
+func (t *SearchTool) Name() string { return "search" }
+func (t *SearchTool) Description() string {
+	return "Search for a string in files (case-insensitive substring)."
+}
+func (t *SearchTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"query":     {Type: "string", Description: "String to search for", Required: true},
+		"path":      {Type: "string", Description: "Directory to search (default: cwd)"},
+		"extension": {Type: "string", Description: "Filter by file extension (e.g. 'ts')"},
+	}
+}
+func (t *SearchTool) Run(ctx Context, args map[string]any) (Result, error) {
+	q, _ := args["query"].(string)
+	if q == "" {
+		return Result{OK: false, Error: "query is required"}, nil
+	}
+	p, _ := args["path"].(string)
+	if p == "" {
+		p = "."
+	}
+	ext, _ := args["extension"].(string)
+	root := filepath.Join(ctx.CWD, p)
+	var matches []string
+	var walk func(path string, depth int) error
+	walk = func(path string, depth int) error {
+		if depth > 8 {
+			return nil
+		}
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return nil
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				if e.Name() == "node_modules" || e.Name() == ".git" || e.Name() == "dist" {
+					continue
+				}
+				walk(filepath.Join(path, e.Name()), depth+1)
+			} else {
+				if ext != "" && !strings.HasSuffix(e.Name(), "."+ext) {
+					continue
+				}
+				data, err := os.ReadFile(filepath.Join(path, e.Name()))
+				if err != nil {
+					continue
+				}
+				if strings.Contains(strings.ToLower(string(data)), strings.ToLower(q)) {
+					matches = append(matches, filepath.Join(path, e.Name()))
+				}
+			}
+		}
+		return nil
+	}
+	_ = walk(root, 0)
+	if len(matches) > 100 {
+		matches = matches[:100]
+	}
+	if len(matches) == 0 {
+		return Result{OK: true, Output: "No matches"}, nil
+	}
+	return Result{OK: true, Output: strings.Join(matches, "\n")}, nil
+}
+
+// ShellTool executes an arbitrary shell command. It prefers bash
+// over dash/sh so that bash-only features (arrays, [[ ]], ${var//}
+// expansions, process substitution) keep working. On systems where
+// bash is not installed, it falls back to sh so the user does not
+// get a hard failure — bash is just the default that lines up with
+// how the user usually authors shell snippets.
+type ShellTool struct{}
+
+func (t *ShellTool) Name() string { return "run_shell" }
+func (t *ShellTool) Description() string {
+	return "Run a shell command. Defaults to bash, falls back to sh if bash is not installed. Requires allowShell."
+}
+func (t *ShellTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"command": {Type: "string", Description: "Shell command to execute", Required: true},
+	}
+}
+func (t *ShellTool) Run(ctx Context, args map[string]any) (Result, error) {
+	if !ctx.AllowShell {
+		return Result{OK: false, Error: "Shell execution is disabled in config."}, nil
+	}
+	cmd, _ := args["command"].(string)
+	if cmd == "" {
+		return Result{OK: false, Error: "command is required"}, nil
+	}
+	c := exec.CommandContext(context.Background(), shellCommand(), "-c", cmd)
+	c.Dir = ctx.CWD
+	done := make(chan struct{})
+	var stdout, stderr strings.Builder
+	c.Stdout = &stdout
+	c.Stderr = &stderr
+	if err := c.Start(); err != nil {
+		return Result{OK: false, Error: err.Error()}, nil
+	}
+	go func() {
+		_ = c.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		out := stdout.String()
+		if stderr.Len() > 0 {
+			out += "\nSTDERR:\n" + stderr.String()
+		}
+		return Result{OK: true, Output: out}, nil
+	case <-time.After(60 * time.Second):
+		_ = c.Process.Kill()
+		return Result{OK: false, Error: "command timed out after 60s", Output: stdout.String()}, nil
+	}
+}
+
+// shellCommand returns the shell to use for run_shell. We prefer
+// bash because it gives consistent behaviour across macOS/Linux
+// (dash on Debian/Ubuntu and sh on macOS differ in ways that
+// silently break common one-liners). If bash is not on PATH we
+// fall back to sh so the tool still works on minimal containers.
+func shellCommand() string {
+	if _, err := exec.LookPath("bash"); err == nil {
+		return "bash"
+	}
+	return "sh"
+}
+
+func defaultTools() []Tool {
+	return []Tool{
+		&ReadFileTool{},
+		&WriteFileTool{},
+		&EditFileTool{},
+		&ListDirTool{},
+		&SearchTool{},
+		&ShellTool{},
+	}
+}
+
+// Avoid unused-import warning
+var _ fs.FileInfo
+var _ = json.Marshal
