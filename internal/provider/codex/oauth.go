@@ -109,7 +109,7 @@ func Login(ctx context.Context) (*LoginResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("codex: pkce: %w", err)
 	}
-	state, err := randB64URL(16)
+	state, err := randB64URL(32)
 	if err != nil {
 		return nil, fmt.Errorf("codex: state: %w", err)
 	}

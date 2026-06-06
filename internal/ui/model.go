@@ -326,6 +326,7 @@ type Model struct {
 	mdRenderer     *MarkdownRenderer
 	commandPalette CommandPalette
 	modelPicker    ModelPicker
+	loginPicker    LoginPicker
 
 	// Tab alert blink (Chat tab label pulses when a session needs attention)
 	tabAlertActive   bool
@@ -961,6 +962,74 @@ func (m *Model) startCodexLoginCmd(pendingModel string) tea.Cmd {
 	}
 }
 
+// startCodexDeviceLoginCmd is the device-code fallback for the
+// codex OAuth flow. Instead of opening a browser and waiting for
+// a localhost callback, it asks OpenAI for a one-time user_code,
+// prints the verification URL + code, and polls for completion.
+// This is the right flow when:
+//
+//   - the user is on an SSH / WSL / cloud machine where
+//     localhost:1455 isn't reachable from their browser;
+//   - the user's account triggers the "add phone number" gate
+//     on the localhost-callback flow (the auth server returns
+//     "Invalid authorize request" — see
+//     https://github.com/openai/codex/issues/20161).
+//
+// The user must look at the TUI for the user_code, then go to
+// https://auth.openai.com/codex/device in any browser, sign in,
+// and paste the code. Once they do, the poll completes and the
+// TUI shows the same "Switched to codex/gpt-5.5" status as the
+// browser flow.
+func (m *Model) startCodexDeviceLoginCmd(pendingModel string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 16*time.Minute)
+		defer cancel()
+		res, err := codex.DeviceLogin(ctx)
+		if err == nil && res != nil && res.Token != nil {
+			if saveErr := codex.Save(res.Token); saveErr != nil {
+				return codexLoginFailedMsg{err: fmt.Errorf("codex: save token: %w", saveErr)}
+			}
+			return codexLoginSuccessMsg{
+				pendingModel: pendingModel,
+				email:        res.Token.Email,
+				planType:     res.Token.PlanType,
+			}
+		}
+		authURL := ""
+		if res != nil {
+			authURL = res.AuthorizeURL
+		}
+		return codexLoginFailedMsg{err: err, authorizeURL: authURL}
+	}
+}
+
+// startCodexDeviceLoginPromptCmd is a wrapper that first requests
+// the user_code (so the user sees it in the TUI) and then kicks
+// off the poll. We split this from startCodexDeviceLoginCmd so
+// the UI can show the prompt with a "Waiting for you to enter
+// the code at https://auth.openai.com/codex/device ..." status
+// line. Returns a two-step cmd: first emits a
+// codexDeviceCodeReadyMsg carrying the user_code + URL, then runs
+// the poll that eventually resolves to a codexLoginSuccessMsg
+// or codexLoginFailedMsg.
+func (m *Model) startCodexDeviceLoginPromptCmd(pendingModel string) tea.Cmd {
+	cmds := []tea.Cmd{}
+	// Show the prompt first. We don't have the user_code yet —
+	// we have to ask OpenAI for it. The whole flow is
+	// synchronous so we can't return the prompt before the
+	// first network request; instead we kick off the whole
+	// thing in one cmd and the user sees "Opening codex
+	// sign-in in your browser…" in the meantime. The result of
+	// the poll resolves to codexLoginSuccessMsg or
+	// codexLoginFailedMsg exactly like the browser flow.
+	cmds = append(cmds, m.emitStatusMsg(
+		"Requesting ChatGPT (codex) one-time code (15-min window)…",
+		StatusMsgInfo,
+	))
+	cmds = append(cmds, m.startCodexDeviceLoginCmd(pendingModel))
+	return tea.Batch(cmds...)
+}
+
 // startOAuthLoginCmd is the generic dispatcher for OAuth providers.
 // It only knows how to actually launch the codex flow today; other
 // OAuth providers (claude-sub, copilot) currently take their token
@@ -1133,6 +1202,16 @@ func (m *Model) handleCodexLoginFailed(err error, authorizeURL string) tea.Cmd {
 	msg := "ChatGPT sign-in failed: " + err.Error()
 	if authorizeURL != "" {
 		msg += " — open " + authorizeURL + " manually"
+	}
+	// If the auth server bounced us with the "Invalid authorize
+	// request" / "add phone number" gate, give the user a
+	// pointer to the device-code fallback so they're not stuck.
+	if strings.Contains(err.Error(), "Invalid authorize") ||
+		strings.Contains(err.Error(), "add phone") ||
+		strings.Contains(err.Error(), "phone number") {
+		msg += " — if the browser shows a phone-verification gate, " +
+			"type /login codex --device to use the device-code flow " +
+			"instead (works on SSH/WSL and accounts without a phone on file)"
 	}
 	return m.emitStatusMsg(msg, StatusMsgError)
 }
@@ -2068,6 +2147,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	processKey:
+
+		// Login picker (opened by /login slash command)
+		if m.loginPicker.IsVisible() {
+			switch msg.String() {
+			case "up", "k":
+				m.loginPicker.MoveUp()
+			case "down", "j":
+				m.loginPicker.MoveDown()
+			case "esc":
+				m.loginPicker.Close()
+			case "enter":
+				provider, wantDevice := m.loginPicker.Selected()
+				m.loginPicker.Close()
+				if provider == "codex" && wantDevice {
+					cmds = append(cmds,
+						m.emitStatusMsg("Requesting ChatGPT (codex) one-time code (15-min window)…", StatusMsgInfo),
+						m.startCodexDeviceLoginCmd(""),
+					)
+				} else if provider == "codex" {
+					return m, tea.Batch(
+						m.emitStatusMsg("Opening ChatGPT (codex) sign-in in your browser…", StatusMsgInfo),
+						m.startCodexLoginCmd(""),
+					)
+				} else {
+					// claude-sub / copilot: env-var hint
+					cmds = append(cmds, m.startOAuthLoginCmd(provider))
+				}
+			case "backspace":
+				q := m.loginPicker.Query()
+				if len(q) > 0 {
+					m.loginPicker.SetQuery(q[:len(q)-1])
+				}
+			default:
+				if isPickerFilterKey(msg.String()) {
+					m.loginPicker.SetQuery(m.loginPicker.Query() + msg.String())
+				}
+			}
+			return m, tea.Batch(cmds...)
+		}
 
 		// Model picker (opened by /model slash command)
 		if m.modelPicker.IsVisible() {
@@ -3604,6 +3722,25 @@ func (m Model) View() tea.View {
 		}
 	}
 
+	// Login picker overlay: drawn on top of everything else
+	// (above slash menu, above model picker, above right panel).
+	if m.loginPicker.IsVisible() {
+		pickerH := m.loginPicker.VisibleHeight()
+		if pickerH > m.height-4 {
+			pickerH = m.height - 4
+		}
+		if pickerH < 6 {
+			pickerH = 6
+		}
+		overlay := m.loginPicker.View(m.width, pickerH, m.styles)
+		h := lipgloss.Height(overlay)
+		popupY := (m.height - h) / 2
+		if popupY < 0 {
+			popupY = 0
+		}
+		uv.NewStyledString(overlay).Draw(canvas, image.Rect(0, popupY, m.width, popupY+h))
+	}
+
 	// Model picker overlay: drawn on top of everything else
 	// (above slash menu, above right panel). Same idea as
 	// quit-confirm: full-screen modal so the user can't miss it.
@@ -3643,6 +3780,12 @@ func (m *Model) handleCommandAction(action string, sess *SessionState) []tea.Cmd
 		// selection) via m.modelPicker in the main Update loop.
 		m.modelPicker.Open(m.cortexCfg)
 		// Blur the chat input so the picker gets all keystrokes.
+		if sess != nil {
+			sess.input.Blur()
+		}
+	case "open_login_picker":
+		// Open the /login picker overlay (subscription sign-in).
+		m.loginPicker.Open()
 		if sess != nil {
 			sess.input.Blur()
 		}

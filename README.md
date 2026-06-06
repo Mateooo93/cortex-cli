@@ -190,26 +190,49 @@ export OPENAI_API_KEY=sk-...
 
 The **ChatGPT (codex)** provider authenticates with your ChatGPT
 Plus / Pro / Team subscription via the official OpenAI OAuth flow
-— same flow the OpenAI Codex CLI uses, same `app_oauth_agent`
-client_id, same `auth.openai.com/oauth/authorize` endpoint.
-You do **not** need a separate OpenAI API key.
+— same flow the OpenAI Codex CLI uses, same
+`app_EMoamEEZ73f0CkXaXp7hrann` client_id, same
+`auth.openai.com/oauth/authorize` endpoint. You do **not** need a
+separate OpenAI API key.
 
-1. Open the TUI and switch to the **Settings** tab (F3).
-2. In the left column, pick **ChatGPT (codex)**.
-3. In the right column, pick a model (e.g. `GPT-5.5 (ChatGPT)`)
-   and press **Enter**.
-4. **Your browser opens automatically** to `auth.openai.com`.
-   The status bar shows *"Opening ChatGPT sign-in in your
+1. Open the TUI and type `/model` in the chat input. A centered
+   picker shows every model from every configured provider.
+2. Pick `GPT-5.5 (ChatGPT)` and press **Enter** (or use the
+   Settings tab → Providers → ChatGPT (codex) path).
+3. **Your browser opens automatically** to `auth.openai.com`.
+   The status bar shows *"Opening ChatGPT (codex) sign-in in your
    browser…"* while the local callback server comes up.
-5. Sign in with your ChatGPT account and approve the device.
-6. You're redirected back to `http://127.0.0.1:1455/auth/callback`.
+4. Sign in with your ChatGPT account and approve the device.
+5. You're redirected back to `http://127.0.0.1:1455/auth/callback`.
    cortex-cli stores the OAuth token (access, refresh, JWT
    claims including `chatgpt-account-id`, `email`, `plan_type`,
    `exp`) in the OS keychain and switches the active model.
 
 That's it — no intermediate *"press Enter to sign in"* panel,
-no API-key prompt, no extra steps. The single Enter on the
-codex model row is what kicks off the browser.
+no API-key prompt, no extra steps.
+
+#### If the browser flow is blocked (SSH, WSL, or "Invalid authorize request")
+
+If `auth.openai.com` redirects you to a phone-verification gate
+(see [openai/codex#20161](https://github.com/openai/codex/issues/20161))
+or you're on a remote machine with no browser on `localhost`,
+use the device-code fallback:
+
+1. Type `/login` in the TUI. A centered picker shows the three
+   OAuth providers.
+2. Type `codex --device` in the filter box. (The status line
+   shows `codex — device-code`.)
+3. Press **Enter**. The TUI prints a one-time code (e.g.
+   `ABCD-1234`) and the verification URL
+   `https://auth.openai.com/codex/device`.
+4. Open that URL in **any browser on any device**, sign in to
+   your ChatGPT account, and paste the code.
+5. The TUI's status bar changes to *"Signed in to ChatGPT (codex)"*
+   and the active model switches to your selection. The token
+   is stored in the OS keychain just like the browser flow.
+
+The device code is valid for 15 minutes; after that you'll need
+to start over.
 
 To sign out: in the Settings tab, open the **API Keys** manager
 and press **Del** on the ChatGPT (codex) row.
@@ -219,8 +242,11 @@ The OAuth flow:
 * **Callback URL:** `http://127.0.0.1:1455/auth/callback`
   (falls back to a random free port if 1455 is busy).
 * **Authorize endpoint:** `https://auth.openai.com/oauth/authorize`
-  with `client_id=app_oauth_agent`, PKCE-S256, CSRF state.
+  with `client_id=app_EMoamEEZ73f0CkXaXp7hrann`, PKCE-S256,
+  CSRF state, `originator=codex_cli_rs`.
 * **Token endpoint:** `https://auth.openai.com/oauth/token`.
+* **Device-code endpoints:** `/deviceauth/usercode` and
+  `/deviceauth/token` (only used by the `--device` fallback).
 * **Browser launch:** `xdg-open` (Linux) / `open` (macOS) /
   `wslview` (WSL). If none of these are available, the
   authorize URL is shown in the status bar — copy it into a
@@ -267,6 +293,7 @@ Type `/` in the chat input to open the slash menu. Available built-ins:
 |---------|--------------|
 | `/model` | Opens a centered picker showing every model from every configured provider, with the provider name + auth method as a secondary line (e.g. `GPT-5.5 (ChatGPT)` with subtitle `codex · OAuth (subscription)`). Filter by typing. Enter selects. |
 | `/update` | Detects your OS + architecture, downloads the matching `cortex-<platform>` release from GitHub, verifies SHA-256 against `SHA256SUMS`, and replaces the current binary. Windows uses a detached helper process to handle the locked-file case (you can't delete a running `.exe`). User must restart after. |
+| `/login` | Opens a centered picker for OAuth / subscription sign-in (codex, claude-sub, copilot). For codex, type `codex --device` in the filter box to use the device-code flow (no localhost browser needed) — the TUI shows a one-time code you enter at <https://auth.openai.com/codex/device> from any browser. |
 | `/copy` | Copy the conversation to the clipboard. |
 | `/clear` | Clear the current session's chat history. |
 | `/skills` | List available skills. |

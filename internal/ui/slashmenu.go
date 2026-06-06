@@ -13,6 +13,7 @@ const slashMenuMaxVisible = 8
 var slashCommands = []Command{
 	{Name: "model", Description: "Switch model (any configured provider or subscription)", Action: "open_model_picker"},
 	{Name: "update", Description: "Self-update to the latest GitHub release", Action: "self_update"},
+	{Name: "login", Description: "Sign in to a subscription provider (codex, claude-sub, copilot)", Action: "open_login_picker"},
 	{Name: "copy", Description: "Copy conversation to clipboard", Action: "copy_conversation"},
 	{Name: "clear", Description: "Clear conversation history", Action: "slash_clear"},
 	{Name: "skills", Description: "List available skills", Action: "slash_skills"},
