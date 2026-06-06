@@ -1,9 +1,49 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"strings"
 )
+
+// customProviders holds a registry of providers implemented in their
+// own packages (e.g. internal/provider/codex) that need to be looked
+// up by name. They register themselves in an init() to avoid an
+// import cycle: provider → codex → provider.
+var customProviders = map[string]func(ctx context.Context) (Provider, error){}
+
+// RegisterCustom adds a factory to the custom-provider table.
+// Returns true if the name was added, false if it collided with a
+// built-in (callers should validate their names).
+//
+// Exposed (capital R) so subpackages can register themselves; not
+// intended for use outside the provider tree.
+func RegisterCustom(name string, fn func(ctx context.Context) (Provider, error)) bool {
+	return registerCustomProvider(name, fn)
+}
+
+func registerCustomProvider(name string, fn func(ctx context.Context) (Provider, error)) bool {
+	if name == "" {
+		return false
+	}
+	switch strings.ToLower(name) {
+	case "cortex", "openai", "anthropic", "ollama", "openrouter", "minimax", "mimo", "opengateway":
+		return false
+	}
+	customProviders[strings.ToLower(name)] = fn
+	return true
+}
+
+// newCustomProvider is called by the factory's default branch and
+// returns the custom-registered provider, or (nil, nil) if the name
+// is not registered.
+func newCustomProvider(ctx context.Context, name string) (Provider, error) {
+	fn, ok := customProviders[strings.ToLower(name)]
+	if !ok {
+		return nil, nil
+	}
+	return fn(ctx)
+}
 
 // ModelConfig describes a single model entry from the user's config.
 type ModelConfig struct {
@@ -19,10 +59,16 @@ type ModelConfig struct {
 
 // New constructs the right Provider for a given model config. Empty API
 // key is allowed (Ollama doesn't require one).
+//
+// For the "codex" provider, the cfg.APIKey is ignored: authentication
+// comes from a ChatGPT OAuth token stored in the OS keychain (see
+// internal/provider/codex). cfg.APIKey may be set non-empty to keep
+// the Settings tab from prompting; the value isn't sent on the wire.
 func New(cfg ModelConfig) (Provider, error) {
 	apiKey := cfg.APIKey
 	baseURL := cfg.BaseURL
-	switch strings.ToLower(cfg.Provider) {
+	providerName := strings.ToLower(cfg.Provider)
+	switch providerName {
 	case "cortex":
 		if baseURL == "" {
 			baseURL = "http://127.0.0.1:8000/v1"
@@ -67,6 +113,12 @@ func New(cfg ModelConfig) (Provider, error) {
 		}
 		return NewOpenAICompat("mimo", apiKey, baseURL), nil
 	default:
+		// Custom-registered provider (e.g. "codex")?
+		if p, err := newCustomProvider(context.Background(), cfg.Provider); err != nil {
+			return nil, err
+		} else if p != nil {
+			return p, nil
+		}
 		if baseURL == "" {
 			return nil, errors.New("provider: unsupported provider " + cfg.Provider)
 		}

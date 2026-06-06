@@ -4,7 +4,8 @@
 # cortex-cli
 
 A sleek, fast, token-efficient AI coding agent. Multi-provider
-(Cortex, OpenAI, Anthropic, Ollama) with a polished terminal UI.
+(Cortex, OpenAI, ChatGPT, Anthropic, Ollama) with a polished
+terminal UI.
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="AGPL-3.0 License" /></a>
@@ -16,27 +17,33 @@ A sleek, fast, token-efficient AI coding agent. Multi-provider
 
 ## What is cortex-cli?
 
-cortex-cli is a fork of **[vix](https://github.com/get-vix/vix)**
-with cortex-specific changes:
+cortex-cli is an interactive terminal-based AI coding agent with
+session persistence, tool execution, and a multi-provider LLM
+backend. The same binary can talk to:
 
-* **In-process session** (no separate `vixd` daemon) — simpler
-  to run, easier to embed, single binary.
-* **Cortex-aware provider layer** — first-class support for the
-  Cortex gateway, plus OpenAI, Anthropic, and Ollama.
+* **Cortex** — the project's home gateway (`http://127.0.0.1:8000/v1`)
+* **OpenAI** — direct API access with an `OPENAI_API_KEY`
+* **ChatGPT (codex)** — your existing ChatGPT subscription, signed
+  in via OAuth (no separate API key required)
+* **Anthropic** — Claude models with an `ANTHROPIC_API_KEY`
+* **Ollama** — local models on `http://127.0.0.1:11434/v1`
+* **OpenRouter, OpenGateway, MiniMax, Xiaomi MiMo** — preset
+  multi-model gateways
+
+Highlights:
+
+* **In-process session** — single binary, no separate daemon.
 * **Persistent sessions** — chat history survives across CLI
-  restarts, the Sessions tab shows prior conversations, and
-  the bottom-left footer tells you how to queue a follow-up
-  message (`Tab`) or send + interrupt (`Enter`).
-* **Smarter tool defaults** — `run_shell` uses `bash` (with `sh`
-  fallback) so one-liners work the same on macOS and Linux.
-* **Cleaner thinking display** — extended thinking is rendered
-  dim and italic so it never gets confused with the assistant's
+  restarts. The Sessions tab shows prior conversations.
+* **Built-in tools** — `read_file`, `write_file`, `edit_file`,
+  `bash`, `grep`, `glob_files`.
+* **Multi-agent swarm** — optional planner / developer / reviewer
+  / tester / fixer roles for larger refactors.
+* **Status bar hints** — the bottom-left footer always shows the
+  send / queue / cancel hint.
+* **Extended thinking** — the model's hidden reasoning is
+  rendered dim and italic so it never gets confused with the
   normal output.
-
-The visual style, keybindings, and overall UX are intentionally
-identical to vix. cortex-cli is a thin layer of cortex-aware
-plumbing on top of the same bubbletea + lipgloss + glamour
-frontend.
 
 ## Install
 
@@ -59,6 +66,13 @@ curl -L -o cortex \
 chmod +x cortex && sudo mv cortex /usr/local/bin/
 ```
 
+```bash
+# Linux arm64
+curl -L -o cortex \
+  https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-arm64
+chmod +x cortex && sudo mv cortex /usr/local/bin/
+```
+
 ### From source
 
 Requires Go 1.26+.
@@ -73,9 +87,6 @@ go build -o cortex .
 ## Quick start
 
 ```bash
-# Set your Cortex API key (or any other provider's key)
-export CORTEX_API_KEY=sk-...
-
 # Launch the TUI
 cortex
 
@@ -83,11 +94,74 @@ cortex
 cortex -p "summarise the README of the current repo"
 ```
 
-On first launch cortex-cli will:
+On first launch cortex-cli creates `~/.cortex/config.yaml` with
+default providers. The Settings tab walks you through picking a
+provider and authenticating.
 
-1. Create `~/.cortex/config.yaml` with default providers.
-2. Prompt for an API key if none is configured.
-3. Open the chat tab with the active model.
+## Provider setup
+
+cortex-cli ships with provider presets; you only need to
+authenticate the one you want to use.
+
+### OpenAI (paid API key)
+
+```bash
+export OPENAI_API_KEY=sk-...
+```
+
+…or paste the key into the Settings tab.
+
+### ChatGPT (codex) — use your existing subscription
+
+The **ChatGPT (codex)** provider authenticates with your ChatGPT
+Plus / Pro / Team subscription, so you don't need a separate
+OpenAI API key.
+
+1. Open the TUI and switch to the **Settings** tab (F3).
+2. In the left column, pick **ChatGPT (codex)**.
+3. In the right column, pick a model (e.g. `GPT-5 (ChatGPT)`)
+   and press **Enter**.
+4. The "Sign in with ChatGPT" prompt opens. Press **Enter** —
+   your browser opens to `auth.openai.com`.
+5. Approve the device. cortex-cli stores the resulting OAuth
+   token in your OS keychain and switches the active model.
+
+To sign out: in the Settings tab, open the **API Keys** manager
+and press **Del** on the ChatGPT (codex) row.
+
+The OAuth flow:
+
+* Listens on `http://127.0.0.1:1455/auth/callback` (falls back
+  to a random free port if 1455 is busy).
+* Opens the default browser via `xdg-open` (Linux) / `open`
+  (macOS) / `wslview` (WSL). If none of these are available,
+  the authorize URL is shown in the status bar — copy it into
+  a browser manually.
+* Reads the JWT and stores the access token, refresh token,
+  email, plan type, and `chatgpt-account-id` claim in the
+  keychain. Expired access tokens are refreshed transparently.
+* CI / headless: set `CODEX_CODEX_TOKEN=eyJ...` instead of going
+  through the browser.
+
+### Anthropic (Claude)
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+…or paste the key into the Settings tab.
+
+### Ollama (local)
+
+Nothing to configure. cortex-cli points at
+`http://127.0.0.1:11434/v1` by default and uses a dummy bearer
+key.
+
+### Custom provider
+
+Settings → **Add custom provider**. Any OpenAI-compatible
+gateway (vLLM, LiteLLM, LM Studio, …) works — just point at its
+`/v1` base URL.
 
 ## Keybindings
 
@@ -113,22 +187,25 @@ hint when no other status message is active.
 `~/.cortex/config.yaml`:
 
 ```yaml
-defaultModel: cortex
+defaultModel: codex/gpt-5
 
 models:
   cortex:
     provider: cortex
-    model: cortex
-    baseUrl: https://api.cortex.ai/v1
-    apiKey: sk-...
+    model: cortex-code
+    baseUrl: http://127.0.0.1:8000/v1
   openai:
     provider: openai
-    model: gpt-4o
+    model: gpt-5
     baseUrl: https://api.openai.com/v1
     apiKey: sk-...
+  codex:
+    provider: codex
+    model: gpt-5
+    baseUrl: https://api.openai.com/v1
   anthropic:
     provider: anthropic
-    model: claude-3-5-sonnet-20241022
+    model: claude-sonnet-4-5
     baseUrl: https://api.anthropic.com/v1
     apiKey: sk-ant-...
   ollama:
@@ -137,8 +214,8 @@ models:
     baseUrl: http://localhost:11434/v1
 ```
 
-You can also set keys via environment variables; see
-`cortex --list-models` for the names your build supports.
+API keys can also come from the environment (see
+`cortex --list-models`) or from the OS keychain.
 
 ## Project layout
 
@@ -146,13 +223,14 @@ You can also set keys via environment variables; see
 .
 ├── main.go                  # CLI entry point
 ├── internal/
-│   ├── config/              # vix-compatible config (used by UI)
-│   ├── cortexconfig/        # Cortex YAML config + provider presets
-│   ├── daemon/              # In-process SessionClient (was vixd)
+│   ├── config/              # Config dir resolution (.cortex)
+│   ├── cortexconfig/        # User-facing YAML config + provider presets
+│   ├── daemon/              # In-process SessionClient
 │   ├── provider/            # LLM provider adapters
+│   │   └── codex/           # ChatGPT OAuth + JWT + responses client
 │   ├── protocol/            # Shared types between client + daemon
 │   ├── session/             # In-process session implementation
-│   ├── swarm/               # Optional swarm execution
+│   ├── swarm/               # Optional multi-agent orchestrator
 │   ├── tools/               # Built-in tool set (bash, edit, search...)
 │   └── ui/                  # Bubble Tea TUI (statusbar, sessions, etc.)
 └── Makefile
@@ -161,7 +239,7 @@ You can also set keys via environment variables; see
 ## Development
 
 ```bash
-# Build everything
+# Build the local cortex binary
 make build
 
 # Run the test suite
@@ -169,6 +247,9 @@ make test
 
 # Run a single test verbosely
 go test ./internal/ui/... -run TestRestoreChatHistoryVisibleAfterRestart -v
+
+# Run only the codex OAuth/JWT tests
+go test ./internal/provider/codex/... -v
 
 # Test the TUI with fake data
 ./bin/cortex -test
@@ -178,13 +259,8 @@ go test ./internal/ui/... -run TestRestoreChatHistoryVisibleAfterRestart -v
 
 GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
 
-cortex-cli is a fork of [vix](https://github.com/get-vix/vix).
-The original vix copyright is preserved in the LICENSE file.
-
 ## Credits
 
-* The vix team for the original TUI, agent loop, and design
-  philosophy: <https://github.com/get-vix/vix>
 * The Bubble Tea, Lip Gloss, and Glamour teams at Charmbracelet
   for the TUI primitives.
 * The cortex project for the provider gateway.

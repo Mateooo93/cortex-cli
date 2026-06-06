@@ -23,6 +23,7 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 	"github.com/Mateooo93/cortex-cli/internal/daemon"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
+	"github.com/Mateooo93/cortex-cli/internal/provider/codex"
 	llmprovider "github.com/Mateooo93/cortex-cli/internal/provider"
 )
 
@@ -46,6 +47,28 @@ type sessionEventMsg struct {
 // sessionDisconnectedMsg is sent when a session's daemon connection is lost.
 type sessionDisconnectedMsg struct {
 	daemonSessionID string
+}
+
+// codexLoginStartedMsg is fired when the codex OAuth flow begins, so
+// the UI can show a status line ("Signing in with ChatGPT…").
+type codexLoginStartedMsg struct {
+	pendingModel string
+	authorizeURL string
+}
+
+// codexLoginSuccessMsg is fired when the OAuth flow completes and the
+// token is in the keychain. The UI then switches the active model.
+type codexLoginSuccessMsg struct {
+	pendingModel string
+	email        string
+	planType     string
+}
+
+// codexLoginFailedMsg is fired when OAuth fails (browser can't open,
+// user denied, etc.). The UI shows the error in the status bar.
+type codexLoginFailedMsg struct {
+	err          error
+	authorizeURL string // empty if no URL was generated
 }
 
 // reconnectSuccessMsg is sent when reconnection succeeds.
@@ -875,6 +898,76 @@ func (m *Model) fetchModelsForProvider(providerName string) tea.Cmd {
 	}
 }
 
+// startCodexLoginCmd kicks off the codex OAuth flow in the background.
+// The returned tea.Cmd resolves to a codexLoginStartedMsg, which the
+// Update() loop turns into either a success or failure message after
+// the browser round-trip. The model.go handler is responsible for
+// applying the resulting token to the active model.
+func (m *Model) startCodexLoginCmd(pendingModel string) tea.Cmd {
+	return func() tea.Msg {
+		// Give the user a 5-minute window to complete the OAuth flow.
+		// Plenty for the typical 5–10s ChatGPT sign-in; long enough
+		// that an SSO detour or two doesn't time out.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		res, err := codex.Login(ctx)
+		if err == nil && res != nil && res.Token != nil {
+			if saveErr := codex.Save(res.Token); saveErr != nil {
+				return codexLoginFailedMsg{err: fmt.Errorf("codex: save token: %w", saveErr)}
+			}
+			return codexLoginSuccessMsg{
+				pendingModel: pendingModel,
+				email:        res.Token.Email,
+				planType:     res.Token.PlanType,
+			}
+		}
+		authURL := ""
+		if res != nil {
+			authURL = res.AuthorizeURL
+		}
+		return codexLoginFailedMsg{err: err, authorizeURL: authURL}
+	}
+}
+
+// handleCodexLoginSuccess applies the freshly saved OAuth token by
+// switching the active model to pendingModel. Mirrors the API-key
+// "key stored" path.
+func (m *Model) handleCodexLoginSuccess(pendingModel, email, planType string) tea.Cmd {
+	sess := m.currentSession()
+	if pendingModel != "" {
+		m.setActiveModelSpec(pendingModel)
+		if m.cortexCfg != nil {
+			m.cortexCfg.DefaultModel = pendingModel
+			_ = cortexconfig.Save(m.cortexCfg)
+		}
+		if sess != nil && sess.client != nil {
+			_ = sess.client.SendSetModel(pendingModel)
+		}
+		m.refreshSettingsKeys()
+		m.settingsProviderSel, m.settingsModelSel = locateActiveModelFromConfig(pendingModel, m.cortexCfg)
+	}
+	who := email
+	if who == "" {
+		who = "ChatGPT account"
+	}
+	if planType != "" {
+		who = who + " (" + planType + ")"
+	}
+	return m.emitStatusMsg("Signed in to "+who, StatusMsgInfo)
+}
+
+// handleCodexLoginFailed surfaces the failure in the status bar.
+// If the browser couldn't be opened, include the authorize URL so the
+// user can copy it from the status message and paste into a browser
+// manually (e.g. on a headless server).
+func (m *Model) handleCodexLoginFailed(err error, authorizeURL string) tea.Cmd {
+	msg := "ChatGPT sign-in failed: " + err.Error()
+	if authorizeURL != "" {
+		msg += " — open " + authorizeURL + " manually"
+	}
+	return m.emitStatusMsg(msg, StatusMsgError)
+}
+
 func (m *Model) modelRefreshBaseURLCandidates(providerName, baseURL string) []string {
 	trimmedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if trimmedBaseURL == "" {
@@ -1296,6 +1389,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case rpActionKeyDeleted:
 				_ = config.DeleteProviderKey(payload)
+				sess.rightPanel.OpenKeyManager(m.height)
+				sess.focus = FocusRightPanel
+				sess.input.Blur()
+			case rpActionCodexSignIn:
+				// Close the panel and run the OAuth flow in a
+				// goroutine. The user will see a brief "Signing in…"
+				// message, their browser opens, they sign in, and we
+				// fire a tea.Cmd when done so the model can switch
+				// back to the chat without blocking the UI.
+				pendingModel := payload
+				sess.rightPanel.Close()
+				m.updateChatWidth()
+				sess.input.Focus()
+				sess.focus = FocusEditor
+				return m, m.startCodexLoginCmd(pendingModel)
+			case rpActionCodexSignOut:
+				_ = codex.Delete()
 				sess.rightPanel.OpenKeyManager(m.height)
 				sess.focus = FocusRightPanel
 				sess.input.Blur()
@@ -2389,6 +2499,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.settingsModelSel = 0
 		}
 		return m, m.emitStatusMsg(fmt.Sprintf("Loaded %d model(s) for %s", len(msg.models), providerName), StatusMsgInfo)
+
+	case codexLoginSuccessMsg:
+		return m, m.handleCodexLoginSuccess(msg.pendingModel, msg.email, msg.planType)
+
+	case codexLoginFailedMsg:
+		return m, m.handleCodexLoginFailed(msg.err, msg.authorizeURL)
 
 	case animStepMsg:
 		// Route to whichever session owns this generation tick.

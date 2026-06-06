@@ -28,6 +28,7 @@ type ProviderPreset struct {
 var BuiltinProviderPresets = []ProviderPreset{
 	{Name: "cortex", DisplayName: "Cortex", BaseURL: "http://127.0.0.1:8000/v1", APIKeyEnvVar: "CORTEX_API_KEY", DefaultModel: "cortex-code", NeedsAPIKey: false},
 	{Name: "openai", DisplayName: "OpenAI", BaseURL: "https://api.openai.com/v1", APIKeyEnvVar: "OPENAI_API_KEY", DefaultModel: "gpt-4o", NeedsAPIKey: true},
+	{Name: "codex", DisplayName: "ChatGPT (codex)", BaseURL: "https://api.openai.com/v1", APIKeyEnvVar: "CODEX_CODEX_TOKEN", DefaultModel: "gpt-5", NeedsAPIKey: false},
 	{Name: "anthropic", DisplayName: "Anthropic", BaseURL: "https://api.anthropic.com/v1", APIKeyEnvVar: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-20250514", NeedsAPIKey: true},
 	{Name: "ollama", DisplayName: "Ollama", BaseURL: "http://127.0.0.1:11434/v1", APIKeyEnvVar: "", DefaultModel: "llama3.2", NeedsAPIKey: false},
 	{Name: "openrouter", DisplayName: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", APIKeyEnvVar: "OPENROUTER_API_KEY", DefaultModel: "anthropic/claude-sonnet-4.5", NeedsAPIKey: true},

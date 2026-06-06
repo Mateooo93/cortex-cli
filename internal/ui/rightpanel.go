@@ -18,6 +18,7 @@ const (
 	rpModeModel    rightPanelMode = iota // model selection list
 	rpModeKeys                            // stored API key manager
 	rpModeKeyInput                        // inline key entry form
+	rpModeCodexSignIn                     // ChatGPT OAuth sign-in prompt
 	rpModeWorkflow                        // live workflow step progress
 	rpModeTodos                           // pending todo list
 )
@@ -32,6 +33,8 @@ const (
 	rpActionKeyDeleted                      // payload = provider name
 	rpActionKeyStored                       // payload = "provider:key"
 	rpActionNeedKey                         // payload = "provider:pendingModel"
+	rpActionCodexSignIn                     // payload = "pendingModel"
+	rpActionCodexSignOut                    // payload = "" (just the provider)
 )
 
 // RightPanel is a full-height sidebar on the right side of the screen that
@@ -52,6 +55,9 @@ type RightPanel struct {
 	keyInputProvider string
 	keyInputPending  string // model name waiting for the key
 	keyInput         textinput.Model
+
+	// Codex sign-in state
+	codexSignInPending string // model name waiting for the OAuth flow
 }
 
 // panelWidth is the fixed display width of the right panel.
@@ -120,6 +126,17 @@ func (rp *RightPanel) OpenKeyInput(provider, pendingModel string, height int) {
 	rp.keyInput = ti
 }
 
+// OpenCodexSignIn opens the inline "Sign in with ChatGPT" prompt. Pressing
+// enter launches the OAuth flow; the panel is closed while the
+// browser is in the foreground. pendingModel is the model the user
+// wants to switch to after the token is saved.
+func (rp *RightPanel) OpenCodexSignIn(pendingModel string, height int) {
+	rp.visible = true
+	rp.mode = rpModeCodexSignIn
+	rp.height = height
+	rp.codexSignInPending = pendingModel
+}
+
 // HandleKey processes a key press and returns the resulting action and its payload.
 func (rp *RightPanel) HandleKey(msg tea.KeyPressMsg) (RightPanelAction, string) {
 	key := msg.String()
@@ -129,7 +146,8 @@ func (rp *RightPanel) HandleKey(msg tea.KeyPressMsg) (RightPanelAction, string) 
 		return rpActionNone, ""
 	}
 
-	// ESC always closes
+	// ESC always closes (except during codex sign-in, which can be
+	// safely cancelled — the OAuth flow only runs on enter).
 	if key == "esc" {
 		return rpActionClose, ""
 	}
@@ -148,6 +166,11 @@ func (rp *RightPanel) HandleKey(msg tea.KeyPressMsg) (RightPanelAction, string) 
 		case "enter":
 			if rp.modelSel < len(AvailableModels) {
 				m := AvailableModels[rp.modelSel]
+				// Codex has its own auth path: ChatGPT OAuth, not a
+				// pasted API key. Short-circuit to the sign-in prompt.
+				if m.Provider == "codex" {
+					return rpActionCodexSignIn, m.Spec
+				}
 				apiKey, _ := config.ResolveProviderKey(m.Provider, true)
 				if apiKey != "" {
 					return rpActionModelSelected, m.Spec
@@ -190,6 +213,17 @@ func (rp *RightPanel) HandleKey(msg tea.KeyPressMsg) (RightPanelAction, string) 
 		var cmd tea.Cmd
 		rp.keyInput, cmd = rp.keyInput.Update(msg)
 		_ = cmd
+
+	case rpModeCodexSignIn:
+		switch key {
+		case "enter":
+			// Trigger the OAuth flow. The model.go handler will run
+			// codex.Login() in a goroutine and close the panel.
+			return rpActionCodexSignIn, rp.codexSignInPending
+		case "delete", "backspace":
+			// Allow the user to sign out from the same panel.
+			return rpActionCodexSignOut, ""
+		}
 	}
 
 	return rpActionNone, ""
@@ -268,6 +302,20 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 		inputView := rp.keyInput.View()
 		hint := lipgloss.NewStyle().Foreground(colorDim).Italic(true).Width(innerWidth).Render("Enter confirm  Esc cancel")
 		lines = append(lines, title, sub, sep, inputView, "", hint)
+
+	case rpModeCodexSignIn:
+		title := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Width(innerWidth).Render("Sign in with ChatGPT")
+		sep := lipgloss.NewStyle().Foreground(colorDim).Width(innerWidth).Render(strings.Repeat("─", innerWidth))
+		body := lipgloss.NewStyle().Foreground(s.ColorWhite).Width(innerWidth).Render(
+			"Use your ChatGPT subscription to power cortex-cli. Press " +
+				"Enter to open the sign-in page in your browser. After you " +
+				"approve, cortex-cli stores the token in your OS keychain.")
+		warn := lipgloss.NewStyle().Foreground(colorSecondary).Width(innerWidth).Render(
+			"Requires xdg-open / open / wslview (Linux, macOS, WSL).")
+		del := lipgloss.NewStyle().Foreground(colorDim).Width(innerWidth).Render(
+			"Press Del to sign out.")
+		hint := lipgloss.NewStyle().Foreground(colorDim).Italic(true).Width(innerWidth).Render("Enter sign in  Del sign out  Esc cancel")
+		lines = append(lines, title, sep, body, "", warn, "", del, "", hint)
 
 	case rpModeWorkflow:
 		if wfp != nil {

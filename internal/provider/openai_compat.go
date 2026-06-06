@@ -22,6 +22,11 @@ type OpenAICompat struct {
 	apiKey  string
 	baseURL string
 	client  *http.Client
+	// headerHook, if non-nil, is invoked after the standard headers
+	// (Authorization, Content-Type) have been set, giving the caller a
+	// chance to add provider-specific headers such as
+	// `chatgpt-account-id` for ChatGPT-subscription logins.
+	headerHook func(*http.Request)
 }
 
 // NewOpenAICompat constructs a provider. baseURL is the full base URL
@@ -34,6 +39,13 @@ func NewOpenAICompat(name, apiKey, baseURL string) *OpenAICompat {
 		baseURL: strings.TrimRight(baseURL, "/"),
 		client:  &http.Client{Timeout: 10 * time.Minute},
 	}
+}
+
+// WithHeaderHook installs a per-request header mutator. Used by the
+// codex provider to inject `chatgpt-account-id`.
+func (p *OpenAICompat) WithHeaderHook(fn func(*http.Request)) *OpenAICompat {
+	p.headerHook = fn
+	return p
 }
 
 func (p *OpenAICompat) Name() string { return p.name }
@@ -203,6 +215,9 @@ func (p *OpenAICompat) buildRequest(req Request, stream bool) (*http.Request, er
 	httpReq.Header.Set("Content-Type", "application/json")
 	if p.apiKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
+	if p.headerHook != nil {
+		p.headerHook(httpReq)
 	}
 	return httpReq, nil
 }

@@ -39,6 +39,7 @@ type ProviderSettingsView struct {
 var AvailableProviders = []ProviderInfo{
 	{Name: "anthropic", DisplayName: "Anthropic"},
 	{Name: "openai", DisplayName: "OpenAI"},
+	{Name: "codex", DisplayName: "ChatGPT (codex)"},
 	{Name: "openrouter", DisplayName: "OpenRouter"},
 	{Name: "opengateway", DisplayName: "OpenGateway"},
 	{Name: "minimax", DisplayName: "MiniMax"},
@@ -67,6 +68,16 @@ var AvailableModels = []ModelInfo{
 	{Spec: "openai/o4-mini", Provider: "openai", DisplayName: "o4 Mini"},
 	{Spec: "openai/gpt-4o", Provider: "openai", DisplayName: "GPT-4o"},
 	{Spec: "openai/gpt-4o-mini", Provider: "openai", DisplayName: "GPT-4o Mini"},
+	// ChatGPT (codex) — same models, but authenticated via the
+	// user's ChatGPT subscription. Routed through the codex provider,
+	// not OpenAI's paid API. Display names note "(ChatGPT)" so users
+	// can tell which auth path each row uses.
+	{Spec: "codex/gpt-5", Provider: "codex", DisplayName: "GPT-5 (ChatGPT)"},
+	{Spec: "codex/gpt-5.1", Provider: "codex", DisplayName: "GPT-5.1 (ChatGPT)"},
+	{Spec: "codex/gpt-5-codex", Provider: "codex", DisplayName: "GPT-5 Codex (ChatGPT)"},
+	{Spec: "codex/o3", Provider: "codex", DisplayName: "o3 (ChatGPT)"},
+	{Spec: "codex/o4-mini", Provider: "codex", DisplayName: "o4 Mini (ChatGPT)"},
+	{Spec: "codex/gpt-4o", Provider: "codex", DisplayName: "GPT-4o (ChatGPT)"},
 	// OpenRouter — curated popular routes; arbitrary slugs go via agent frontmatter.
 	{Spec: "openrouter/anthropic/claude-opus-4-8", Provider: "openrouter", DisplayName: "Claude Opus 4.8 (via OpenRouter)"},
 	{Spec: "openrouter/anthropic/claude-sonnet-4-6", Provider: "openrouter", DisplayName: "Claude Sonnet 4.6 (via OpenRouter)"},

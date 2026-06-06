@@ -181,6 +181,16 @@ func ListStoredProviderKeys() []ProviderKey {
 		}
 		result = append(result, pk)
 	}
+	// Codex uses its own keychain user (codex-oauth-token) and stores
+	// a JSON Token rather than a plain API key. Surface it as
+	// "(oauth)" so the Settings tab KeyManager can list it alongside
+	// the rest, and Del-signOut works through the codex package.
+	if k, err := keyring.Get(keyringService, "codex-oauth-token"); err == nil && k != "" {
+		// Cheap heuristic: a stored token starts with {"access_token":".
+		if strings.HasPrefix(k, `{"access_token":`) {
+			result = append(result, ProviderKey{Provider: "codex", Prefix: "(oauth)"})
+		}
+	}
 	return result
 }
 
