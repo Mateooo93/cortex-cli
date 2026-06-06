@@ -136,6 +136,18 @@ curl -L -o cortex \
 chmod +x cortex && sudo mv cortex /usr/local/bin/
 ```
 
+```powershell
+# Windows (PowerShell) — amd64
+Invoke-WebRequest -Uri https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-windows-amd64.exe -OutFile cortex.exe
+Move-Item cortex.exe $env:LOCALAPPDATA\Microsoft\WindowsApps\cortex.exe
+```
+
+```powershell
+# Windows ARM64 (Surface Pro X, Snapdragon X Elite, etc.)
+Invoke-WebRequest -Uri https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-windows-arm64.exe -OutFile cortex.exe
+Move-Item cortex.exe $env:LOCALAPPDATA\Microsoft\WindowsApps\cortex.exe
+```
+
 ### From source
 
 Requires Go 1.26+.
@@ -246,6 +258,29 @@ key.
 Settings → **Add custom provider**. Any OpenAI-compatible
 gateway (vLLM, LiteLLM, LM Studio, …) works — just point at its
 `/v1` base URL.
+
+## Slash commands
+
+Type `/` in the chat input to open the slash menu. Available built-ins:
+
+| Command | What it does |
+|---------|--------------|
+| `/model` | Opens a centered picker showing every model from every configured provider, with the provider name + auth method as a secondary line (e.g. `GPT-5.5 (ChatGPT)` with subtitle `codex · OAuth (subscription)`). Filter by typing. Enter selects. |
+| `/update` | Detects your OS + architecture, downloads the matching `cortex-<platform>` release from GitHub, verifies SHA-256 against `SHA256SUMS`, and replaces the current binary. Windows uses a detached helper process to handle the locked-file case (you can't delete a running `.exe`). User must restart after. |
+| `/copy` | Copy the conversation to the clipboard. |
+| `/clear` | Clear the current session's chat history. |
+| `/skills` | List available skills. |
+
+`/model` replaces the two-column model-selection picker that used
+to live in the Settings tab. The Settings tab is now just:
+
+- **Providers** — configure base URLs, API keys, OAuth sign-in.
+  OAuth providers (codex / claude-sub / copilot) open a browser
+  sign-in directly when you press Enter on them; no API-key form.
+- **Other Settings** — theme, thinking display, reasoning effort,
+  streaming, token-usage.
+
+To switch models, use `/model` in the chat tab.
 
 ## Keybindings
 

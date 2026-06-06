@@ -323,19 +323,18 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	mutedStyle := lipgloss.NewStyle().Foreground(colorDim)
 	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
 	activeStyle := lipgloss.NewStyle().Foreground(colorSecondary)
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
 	innerWidth := width - 4
 	if innerWidth < 0 {
 		innerWidth = 0
 	}
 	if inKeyInput {
-		activeSection = 1
+		activeSection = 0
 	}
 	if wizard.Provider != "" {
-		activeSection = 1
+		activeSection = 0
 	}
-	if activeSection < 0 || activeSection > 2 {
+	if activeSection < 0 || activeSection > 1 {
 		activeSection = 0
 	}
 
@@ -348,7 +347,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		}
 		return v
 	}
-	sectionName := []string{"Models", "Providers", "Other Settings"}[activeSection]
+	sectionName := []string{"Providers", "Other Settings"}[activeSection]
 	divider := dimStyle.Width(innerWidth).Render(strings.Repeat("─", innerWidth))
 	sectionTitle := func(idx int, label string) string {
 		prefix := "  "
@@ -393,116 +392,18 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		return s.ViewportFocusedStyle.Width(width).Height(height).Render(strings.Join(lines, "\n"))
 	}
 
-	// Models section: provider and model columns, always visible.
-	lines = append(lines,
-		sectionTitle(0, "Models"),
-		dimStyle.Width(innerWidth).Render("  Pick provider, then select model"),
-	)
-	providerColWidth := 24
-	if innerWidth < 72 {
-		providerColWidth = 20
-	}
-	if innerWidth < 52 {
-		providerColWidth = 16
-	}
-	modelColWidth := innerWidth - providerColWidth - 4
-	if modelColWidth < 18 {
-		modelColWidth = 18
-	}
-	modelRowsLimit := clampRows(height/7, 3, 5)
-	providerStart, providerEnd := settingsWindow(providerSel, len(providers), modelRowsLimit)
-	modelStart, modelEnd := settingsWindow(modelSel, len(selectedModels), modelRowsLimit)
-
-	var providerLines []string
-	providerLines = append(providerLines, headerStyle.Width(providerColWidth).Render("  Provider"))
-	if providerStart > 0 {
-		providerLines = append(providerLines, mutedStyle.Width(providerColWidth).Render("  ↑ more"))
-	}
-	for i := providerStart; i < providerEnd; i++ {
-		p := providers[i]
-		isCursor := activeSection == 0 && modelColumn == 0 && i == providerSel
-		isActiveProv := p.Name == activeProviderName
-		prefix := "  "
-		if isCursor {
-			prefix = "▸ "
-		}
-		marker := ""
-		if isActiveProv {
-			marker = "  active"
-		}
-		label := settingsTruncate(prefix+p.DisplayName+marker, providerColWidth)
-		// Provider names are bold and bright white so they read as headings
-		// against the dim model list.
-		providerNameStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-		style := providerNameStyle
-		if isCursor {
-			style = selectedStyle
-		} else if isActiveProv {
-			style = activeStyle
-		}
-		providerLines = append(providerLines, style.Width(providerColWidth).Render(label))
-	}
-	if providerEnd < len(providers) {
-		providerLines = append(providerLines, mutedStyle.Width(providerColWidth).Render(fmt.Sprintf("  ↓ %d more", len(providers)-providerEnd)))
-	}
-
-	providerDisplayForModels := "Models"
-	if providerSel >= 0 && providerSel < len(providers) {
-		providerDisplayForModels = providers[providerSel].DisplayName + " models"
-	}
-	var modelLines []string
-	modelLines = append(modelLines, headerStyle.Width(modelColWidth).Render("  "+settingsTruncate(providerDisplayForModels, modelColWidth-2)))
-	if len(selectedModels) == 0 {
-		modelLines = append(modelLines, mutedStyle.Width(modelColWidth).Render("  No models loaded"))
-		modelLines = append(modelLines, mutedStyle.Width(modelColWidth).Render("  Press r to refresh"))
-	} else {
-		if modelStart > 0 {
-			modelLines = append(modelLines, mutedStyle.Width(modelColWidth).Render("  ↑ more"))
-		}
-		for i := modelStart; i < modelEnd; i++ {
-			mod := selectedModels[i]
-			isCursor := activeSection == 0 && modelColumn == 1 && i == modelSel
-			isActive := mod.Spec == activeModel
-			prefix := "  "
-			if isCursor {
-				prefix = "▸ "
-			}
-			marker := ""
-			if isActive {
-				marker = "  active"
-			}
-			label := settingsTruncate(prefix+mod.DisplayName+marker, modelColWidth)
-			style := mutedStyle
-			if isCursor {
-				style = selectedStyle
-			} else if isActive {
-				style = activeStyle
-			}
-			modelLines = append(modelLines, style.Width(modelColWidth).Render(label))
-		}
-		if modelEnd < len(selectedModels) {
-			modelLines = append(modelLines, mutedStyle.Width(modelColWidth).Render(fmt.Sprintf("  ↓ %d more", len(selectedModels)-modelEnd)))
-		}
-	}
-	maxModelRows := len(providerLines)
-	if len(modelLines) > maxModelRows {
-		maxModelRows = len(modelLines)
-	}
-	for len(providerLines) < maxModelRows {
-		providerLines = append(providerLines, mutedStyle.Width(providerColWidth).Render(""))
-	}
-	for len(modelLines) < maxModelRows {
-		modelLines = append(modelLines, mutedStyle.Width(modelColWidth).Render(""))
-	}
-	lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, strings.Join(providerLines, "\n"), lipgloss.NewStyle().Width(4).Render(""), strings.Join(modelLines, "\n")))
-	if activeSection == 0 {
-		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  ←/→ columns · ↑/↓ move · Enter select · r refresh models"))
+	// Models section was removed. Use /model in the chat tab to
+	// switch models; the Settings tab now just shows the
+	// current model + provider as context, then drops straight
+	// into the Providers list.
+	if activeModel != "" {
+		lines = append(lines, dimStyle.Width(innerWidth).Render("  Active model: "+settingsTruncate(activeModel, innerWidth-16)+"  (type /model in chat to change)"))
 	}
 	lines = append(lines, divider)
 
 	// Providers section: provider name only, no status text.
 	lines = append(lines,
-		sectionTitle(1, "Providers"),
+		sectionTitle(0, "Providers"),
 	)
 	apiRowsLimit := clampRows(height/6, 3, 6)
 	keyStart, keyEnd := settingsWindow(keySel, len(keys), apiRowsLimit)
@@ -513,7 +414,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	}
 	for i := keyStart; i < keyEnd; i++ {
 		pk := keys[i]
-		isCursor := activeSection == 1 && inspect.Provider == "" && i == keySel
+		isCursor := activeSection == 0 && inspect.Provider == "" && i == keySel
 		isActiveProvider := pk.Provider == activeProviderName
 		prefix := "  "
 		if isCursor {
@@ -531,10 +432,10 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	if keyEnd < len(keys) {
 		lines = append(lines, mutedStyle.Width(innerWidth).Render(fmt.Sprintf("  ↓ %d more providers", len(keys)-keyEnd)))
 	}
-	if activeSection == 1 && inspect.Provider == "" {
-		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  Enter configure · r refresh models · a add provider"))
+	if activeSection == 0 && inspect.Provider == "" {
+		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  Enter configure (OAuth providers open browser sign-in) · r refresh models · a add provider"))
 	}
-	if activeSection == 1 && inspect.Provider != "" {
+	if activeSection == 0 && inspect.Provider != "" {
 		// Inline detail panel for the selected provider.
 		baseURLValue := inspect.BaseURL
 		if baseURLValue == "" {

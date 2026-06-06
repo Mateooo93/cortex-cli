@@ -71,6 +71,8 @@ REQUIRED_BINS=(
   "$BIN_DIR/cortex-darwin-arm64"
   "$BIN_DIR/cortex-linux-amd64"
   "$BIN_DIR/cortex-linux-arm64"
+  "$BIN_DIR/cortex-windows-amd64.exe"
+  "$BIN_DIR/cortex-windows-arm64.exe"
 )
 for f in "${REQUIRED_BINS[@]}"; do
   if [[ ! -x "$f" ]]; then
@@ -100,6 +102,8 @@ stage_platform() {
 stage_platform darwin-arm64
 stage_platform linux-amd64
 stage_platform linux-arm64
+stage_platform windows-amd64
+stage_platform windows-arm64
 
 TARBALLS=("$DIST_DIR"/cortex-*.tar.gz)
 
@@ -109,9 +113,13 @@ sha_of() { shasum -a 256 "$DIST_DIR/cortex-${1}.tar.gz" | awk '{print $1}'; }
 SHA_DARWIN_ARM64=$(sha_of darwin-arm64)
 SHA_LINUX_ARM64=$(sha_of linux-arm64)
 SHA_LINUX_AMD64=$(sha_of linux-amd64)
-echo "    darwin-arm64: $SHA_DARWIN_ARM64"
-echo "    linux-arm64:  $SHA_LINUX_ARM64"
-echo "    linux-amd64:  $SHA_LINUX_AMD64"
+SHA_WINDOWS_AMD64=$(sha_of windows-amd64)
+SHA_WINDOWS_ARM64=$(sha_of windows-arm64)
+echo "    darwin-arm64:  $SHA_DARWIN_ARM64"
+echo "    linux-arm64:   $SHA_LINUX_ARM64"
+echo "    linux-amd64:   $SHA_LINUX_AMD64"
+echo "    windows-amd64: $SHA_WINDOWS_AMD64"
+echo "    windows-arm64: $SHA_WINDOWS_ARM64"
 
 # --- Homebrew formula ---
 # Two flavors:

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 
@@ -67,6 +68,60 @@ func newSessionsInput() textinput.Model {
 	ti.Placeholder = "Filter sessions…"
 	ti.Prompt = "  "
 	return ti
+}
+
+// renderQueueIndicator draws a single-line banner above the input
+// box whenever the user has a message queued (pendingInput is
+// non-nil). The banner stays visible until the message is sent,
+// so the user always knows what's waiting in the queue.
+//
+// Two variants:
+//   - "Queued:" — Tab pressed; the message will run after the
+//     current turn finishes.
+//   - "Sending after current edit:" — Enter pressed during a
+//     generation; the message will be sent when the current
+//     edit boundary is reached.
+func renderQueueIndicator(pending *pendingMsg, width int, styles Styles) string {
+	if pending == nil {
+		return ""
+	}
+	preview := pending.text
+	// Strip newlines so the banner stays a single visible line.
+	preview = strings.ReplaceAll(preview, "\n", " ")
+	preview = strings.ReplaceAll(preview, "\r", " ")
+	preview = strings.ReplaceAll(preview, "\t", " ")
+	// Trim repeated whitespace.
+	for strings.Contains(preview, "  ") {
+		preview = strings.ReplaceAll(preview, "  ", " ")
+	}
+	preview = strings.TrimSpace(preview)
+	if preview == "" && len(pending.attachments) > 0 {
+		preview = fmt.Sprintf("[%d attachment(s)]", len(pending.attachments))
+	}
+	if preview == "" {
+		preview = "(empty)"
+	}
+	// Cap to ~80 chars; the surrounding badge text + width
+	// accounting is handled by lipgloss.
+	maxLen := 80
+	if len(preview) > maxLen {
+		preview = preview[:maxLen-1] + "…"
+	}
+	// Render with a distinct style so the user notices it.
+	//   ▸ Queued: "fix the typo"
+	//   ▸ Sending after current edit: "and add tests"
+	var badge string
+	if pending.Queued {
+		badge = "▸ Queued: "
+	} else {
+		badge = "▸ Sending after current edit: "
+	}
+	indicatorStyle := lipgloss.NewStyle().
+		Foreground(colorAccentWarm).
+		Bold(true).
+		Width(width)
+	body := badge + lipgloss.NewStyle().Foreground(colorAccentCool).Italic(true).Render(`"`+preview+`"`)
+	return indicatorStyle.Render(body)
 }
 
 // renderInputBox wraps the textarea in a rounded border box with mode title embedded in top border.

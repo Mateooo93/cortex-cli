@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"image"
 	"os"
-	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
@@ -159,14 +157,6 @@ type clearStatusMsgMsg struct{ gen int }
 
 // startCursorBlinkMsg triggers cursor blink on startup.
 type startCursorBlinkMsg struct{}
-
-func waitForResume() tea.Msg {
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGCONT)
-	<-sigCh
-	signal.Stop(sigCh)
-	return resumeFromSleepMsg{}
-}
 
 // startSessionEventLoop launches a goroutine that reads daemon events for one
 // session and injects them into the Bubble Tea loop tagged with the daemon
@@ -1762,102 +1752,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, cmd)
 				}
 			} else if m.settingsActiveSection == 0 {
-				// Model section — two columns: providers (column 0) and
-				// per-provider model list (column 1).
-				providers := m.settingsProviders()
-				clampProviderSel := func() {
-					if m.settingsProviderSel < 0 {
-						m.settingsProviderSel = 0
-					}
-					if len(providers) == 0 {
-						m.settingsProviderSel = 0
-						return
-					}
-					if m.settingsProviderSel >= len(providers) {
-						m.settingsProviderSel = len(providers) - 1
-					}
-				}
-				clampModelSel := func() {
-					models := m.selectedSettingsModels()
-					if m.settingsModelSel < 0 {
-						m.settingsModelSel = 0
-					}
-					if len(models) == 0 {
-						m.settingsModelSel = 0
-						return
-					}
-					if m.settingsModelSel >= len(models) {
-						m.settingsModelSel = len(models) - 1
-					}
-				}
-				clampProviderSel()
-				switch msg.String() {
-				case "up", "k":
-					if m.settingsModelColumn == 0 {
-						if m.settingsProviderSel > 0 {
-							m.settingsProviderSel--
-							m.settingsModelSel = 0
-						}
-					} else {
-						if m.settingsModelSel > 0 {
-							m.settingsModelSel--
-						}
-					}
-				case "down", "j":
-					if m.settingsModelColumn == 0 {
-						if m.settingsProviderSel < len(providers)-1 {
-							m.settingsProviderSel++
-							m.settingsModelSel = 0
-						}
-					} else {
-						models := m.selectedSettingsModels()
-						if m.settingsModelSel < len(models)-1 {
-							m.settingsModelSel++
-						}
-					}
-				case "left", "h":
-					m.settingsModelColumn = 0
-				case "right", "l":
-					m.settingsModelColumn = 1
-					clampModelSel()
-				case "r":
-					providerName := m.selectedSettingsProviderName()
-					if providerName != "" {
-						cmds = append(cmds, m.emitStatusMsg("Refreshing models for "+providerName, StatusMsgInfo), m.fetchModelsForProvider(providerName))
-					}
-				case "enter":
-					clampProviderSel()
-					if m.settingsModelColumn == 0 {
-						// Enter on the provider column jumps to the model column.
-						m.settingsModelColumn = 1
-						m.settingsModelSel = 0
-						clampModelSel()
-					} else {
-						models := m.selectedSettingsModels()
-						if len(models) > 0 && m.settingsModelSel < len(models) {
-							mod := models[m.settingsModelSel]
-							if m.settingsProviderHasKey(mod.Provider) {
-								cmds = append(cmds, m.selectSettingsModel(mod))
-							} else {
-								m.settingsModelPending = mod.Spec
-								m.openAPIKeyInput(mod.Provider)
-							}
-						}
-					}
-				case "tab":
-					m.settingsActiveSection = 1
-				case "f1":
-					m.activeTab = TabKindSessions
-					m.syncSessionsSelected()
-					cmds = append(cmds, m.sessionsInput.Focus())
-				case "f2":
-					m.activeTab = TabKindChat
-					if s := m.currentSession(); s != nil {
-						s.unreadCount = 0
-						cmds = append(cmds, s.thinkingAnim.Resume())
-					}
-				}
-			} else if m.settingsActiveSection == 1 {
 				// Provider/API section
 				m.refreshSettingsKeys()
 				if m.settingsWizard.active {
@@ -1931,7 +1825,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						cmds = append(cmds, m.emitStatusMsg("Refreshing models for "+providerName, StatusMsgInfo), m.fetchModelsForProvider(providerName))
 					}
 				case "tab":
-					m.settingsActiveSection = 2
+					m.settingsActiveSection = 1
 				case "f1":
 					m.activeTab = TabKindSessions
 					m.syncSessionsSelected()
