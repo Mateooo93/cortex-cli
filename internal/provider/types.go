@@ -4,7 +4,7 @@
 // Anthropic backend uses a similar shape pointed at Anthropic's gateway.
 //
 // Streaming is the primary mode. The session layer converts each chunk
-// into a vix protocol.EventStreamChunk.
+// into a protocol.EventStreamChunk.
 package provider
 
 import (

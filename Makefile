@@ -42,8 +42,7 @@ endif
 
 build-d: build-web
 # cortex-cli uses an in-process session (no separate daemon), so
-# the build-d target is a no-op kept for backward compatibility
-# with the original vix Makefile.
+# the build-d target is a no-op kept for backward compatibility.
 
 # Build and run the TUI client with debug instrumentation (pprof on :6061)
 run-x: build-x

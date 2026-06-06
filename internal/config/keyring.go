@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	keyringService = "vix"
+	keyringService = "cortex-cli"
 )
 
 // KeySource describes where the API key was found.

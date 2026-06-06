@@ -11,11 +11,11 @@ import (
 //go:embed defaults/*
 var defaultFiles embed.FS
 
-// BootstrapHomeVixDir writes default config, agent, and prompt files into
-// homeVixDir when settings.json is absent (first run). Existing files are
+// BootstrapHomeCortexDir writes default config, agent, and prompt files into
+// homeCortexDir when settings.json is absent (first run). Existing files are
 // never overwritten.
-func BootstrapHomeVixDir(homeVixDir string) error {
-	configPath := filepath.Join(homeVixDir, "settings.json")
+func BootstrapHomeCortexDir(homeCortexDir string) error {
+	configPath := filepath.Join(homeCortexDir, "settings.json")
 	if _, err := os.Stat(configPath); err == nil {
 		return nil // already bootstrapped
 	}
@@ -27,7 +27,7 @@ func BootstrapHomeVixDir(homeVixDir string) error {
 
 		// Strip the "defaults/" prefix to get the target relative path.
 		rel, _ := filepath.Rel("defaults", path)
-		target := filepath.Join(homeVixDir, rel)
+		target := filepath.Join(homeCortexDir, rel)
 
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)

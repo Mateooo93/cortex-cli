@@ -15,9 +15,10 @@ func main() {
 	cortexdaemon.SetGlobalConfigLoader(func() *cortexconfig.Config { return cfg })
 	client := cortexdaemon.NewSessionClient("")
 	client.Connect(os.TempDir(), "", cfg.DefaultModel, false, true, true, false)
+	// vixCfg is the vix-style config the (forked) UI needs; cfg is cortex-specific.
 	vixCfg, _ := config.Load(false, os.TempDir(), "", "")
 	ui.Version = "cortex dev"
-	// testMode=false so the welcome screen shows the CORTEX logo
+	// testMode=false so the welcome screen shows the CORTEX banner
 	model := ui.NewModel(vixCfg, cfg, client, false, "", true, true)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 130, Height: 40})
 	fmt.Print(updated.View().Content)

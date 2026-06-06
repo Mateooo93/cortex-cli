@@ -1,16 +1,19 @@
 package ui
 
 import (
-	"charm.land/lipgloss/v2" // Version is the vix version string rendered on the welcome screen. Set by
+	"charm.land/lipgloss/v2"
 	"image/color"
 	"strings"
 )
 
-// cmd/vix/main.go at startup from the ldflags-provided build version.
-var Version = "dev" // renderVixBanner returns the CORTEX ASCII art with a vertical blue gradient.
+// Version is the cortex-cli version string rendered on the welcome screen.
+// Set by the build pipeline via -ldflags -X main.Version=...
+var Version = "dev"
+
+// renderCortexBanner returns the CORTEX ASCII art with a vertical blue gradient.
 // The logo is 6 lines tall and ~58 columns wide, matching the original VIX
 // dimensions so the welcome screen layout doesn't shift.
-func renderVixBanner() string {
+func renderCortexBanner() string {
 	// Block letters for C O R T E X. 6 lines, 58 columns.
 	lines := []string{
 		" ██████╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗",
@@ -40,7 +43,7 @@ func renderVixBanner() string {
 func renderWelcomeInline(width, height int, s Styles) string {
 	// Build the welcome block (uncentered)
 	var block strings.Builder
-	block.WriteString(renderVixBanner())
+	block.WriteString(renderCortexBanner())
 	version := lipgloss.NewStyle().Foreground(s.ColorDimGray).Render(Version)
 	block.WriteString(version + "\n\n")
 	subtitle := lipgloss.NewStyle().Foreground(s.ColorWhite).Italic(true).Render("AI coding assistant")

@@ -122,7 +122,7 @@ func FormatPlanAsMarkdown(plan *Plan) string {
 // plansDir is typically the session's paths.Plans() directory.
 func SavePlanToFile(plan *Plan, plansDir string) error {
 	if plansDir == "" {
-		plansDir = filepath.Join(".vix", "plans")
+		plansDir = filepath.Join(".cortex", "plans")
 	}
 	if err := os.MkdirAll(plansDir, 0o755); err != nil {
 		return fmt.Errorf("create plans dir: %w", err)

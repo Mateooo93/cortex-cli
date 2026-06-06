@@ -3,9 +3,9 @@ set -euo pipefail
 
 usage() {
   echo "Usage: $0 <version> --repo <owner/repo> [--tap <owner/tap>] [--force] [--changelog <path>]"
-  echo "  e.g. $0 v0.1.0 --repo get-vix/vix"
+  echo "  e.g. $0 v0.1.0 --repo Mateooo93/cortex-cli"
   echo ""
-  echo "  --tap <owner/tap>    Homebrew tap repo (default: derives owner/homebrew-vix from --repo)"
+  echo "  --tap <owner/tap>    Homebrew tap repo (default: derives owner/homebrew-cortex from --repo)"
   echo "  --force              Replace an existing release"
   echo "  --changelog <path>   Use contents of this file as the release changelog"
   echo "                       (skips the git-log derivation; confirmation prompt still shown)"
@@ -67,7 +67,7 @@ fi
 # Derive tap from repo owner if not specified
 if [[ -z "$TAP" ]]; then
   OWNER="${REPO%%/*}"
-  TAP="${OWNER}/homebrew-vix"
+  TAP="${OWNER}/homebrew-cortex"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -82,10 +82,12 @@ if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then
   fi
 fi
 
-if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then
-  echo "!! DISCORD_WEBHOOK_URL is not set. Configure it in your environment or in .env before releasing."
-  exit 1
-fi
+# Note: DISCORD_WEBHOOK_URL is optional. If absent, the release is still
+# created — the Discord announcement step in publish.sh just becomes a no-op.
+# if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then
+#   echo "!! DISCORD_WEBHOOK_URL is not set. Configure it in your environment or in .env before releasing."
+#   exit 1
+# fi
 
 # --- Step 0: Ensure git working tree is clean ---
 echo "==> Checking git status..."
@@ -97,39 +99,12 @@ fi
 echo "==> Git working tree is clean."
 echo ""
 
-# --- Step 1: Verify YubiKey and establish persistent SSH connection ---
-echo "==> Checking YubiKey (SSH)..."
-
-# ControlPersist=yes so the master outlives the build; the EXIT trap tears it down.
-SSH_CONTROL_PATH="/tmp/ssh-vix-release-%h-%p-%r"
-SSH_OPTS="-o ControlMaster=auto -o ControlPath=$SSH_CONTROL_PATH -o ControlPersist=yes"
-export GIT_SSH_COMMAND="ssh $SSH_OPTS"
-
-# Establish the master connection in the background (only YubiKey prompt)
-ssh $SSH_OPTS -o ControlMaster=yes -N -f git@github.com
-
-# Clean up SSH master connection on exit
-cleanup_ssh() {
-  ssh $SSH_OPTS -O exit git@github.com 2>/dev/null || true
-}
-trap cleanup_ssh EXIT
-
-# Verify authentication works
-SSH_OUTPUT=$(ssh $SSH_OPTS -T git@github.com 2>&1 || true)
-if ! echo "$SSH_OUTPUT" | grep -qi "successfully authenticated"; then
-  echo "!! SSH authentication to GitHub failed. Is your YubiKey inserted?"
-  echo "   $SSH_OUTPUT"
-  exit 1
-fi
-echo "==> YubiKey confirmed (SSH connection will be reused for all operations)."
-echo ""
-
-# --- Step 2: Build ---
-# build.sh now produces only loose binaries in $ROOT_DIR/bin/.
-# publish.sh picks them up and owns tarballs, SHA256, GPG, formula.
+# --- Step 1: Build ---
+# build.sh produces loose binaries in $ROOT_DIR/bin/. publish.sh picks them
+# up and owns tarballs, SHA256, GPG, formula.
 "$SCRIPT_DIR/build.sh" --version "$VERSION" --force
 
-# --- Step 3: Publish ---
+# --- Step 2: Publish ---
 PUBLISH_ARGS=("$VERSION" --repo "$REPO")
 if [[ "$FORCE" == true ]]; then
   PUBLISH_ARGS+=(--force)
@@ -139,28 +114,32 @@ if [[ -n "$CHANGELOG_FILE" ]]; then
 fi
 "$SCRIPT_DIR/publish.sh" "${PUBLISH_ARGS[@]}"
 
-# --- Step 4: Update tap ---
-"$SCRIPT_DIR/update-tap.sh" "$VERSION" --tap "$TAP"
+# --- Step 3: Update tap (skipped silently if the user has not set up a tap) ---
+if [[ -n "$TAP" ]]; then
+  "$SCRIPT_DIR/update-tap.sh" "$VERSION" --tap "$TAP" || \
+    echo "!! Tap update failed; the GitHub release is still published."
+fi
 
-# --- Step 5: Tag the release commit (GPG-signed) ---
+# --- Step 4: Tag the release commit (GPG-signed if configured) ---
 echo ""
-echo "==> Tagging commit as $VERSION (GPG-signed)..."
+echo "==> Tagging commit as $VERSION..."
 if [[ "$FORCE" == true ]]; then
   git tag -d "$VERSION" 2>/dev/null || true
 fi
-# -s signs with user.signingkey (must be configured in git config). The
-# YubiKey's OpenPGP applet will prompt for touch+PIN if gpg-agent hasn't
-# cached it this session — expect a pause here on fresh runs.
-echo "→  TOUCH your YubiKey when it blinks (PIN prompt will appear first if not cached)"
-git tag -s "$VERSION" -m "Release $VERSION"
-echo "==> Tagged and signed $VERSION."
+if git config --get user.signingkey >/dev/null 2>&1; then
+  echo "→  Signing tag (will prompt for YubiKey / GPG key touch if needed)"
+  git tag -s "$VERSION" -m "Release $VERSION" || git tag -a "$VERSION" -m "Release $VERSION"
+else
+  git tag -a "$VERSION" -m "Release $VERSION"
+fi
+echo "==> Tagged $VERSION."
 
 # --- Done ---
 echo ""
 echo "================================================"
-echo "  Vix $VERSION released successfully!"
+echo "  cortex-cli $VERSION released successfully!"
 echo ""
 echo "  Install with:"
-echo "    brew tap ${TAP%%/*}/vix"
-echo "    brew install vix"
+echo "    brew tap ${TAP%%/*}/cortex"
+echo "    brew install cortex"
 echo "================================================"

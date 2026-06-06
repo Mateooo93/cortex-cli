@@ -13,8 +13,8 @@ type Config struct {
 	Model      string
 	CWD        string
 	Workdir    string
-	ConfigDir  string // absolute path, or "" for default ~/.vix + ./.vix behavior
-	Paths      VixPaths
+	ConfigDir  string // absolute path, or "" for default ~/.cortex + ./.cortex behavior
+	Paths      CortexPaths
 	ForceInit  bool
 	SocketPath string
 }
@@ -24,8 +24,8 @@ type Config struct {
 // If workdir is non-empty, it is resolved to an absolute path and used as the
 // session working directory instead of os.Getwd().
 // If configDir is non-empty, it is resolved to an absolute path and used as
-// the sole .vix config root (ignoring ~/.vix and ./.vix).
-// If socketPath is empty, /tmp/vixd.sock is used.
+// the sole .cortex config root (ignoring ~/.cortex and ./.cortex).
+// If socketPath is empty, /tmp/cortexd.sock is used.
 func Load(forceInit bool, workdir, configDir, socketPath string) (*Config, error) {
 	// Model selection now lives in the active chat agent's `model:` YAML
 	// frontmatter (resolved per-session in the daemon). The Config.Model
@@ -55,7 +55,7 @@ func Load(forceInit bool, workdir, configDir, socketPath string) (*Config, error
 	}
 
 	if socketPath == "" {
-		socketPath = "/tmp/vixd.sock"
+		socketPath = "/tmp/cortexd.sock"
 	}
 
 	return &Config{
@@ -63,29 +63,29 @@ func Load(forceInit bool, workdir, configDir, socketPath string) (*Config, error
 		CWD:        cwd,
 		Workdir:    workdir,
 		ConfigDir:  configDir,
-		Paths:      NewVixPaths(configDir, HomeVixDir(), cwd),
+		Paths:      NewCortexPaths(configDir, HomeCortexDir(), cwd),
 		ForceInit:  forceInit,
 		SocketPath: socketPath,
 	}, nil
 }
 
-// HomeVixDir returns the path to ~/.vix/.
-func HomeVixDir() string {
+// HomeCortexDir returns the path to ~/.cortex/.
+func HomeCortexDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".vix")
+	return filepath.Join(home, ".cortex")
 }
 
 // DaemonConfig holds daemon-side configuration.
 type DaemonConfig struct {
-	HomeVixDir string
+	HomeCortexDir string
 	// AuthToken is the shared-secret string the daemon will require on every
-	// incoming socket message. Loaded from the file pointed at by vixd's
-	// -auth-token-path flag (cmd/vixd/main.go). Empty means "no auth check"
-	// — that mode exists for in-process tests and trusted-host embeddings;
-	// production deployments always populate it.
+	// incoming socket message. Loaded from the file pointed at by the
+	// -auth-token-path flag. Empty means "no auth check" — that mode exists
+	// for in-process tests and trusted-host embeddings; production
+	// deployments always populate it.
 	AuthToken string
 }
 
@@ -102,23 +102,23 @@ type ToolBackendConfig struct {
 
 // LoadDaemonConfig loads daemon configuration with defaults.
 func LoadDaemonConfig() (*DaemonConfig, error) {
-	homeDir := HomeVixDir()
+	homeDir := HomeCortexDir()
 	if homeDir != "" {
 		os.MkdirAll(homeDir, 0o755)
-		if err := BootstrapHomeVixDir(homeDir); err != nil {
+		if err := BootstrapHomeCortexDir(homeDir); err != nil {
 			log.Printf("[config] bootstrap failed: %v", err)
 		}
 	}
 
 	return &DaemonConfig{
-		HomeVixDir: homeDir,
+		HomeCortexDir: homeDir,
 	}, nil
 }
 
-// TelemetryEnabled reads the telemetry feature flag from ~/.vix/settings.json.
+// TelemetryEnabled reads the telemetry feature flag from ~/.cortex/settings.json.
 // Returns true if the flag is absent (opt-out model).
 func TelemetryEnabled() bool {
-	p := filepath.Join(HomeVixDir(), "settings.json")
+	p := filepath.Join(HomeCortexDir(), "settings.json")
 	data, err := os.ReadFile(p)
 	if err != nil {
 		return true // default: enabled
@@ -135,10 +135,10 @@ func TelemetryEnabled() bool {
 	return true
 }
 
-// ShowThinking reads the show_thinking feature flag from ~/.vix/settings.json.
+// ShowThinking reads the show_thinking feature flag from ~/.cortex/settings.json.
 // Returns false if the flag is absent (opt-in: thinking is hidden by default).
 func ShowThinking() bool {
-	p := filepath.Join(HomeVixDir(), "settings.json")
+	p := filepath.Join(HomeCortexDir(), "settings.json")
 	data, err := os.ReadFile(p)
 	if err != nil {
 		return false
@@ -152,10 +152,10 @@ func ShowThinking() bool {
 	return cfg.Features["show_thinking"]
 }
 
-// SetShowThinking writes the show_thinking feature flag to ~/.vix/settings.json,
+// SetShowThinking writes the show_thinking feature flag to ~/.cortex/settings.json,
 // preserving other top-level keys (theme, other features, etc).
 func SetShowThinking(v bool) error {
-	home := HomeVixDir()
+	home := HomeCortexDir()
 	if home == "" {
 		return fmt.Errorf("no home directory")
 	}
@@ -192,7 +192,7 @@ type ThemeConfig struct {
 // ElevenLabsAgentID reads the elevenlabs.agent_id from the layered settings
 // files (home then project, last non-empty wins). Falls back to the built-in
 // default if no value is configured.
-func ElevenLabsAgentID(paths VixPaths) string {
+func ElevenLabsAgentID(paths CortexPaths) string {
 	const defaultID = "agent_7501kqrztj1te17ssqz5wqpnvkf3"
 	result := defaultID
 	for _, p := range paths.Settings() {
@@ -218,7 +218,7 @@ func ElevenLabsAgentID(paths VixPaths) string {
 // ElevenLabsAuthMode reads the elevenlabs.auth_mode from the layered settings
 // files (home then project, last non-empty wins). Returns "public" by default.
 // Set to "signed_url" to require a server-side ELEVENLABS_API_KEY instead.
-func ElevenLabsAuthMode(paths VixPaths) string {
+func ElevenLabsAuthMode(paths CortexPaths) string {
 	result := "public"
 	for _, p := range paths.Settings() {
 		data, err := os.ReadFile(p)
@@ -243,7 +243,7 @@ func ElevenLabsAuthMode(paths VixPaths) string {
 // LoadThemeConfig reads theme colors from settings.json files in the order
 // returned by paths.Settings() — home then project in normal mode, or just
 // the override in config-dir mode.
-func LoadThemeConfig(paths VixPaths) ThemeConfig {
+func LoadThemeConfig(paths CortexPaths) ThemeConfig {
 	var tc ThemeConfig
 
 	for _, p := range paths.Settings() {

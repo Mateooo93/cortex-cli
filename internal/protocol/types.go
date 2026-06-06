@@ -12,10 +12,10 @@ import (
 // AuthToken carries the shared-secret token the daemon was started with via
 // -auth-token-path. The daemon validates it on every message — both the
 // initial session.start and every follow-up — and closes the connection on
-// mismatch. The auth check is OFF by default: when vixd is launched without
-// -auth-token-path the daemon-side token is empty, AuthToken is ignored,
-// and any caller is accepted (legacy single-user-host behaviour). The
-// omitempty tag keeps the wire format clean in that mode.
+// mismatch. The auth check is OFF by default: when the daemon is launched
+// without -auth-token-path the daemon-side token is empty, AuthToken is
+// ignored, and any caller is accepted (legacy single-user-host behaviour).
+// The omitempty tag keeps the wire format clean in that mode.
 type SessionCommand struct {
 	Type      string          `json:"type"`
 	AuthToken string          `json:"auth_token,omitempty"`

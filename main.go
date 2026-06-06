@@ -1,10 +1,10 @@
-// Cortex CLI — main entry point.
+// cortex-cli — main entry point.
 //
-// This is a vix-derived TUI: we keep the entire `internal/ui/` tree from
-// vix (bubbletea + lipgloss + glamour) so the visual style is identical
-// to vix's. We replace the vixd daemon with an in-process session and
-// use the cortex-aware provider layer to talk to the user's chosen
-// LLM (Cortex, OpenAI, Anthropic, or Ollama).
+// cortex-cli is a fork of vix (https://github.com/get-vix/vix). We keep
+// the entire `internal/ui/` tree (bubbletea + lipgloss + glamour) so the
+// TUI is identical to vix's, then replace vix's `vixd` daemon with an
+// in-process session and a cortex-aware provider layer that talks to
+// Cortex, OpenAI, Anthropic, or Ollama.
 package main
 
 import (
@@ -82,7 +82,8 @@ func main() {
 		cwd = *workdir
 	}
 
-	// Resolve vix-compatible config (for the UI; we keep the same shape)
+	// vixCfg is the vix-style config the (forked) UI needs; cortexCfg is
+	// the cortex-specific config (providers, swarm settings, etc).
 	vixCfg, err := config.Load(false, cwd, "", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

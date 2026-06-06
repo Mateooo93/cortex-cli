@@ -96,7 +96,7 @@ func renderQuitDialog(width, height int, s Styles, selected int) string {
 
 	title := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).
 		Width(innerWidth).Align(lipgloss.Center).
-		Render("Quit vix?")
+		Render("Quit cortex-cli?")
 
 	sep := s.CommandPaletteSepStyle.Width(innerWidth).Render(strings.Repeat("─", innerWidth))
 

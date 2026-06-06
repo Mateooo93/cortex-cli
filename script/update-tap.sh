@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   echo "Usage: $0 <version> --tap <owner/homebrew-repo>"
-  echo "  e.g. $0 v0.1.0 --tap get-vix/homebrew-vix"
+  echo "  e.g. $0 v0.1.0 --tap Mateooo93/homebrew-cortex"
   exit 1
 }
 
@@ -44,8 +44,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 
-if [[ ! -f "$DIST_DIR/vix.rb" ]]; then
-  echo "Missing dist/vix.rb — run build.sh first."
+if [[ ! -f "$DIST_DIR/cortex.rb" ]]; then
+  echo "Missing dist/cortex.rb — run build.sh first."
   exit 1
 fi
 
@@ -58,13 +58,13 @@ git clone "git@github.com:${TAP}.git" "$TMPDIR/tap"
 
 # Copy formula
 mkdir -p "$TMPDIR/tap/Formula"
-cp "$DIST_DIR/vix.rb" "$TMPDIR/tap/Formula/vix.rb"
+cp "$DIST_DIR/cortex.rb" "$TMPDIR/tap/Formula/cortex.rb"
 
 # Commit and push
 cd "$TMPDIR/tap"
-git add Formula/vix.rb
-git commit -m "vix $VERSION"
+git add Formula/cortex.rb
+git commit -m "cortex $VERSION"
 git push
 
 echo ""
-echo "==> Homebrew tap $TAP updated with vix $VERSION"
+echo "==> Homebrew tap $TAP updated with cortex $VERSION"

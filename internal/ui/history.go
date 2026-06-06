@@ -17,10 +17,10 @@ type History struct {
 }
 
 // NewHistory creates a new history manager, loading from <baseDir>/history.txt.
-// baseDir should be the session's primary .vix directory (cfg.Paths.Primary()).
+// baseDir should be the session's primary .cortex directory (cfg.Paths.Primary()).
 func NewHistory(baseDir string) *History {
 	if baseDir == "" {
-		baseDir = ".vix"
+		baseDir = ".cortex"
 	}
 	h := &History{
 		path: filepath.Join(baseDir, "history.txt"),

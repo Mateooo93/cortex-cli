@@ -5,10 +5,10 @@ usage() {
   echo "Usage: $0 [--local | --tap <owner/tap>]"
   echo ""
   echo "  --local          Install from local dist/ tarballs and formula (default)"
-  echo "  --tap owner/tap  Install via 'brew tap owner/tap && brew install vix'"
+  echo "  --tap owner/tap  Install via 'brew tap owner/tap && brew install cortex'"
   echo ""
   echo "  e.g. $0 --local"
-  echo "  e.g. $0 --tap get-vix/tap"
+  echo "  e.g. $0 --tap Mateooo93/cortex"
   exit 1
 }
 
@@ -48,8 +48,8 @@ else
 fi
 
 if [[ "$MODE" == "local" ]]; then
-  if [[ ! -f "$DIST_DIR/vix-local.rb" ]]; then
-    echo "Missing $DIST_DIR/vix-local.rb — run release.sh first."
+  if [[ ! -f "$DIST_DIR/cortex-local.rb" ]]; then
+    echo "Missing $DIST_DIR/cortex-local.rb — run release.sh first."
     exit 1
   fi
 
@@ -66,18 +66,12 @@ if [[ "$MODE" == "local" ]]; then
       else
         echo '==> Skipping keychain tools (apt failed — not required for testing)'
       fi
-      mkdir -p \$(brew --repo)/Library/Taps/local/homebrew-vix/Formula
-      cp /tmp/dist/vix-local.rb \$(brew --repo)/Library/Taps/local/homebrew-vix/Formula/vix.rb
-      echo '==> Installing vix via Homebrew...'
-      brew install vix
+      mkdir -p \$(brew --repo)/Library/Taps/local/homebrew-cortex/Formula
+      cp /tmp/dist/cortex-local.rb \$(brew --repo)/Library/Taps/local/homebrew-cortex/Formula/cortex.rb
+      echo '==> Installing cortex via Homebrew...'
+      brew install cortex
       echo ''
-      echo '==> Done! Type \"vix\" to test.'
-      echo ''
-      echo '  # Store a test secret'
-      echo '  secret-tool store --label=\"vix api key\" service vix username anthropic-api-key'
-      echo ''
-      echo '  # Look it up'
-      echo '  secret-tool lookup service vix username anthropic-api-key'
+      echo '==> Done! Type \"cortex\" to test.'
       echo ''
       exec bash
     "
@@ -96,16 +90,10 @@ else
       fi
       echo '==> brew tap $TAP'
       brew tap $TAP
-      echo '==> brew install vix'
-      brew install vix
+      echo '==> brew install cortex'
+      brew install cortex
       echo ''
-      echo '==> Done! Type \"vix\" to test.'
-      echo ''
-      echo '  # Store a test secret'
-      echo '  secret-tool store --label=\"vix api key\" service vix username anthropic-api-key'
-      echo ''
-      echo '  # Look it up'
-      echo '  secret-tool lookup service vix username anthropic-api-key'
+      echo '==> Done! Type \"cortex\" to test.'
       echo ''
       exec bash
     "

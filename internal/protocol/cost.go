@@ -95,7 +95,7 @@ func CalculateCost(model string, input, output, cacheWrite, cacheRead int64) flo
 	return cost
 }
 
-// splitModelSpec returns (provider, bareModelName) from a vix model spec.
+// splitModelSpec returns (provider, bareModelName) from a vix-style model spec.
 // Examples:
 //
 //	"anthropic/claude-opus-4-8"             → ("anthropic", "claude-opus-4-8")

@@ -1,7 +1,7 @@
-// Package daemon provides a stub SessionClient that wraps the in-process
-// session. It exposes the same surface the vix UI calls into, so the UI
-// code in internal/ui/ doesn't have to change. The "socket" path is
-// unused — the client talks directly to the session.
+// Package daemon provides a SessionClient that wraps the in-process
+// session. It exposes the same surface the (forked) vix UI calls into,
+// so the UI code in internal/ui/ doesn't have to change. The "socket"
+// path is unused — the client talks directly to the session.
 package daemon
 
 import (
@@ -33,7 +33,7 @@ func (c *Client) SetAuthToken(t string) { c.authToken = t }
 func (c *Client) Ping() bool { return true }
 
 // SessionClient is the in-process session wrapped to expose the same
-// methods the vix UI calls.
+// methods the (forked) vix UI calls.
 type SessionClient struct {
 	mu sync.Mutex
 	// The wrapped session
@@ -44,7 +44,7 @@ type SessionClient struct {
 	id string
 	// Auth token (unused)
 	authToken string
-	// Started-at time (matches vix's SessionClient.StartedAt())
+	// Started-at time (matches the vix SessionClient.StartedAt() shape)
 	startedAt time.Time
 	// One-shot channels for pending user input
 	confirmCh     chan confirmReq

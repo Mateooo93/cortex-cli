@@ -1,6 +1,6 @@
 // Package session implements the in-process chat session. It holds
 // conversation state, dispatches to the configured LLM provider, and
-// emits vix-protocol events on a channel for the TUI to consume.
+// emits protocol events on a channel for the TUI to consume.
 package session
 
 import (

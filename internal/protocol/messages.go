@@ -3,7 +3,8 @@ package protocol
 import "time"
 
 // MaxMessageSize is the maximum size of a single JSON-line message on the
-// vix IPC wire (daemon ↔ client socket, orchestrator ↔ python subprocess).
+// vix-compatible IPC wire (daemon ↔ client socket, orchestrator ↔ python
+// subprocess).
 // Tool results — especially read_file on large source files — can easily
 // exceed the old 1 MB ceiling, so buffers on both sides size up to this.
 // The cap is an outer wall; individual tools still apply their own smaller

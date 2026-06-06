@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-func TestVixPaths_NormalMode(t *testing.T) {
-	p := NewVixPaths("", "/home/.vix", "/project")
+func TestCortexPaths_NormalMode(t *testing.T) {
+	p := NewCortexPaths("", "/home/.cortex", "/project")
 
 	if p.IsOverride() {
 		t.Error("expected IsOverride false in normal mode")
 	}
 
 	layers := p.Layers()
-	want := []string{"/home/.vix", filepath.Join("/project", ".vix")}
+	want := []string{"/home/.cortex", filepath.Join("/project", ".cortex")}
 	if len(layers) != len(want) {
 		t.Fatalf("Layers length = %d, want %d", len(layers), len(want))
 	}
@@ -23,19 +23,19 @@ func TestVixPaths_NormalMode(t *testing.T) {
 		}
 	}
 
-	if got := p.Primary(); got != filepath.Join("/project", ".vix") {
-		t.Errorf("Primary = %q, want %q", got, filepath.Join("/project", ".vix"))
+	if got := p.Primary(); got != filepath.Join("/project", ".cortex") {
+		t.Errorf("Primary = %q, want %q", got, filepath.Join("/project", ".cortex"))
 	}
 
-	if got := p.Logs(); got != filepath.Join("/home/.vix", "logs") {
-		t.Errorf("Logs = %q, want %q", got, filepath.Join("/home/.vix", "logs"))
+	if got := p.Logs(); got != filepath.Join("/home/.cortex", "logs") {
+		t.Errorf("Logs = %q, want %q", got, filepath.Join("/home/.cortex", "logs"))
 	}
 
-	if got := p.AccessStatsDB(); got != filepath.Join("/project", ".vix", "access_stats.db") {
+	if got := p.AccessStatsDB(); got != filepath.Join("/project", ".cortex", "access_stats.db") {
 		t.Errorf("AccessStatsDB = %q", got)
 	}
 
-	if got := p.History(); got != filepath.Join("/project", ".vix", "history.txt") {
+	if got := p.History(); got != filepath.Join("/project", ".cortex", "history.txt") {
 		t.Errorf("History = %q", got)
 	}
 
@@ -43,7 +43,7 @@ func TestVixPaths_NormalMode(t *testing.T) {
 	if len(settings) != 2 {
 		t.Fatalf("Settings length = %d, want 2", len(settings))
 	}
-	if settings[1] != filepath.Join("/project", ".vix", "settings.json") {
+	if settings[1] != filepath.Join("/project", ".cortex", "settings.json") {
 		t.Errorf("project settings = %q", settings[1])
 	}
 
@@ -57,8 +57,8 @@ func TestVixPaths_NormalMode(t *testing.T) {
 	}
 }
 
-func TestVixPaths_OverrideMode(t *testing.T) {
-	p := NewVixPaths("/custom", "/home/.vix", "/project")
+func TestCortexPaths_OverrideMode(t *testing.T) {
+	p := NewCortexPaths("/custom", "/home/.cortex", "/project")
 
 	if !p.IsOverride() {
 		t.Error("expected IsOverride true")
@@ -116,12 +116,12 @@ func TestVixPaths_OverrideMode(t *testing.T) {
 	}
 }
 
-func TestVixPaths_NormalModeWithoutHome(t *testing.T) {
-	p := NewVixPaths("", "", "/project")
+func TestCortexPaths_NormalModeWithoutHome(t *testing.T) {
+	p := NewCortexPaths("", "", "/project")
 
 	layers := p.Layers()
 	// Without home, layers is just [project]
-	if len(layers) != 1 || layers[0] != filepath.Join("/project", ".vix") {
+	if len(layers) != 1 || layers[0] != filepath.Join("/project", ".cortex") {
 		t.Errorf("Layers without home = %v", layers)
 	}
 

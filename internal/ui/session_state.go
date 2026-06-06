@@ -84,7 +84,7 @@ type SessionState struct {
 	// Animation
 	thinkingAnim ThinkingAnim
 
-	// Input recall history (.vix/history.txt)
+	// Input recall history (.cortex/history.txt)
 	history *History
 
 	// Current model name
