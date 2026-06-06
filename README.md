@@ -177,34 +177,55 @@ export OPENAI_API_KEY=sk-...
 ### ChatGPT (codex) — use your existing subscription
 
 The **ChatGPT (codex)** provider authenticates with your ChatGPT
-Plus / Pro / Team subscription, so you don't need a separate
-OpenAI API key.
+Plus / Pro / Team subscription via the official OpenAI OAuth flow
+— same flow the OpenAI Codex CLI uses, same `app_oauth_agent`
+client_id, same `auth.openai.com/oauth/authorize` endpoint.
+You do **not** need a separate OpenAI API key.
 
 1. Open the TUI and switch to the **Settings** tab (F3).
 2. In the left column, pick **ChatGPT (codex)**.
 3. In the right column, pick a model (e.g. `GPT-5.5 (ChatGPT)`)
    and press **Enter**.
-4. The "Sign in with ChatGPT" prompt opens. Press **Enter** —
-   your browser opens to `auth.openai.com`.
-5. Approve the device. cortex-cli stores the resulting OAuth
-   token in your OS keychain and switches the active model.
+4. **Your browser opens automatically** to `auth.openai.com`.
+   The status bar shows *"Opening ChatGPT sign-in in your
+   browser…"* while the local callback server comes up.
+5. Sign in with your ChatGPT account and approve the device.
+6. You're redirected back to `http://127.0.0.1:1455/auth/callback`.
+   cortex-cli stores the OAuth token (access, refresh, JWT
+   claims including `chatgpt-account-id`, `email`, `plan_type`,
+   `exp`) in the OS keychain and switches the active model.
+
+That's it — no intermediate *"press Enter to sign in"* panel,
+no API-key prompt, no extra steps. The single Enter on the
+codex model row is what kicks off the browser.
 
 To sign out: in the Settings tab, open the **API Keys** manager
 and press **Del** on the ChatGPT (codex) row.
 
 The OAuth flow:
 
-* Listens on `http://127.0.0.1:1455/auth/callback` (falls back
-  to a random free port if 1455 is busy).
-* Opens the default browser via `xdg-open` (Linux) / `open`
-  (macOS) / `wslview` (WSL). If none of these are available,
-  the authorize URL is shown in the status bar — copy it into
-  a browser manually.
-* Reads the JWT and stores the access token, refresh token,
-  email, plan type, and `chatgpt-account-id` claim in the
-  keychain. Expired access tokens are refreshed transparently.
-* CI / headless: set `CODEX_CODEX_TOKEN=eyJ...` instead of going
-  through the browser.
+* **Callback URL:** `http://127.0.0.1:1455/auth/callback`
+  (falls back to a random free port if 1455 is busy).
+* **Authorize endpoint:** `https://auth.openai.com/oauth/authorize`
+  with `client_id=app_oauth_agent`, PKCE-S256, CSRF state.
+* **Token endpoint:** `https://auth.openai.com/oauth/token`.
+* **Browser launch:** `xdg-open` (Linux) / `open` (macOS) /
+  `wslview` (WSL). If none of these are available, the
+  authorize URL is shown in the status bar — copy it into a
+  browser manually.
+* **JWT parsing:** reads the `https://api.openai.com/auth`
+  custom claim to extract `chatgpt_account_id` and
+  `chatgpt_plan_type`, plus the standard `email` and `exp`
+  claims.
+* **Keychain:** stores the JSON-encoded token under
+  `service=cortex-cli`, `user=codex-oauth-token`. macOS
+  Keychain / Linux Secret Service / Windows Credential Manager.
+* **Refresh:** expired access tokens are refreshed
+  transparently on next use; the new bundle replaces the old
+  in the keychain.
+* **CI / headless:** set `CODEX_CODEX_TOKEN=eyJ...` (a raw
+  ChatGPT-subscription JWT) instead of going through the
+  browser. The token is treated as already-signed-in.
 
 ### Anthropic (Claude)
 

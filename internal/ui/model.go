@@ -901,10 +901,11 @@ func (m *Model) fetchModelsForProvider(providerName string) tea.Cmd {
 }
 
 // startCodexLoginCmd kicks off the codex OAuth flow in the background.
-// The returned tea.Cmd resolves to a codexLoginStartedMsg, which the
-// Update() loop turns into either a success or failure message after
-// the browser round-trip. The model.go handler is responsible for
-// applying the resulting token to the active model.
+// The returned tea.Cmd resolves to a codexLoginSuccessMsg or
+// codexLoginFailedMsg after the browser round-trip. Callers should
+// also emit a status message ("Opening ChatGPT sign-in in your
+// browser…") so the user has immediate feedback that the flow is
+// running.
 func (m *Model) startCodexLoginCmd(pendingModel string) tea.Cmd {
 	return func() tea.Msg {
 		// Give the user a 5-minute window to complete the OAuth flow.
@@ -1396,16 +1397,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				sess.input.Blur()
 			case rpActionCodexSignIn:
 				// Close the panel and run the OAuth flow in a
-				// goroutine. The user will see a brief "Signing in…"
-				// message, their browser opens, they sign in, and we
-				// fire a tea.Cmd when done so the model can switch
-				// back to the chat without blocking the UI.
+				// goroutine. The user will see an immediate
+				// "Opening ChatGPT sign-in in your browser…"
+				// status line (so the action feels instant even
+				// before the browser appears), then their browser
+				// opens, they sign in, and we fire a tea.Cmd when
+				// done so the model can switch back to the chat
+				// without blocking the UI.
 				pendingModel := payload
 				sess.rightPanel.Close()
 				m.updateChatWidth()
 				sess.input.Focus()
 				sess.focus = FocusEditor
-				return m, m.startCodexLoginCmd(pendingModel)
+				return m, tea.Batch(
+					m.emitStatusMsg("Opening ChatGPT sign-in in your browser…", StatusMsgInfo),
+					m.startCodexLoginCmd(pendingModel),
+				)
 			case rpActionCodexSignOut:
 				_ = codex.Delete()
 				sess.rightPanel.OpenKeyManager(m.height)
