@@ -1,6 +1,6 @@
 <div align="center">
 <p align="center">
-  <img src="cortex-animation.gif" alt="Animated Cortex Logo" width="800" />
+  <img src="assets/cortex-animation.gif" alt="Animated Cortex Logo" width="800" />
 </p>
 # cortex-cli
 
