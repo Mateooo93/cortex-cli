@@ -292,6 +292,7 @@ Type `/` in the chat input to open the slash menu. Available built-ins:
 | Command | What it does |
 |---------|--------------|
 | `/model` | Opens a centered picker showing every model from every configured provider, with the provider name + auth method as a secondary line (e.g. `GPT-5.5 (ChatGPT)` with subtitle `codex · OAuth (subscription)`). Filter by typing. Enter selects. |
+| `/compact` | Compresses the conversation history to free up context window space. The TUI asks the current model to summarize the conversation into a 5-10 bullet recap (preserving decisions, file paths, error messages, tool names), then replaces the history with `[summary, …last 4 messages]`. Status bar shows `compacted 142k → 4k tokens (97% reduction)`. If the LLM call fails, falls back to dropping the oldest half of the messages. |
 | `/update` | Detects your OS + architecture, downloads the matching `cortex-<platform>` release from GitHub, verifies SHA-256 against `SHA256SUMS`, and replaces the current binary. Windows uses a detached helper process to handle the locked-file case (you can't delete a running `.exe`). User must restart after. |
 | `/login` | Opens a centered picker for OAuth / subscription sign-in (codex, claude-sub, copilot). For codex, type `codex --device` in the filter box to use the device-code flow (no localhost browser needed) — the TUI shows a one-time code you enter at <https://auth.openai.com/codex/device> from any browser. |
 | `/copy` | Copy the conversation to the clipboard. |
@@ -304,10 +305,50 @@ to live in the Settings tab. The Settings tab is now just:
 - **Providers** — configure base URLs, API keys, OAuth sign-in.
   OAuth providers (codex / claude-sub / copilot) open a browser
   sign-in directly when you press Enter on them; no API-key form.
+  Press **Tab** to move to Other Settings.
 - **Other Settings** — theme, thinking display, reasoning effort,
-  streaming, token-usage.
+  streaming, token-usage, **auto-compact context** (when enabled,
+  automatically runs `/compact` once you exceed 80% of the
+  model's context window). Press **Tab** to go back to Providers.
 
 To switch models, use `/model` in the chat tab.
+
+## Status bar, footer, and right panel
+
+The bottom of the screen is a single slim line:
+
+```
+● connected   GPT-5.5 · codex   ctx 12k / 200k (6%)   ⏱ 2:13   1 queued   [F1] [F2] [F3]
+```
+
+- `● connected` (green), `● reconnecting` (yellow), or `● disconnected` (red).
+- `GPT-5.5 · codex` is the active model + provider.
+- `ctx 12k / 200k (6%)` is the context window usage. Counts use
+  the model's reported `input_tokens` + `cache_read_tokens` with
+  a chars/4 fallback so the bar always shows something. Turns
+  yellow at 80% and red at 95%.
+- `⏱ 2:13` is the elapsed time since the session started.
+- `1 queued` appears when you have a pending message waiting
+  (Tab queued a follow-up).
+- `[F1] [F2] [F3]` are the tab switchers.
+
+A transient message line appears **above** the slim footer when
+something noteworthy happens (e.g. `⚠ context at 87% — auto-compacting…`,
+`✖ ChatGPT sign-in failed`, `ℹ Refreshing models for openai`).
+
+Press **Ctrl+B** to toggle the right-side info / status panel
+(OpenCode-style). The panel is read-only and shows:
+
+- **Model** — active model + provider
+- **Context** — 20-cell progress bar with percentage + warning
+  when auto-compact is about to fire
+- **Session** — elapsed time, session count, queued count,
+  connection state
+- **Keys** — full keybind legend (F1/F2/F3, Tab, Enter, Esc,
+  Ctrl+T, Ctrl+B, `/`)
+
+The chat input keeps focus when the panel is open, so you can
+keep typing while glancing at the stats.
 
 ## Keybindings
 

@@ -20,7 +20,14 @@ type Layout struct {
 // computeLayout calculates the vertical space allocation.
 // panelHeights are optional heights for attachment panel, history panel, etc.
 func computeLayout(width, height, inputLineCount int, panelHeights ...int) Layout {
-	const statusBarHeight = 2
+	// Status bar: 1 line (slim footer with connection · model ·
+	// ctx% · ⏱ · F1/F2/F3). The status bar grows to 2 lines
+	// when a transient message is active, but the layout
+	// doesn't reserve space for it; the status bar simply
+	// overlaps the bottom row of the chat viewport in that
+	// case (which is fine — the user can see the message and
+	// the message is short-lived).
+	const statusBarHeight = 1
 	const tabBarHeight = 3
 
 	// Input area: textarea lines + 2 for top/bottom border

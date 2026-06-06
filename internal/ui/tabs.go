@@ -201,9 +201,19 @@ func renderSessionsView(sessions []*SessionState, width, height int, s Styles, f
 	return s.ViewportFocusedStyle.Width(width).Height(height).Render(content)
 }
 
+// settingsSectionTitle renders a section heading like "▸ Providers" or
+// "  Other Settings". Active sections get a chevron + primary color;
+// inactive ones are dim and un-prefixed. The chevron makes it instantly
+// obvious which section the user is in — without it, the Settings tab
+// looked like a wall of identical grey text and users had to squint to
+// figure out where they were.
 func settingsSectionTitle(title string, active bool, innerWidth int) string {
 	style := lipgloss.NewStyle().Bold(true)
 	if active {
+		// Active section: chevron + primary blue + bold so the
+		// eye snaps to it. The chevron matches the row marker
+		// (▸) used for the active row in the provider list, so
+		// the two read as the same kind of "you are here".
 		style = style.Foreground(colorPrimary)
 	} else {
 		style = style.Foreground(colorDim)
@@ -277,6 +287,7 @@ type SettingsOtherView struct {
 	ReasoningEffort string
 	Streaming       bool
 	ShowUsage       bool
+	AutoCompact     bool
 }
 
 // SettingsInspectView is the rendered state for the inline provider
@@ -349,6 +360,20 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	}
 	sectionName := []string{"Providers", "Other Settings"}[activeSection]
 	divider := dimStyle.Width(innerWidth).Render(strings.Repeat("─", innerWidth))
+	// sectionIdx maps a logical section name to its index. The two
+	// sections (Providers, Other Settings) are numbered 0 and 1, so
+	// `activeSection` lines up 1:1 with `sectionIdx`. We use this
+	// helper instead of hardcoding `2` for Other Settings (which
+	// was the bug: cursor was never highlighted because `2` is
+	// outside the valid range).
+	sectionIdx := func(name string) int {
+		switch name {
+		case "Providers":
+			return 0
+		default: // "Other Settings"
+			return 1
+		}
+	}
 	sectionTitle := func(idx int, label string) string {
 		prefix := "  "
 		if activeSection == idx {
@@ -376,8 +401,13 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 
 	lines := []string{
 		titleStyle.Width(innerWidth).Render("Settings"),
-		activeStyle.Width(innerWidth).Render(settingsTruncate(activeSummary, innerWidth)),
-		dimStyle.Width(innerWidth).Render(settingsTruncate(providerSummary+" · Tab switches section", innerWidth)),
+		// Single summary line combining the active model +
+		// provider so the user has the full context in one
+		// row. (The previous version had two lines: one for
+		// "Active model: …" and one for "Provider: … · Tab
+		// switches section" which was redundant and the user
+		// complained about the duplication.)
+		dimStyle.Width(innerWidth).Render(settingsTruncate(providerSummary+" · "+activeSummary, innerWidth)),
 		divider,
 	}
 
@@ -402,6 +432,17 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	lines = append(lines,
 		sectionTitle(0, "Providers"),
 	)
+	if activeSection == 0 {
+		// Show the section's keybindings as a small right-aligned
+		// hint line so the user can see what to press without
+		// scrolling to the bottom. This addresses the user's
+		// complaint that the section headers were ambiguous:
+		// pairing the section title with its keymap makes the
+		// context explicit.
+		hintLine := dimStyle.Italic(true).Width(innerWidth).Render(
+			"  ↑/↓ move · Enter configure · a add · r refresh · Tab → Other")
+		lines = append(lines, hintLine)
+	}
 	apiRowsLimit := clampRows(height/6, 3, 6)
 	keyStart, keyEnd := settingsWindow(keySel, len(keys), apiRowsLimit)
 	// Provider names are bold and bright white so they read as headings.
@@ -489,9 +530,13 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	}
 	lines = append(lines, divider)
 
-	// Other Settings section, always visible.
+	// Other Settings section, always visible. Pass the actual
+	// section index (1) so the title's chevron + highlight follow
+	// the user's `tab` keypress. (The previous code passed `2`
+	// which never matched `activeSection` and so the section
+	// looked permanently inactive.)
 	lines = append(lines,
-		sectionTitle(2, "Other Settings"),
+		sectionTitle(sectionIdx("Other Settings"), "Other Settings"),
 	)
 	thinkingStatus := "Off"
 	thinkingToggle := "[ ]"
@@ -511,6 +556,12 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		usageStatus = "On"
 		usageToggle = "[✓]"
 	}
+	compactStatus := "Off"
+	compactToggle := "[ ]"
+	if other.AutoCompact {
+		compactStatus = "On"
+		compactToggle = "[✓]"
+	}
 	otherRows := []struct {
 		label string
 		value string
@@ -520,21 +571,34 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		{label: "Reasoning effort", value: normalizedSettingsValue(other.ReasoningEffort)},
 		{label: "Streaming responses", value: streamingToggle + " " + streamingStatus},
 		{label: "Show token usage", value: usageToggle + " " + usageStatus},
+		// Auto-compact context: triggers a /compact run when
+		// usage exceeds 80% of the model's context window.
+		// The slash command `/compact` always works regardless
+		// of this setting.
+		{label: "Auto-compact context", value: compactToggle + " " + compactStatus},
 	}
 	for i, row := range otherRows {
 		prefix := "  "
-		if activeSection == 2 && i == otherSel {
+		// Other Settings is section 1, not 2. The previous code
+		// compared against `2`, so the cursor was never drawn
+		// when the user was in this section — they could press
+		// tab to "switch" sections but the cursor was invisible
+		// so it looked like nothing happened. (The user reported
+		// this as "stays on providers, just unselects and
+		// reselects without going to other settings".)
+		isActive := activeSection == sectionIdx("Other Settings") && i == otherSel
+		if isActive {
 			prefix = "▸ "
 		}
 		rowText := settingsTruncate(fmt.Sprintf("%s%-26s %s", prefix, row.label, row.value), innerWidth)
 		rowStyle := mutedStyle
-		if activeSection == 2 && i == otherSel {
+		if isActive {
 			rowStyle = selectedStyle
 		}
 		lines = append(lines, rowStyle.Width(innerWidth).Render(rowText))
 	}
-	if activeSection == 2 {
-		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  ↑/↓ move · Enter toggle/cycle"))
+	if activeSection == sectionIdx("Other Settings") {
+		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  ↑/↓ move · Enter toggle/cycle · Tab switch to Providers"))
 	}
 
 	lines = append(lines, divider, dimStyle.Width(innerWidth).Render(settingsTruncate("Section: "+sectionName+" · F1 Sessions · F2 Workspace · F3 Settings", innerWidth)))
@@ -554,8 +618,7 @@ func renderSettingsWizardView(width, height int, s Styles, dimStyle, selectedSty
 
 	lines := []string{
 		titleStyle.Width(innerWidth).Render("Settings"),
-		activeStyle.Width(innerWidth).Render(settingsTruncate(activeSummary, innerWidth)),
-		dimStyle.Width(innerWidth).Render(settingsTruncate(providerSummary+" · Tab switches section", innerWidth)),
+		dimStyle.Width(innerWidth).Render(settingsTruncate(providerSummary+" · "+activeSummary, innerWidth)),
 		divider,
 		// The wizard is always opened from the Providers section; render
 		// it as the active section title (with the ▸ marker) without

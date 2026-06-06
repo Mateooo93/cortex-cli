@@ -303,7 +303,7 @@ type Model struct {
 	sessionsSelected int
 
 	// Settings tab UI
-	settingsActiveSection    int    // 0=models, 1=providers/API keys, 2=other settings
+	settingsActiveSection    int    // 0=providers, 1=other settings (Tab toggles between them)
 	settingsProviderSel      int    // row in ProvidersFromConfig (Model section, column 0)
 	settingsModelSel         int    // row in ModelsForProviderFromConfig(selected provider) (Model section, column 1)
 	settingsModelColumn      int    // 0 = provider column focused, 1 = model column focused
@@ -321,6 +321,13 @@ type Model struct {
 	settingsInspectProvider  string
 	settingsInspectField     int
 	settingsWizard           settingsWizard
+
+	// compactInFlight is true while a /compact (or auto-compact)
+	// run is in progress. The flag prevents stacking multiple
+	// compactions when several turns complete in quick
+	// succession (each one would otherwise see the same 80%+ usage
+	// and fire another compaction).
+	compactInFlight          bool
 
 	// Shared rendering
 	mdRenderer     *MarkdownRenderer
@@ -359,6 +366,135 @@ func (m *Model) currentSession() *SessionState {
 		return nil
 	}
 	return m.sessions[m.selectedSession]
+}
+
+// buildStatusBarInfo projects the slim-footer readouts from the
+// current session state. The footer shows: model, ctx%, elapsed.
+// If the session is nil (no chat yet) the values are zeroed and
+// the footer degrades to just the connection status.
+func (m *Model) buildStatusBarInfo(sess *SessionState) StatusBarInfo {
+	info := StatusBarInfo{
+		AutoCompact: m.configuredAutoCompact(),
+	}
+	if sess == nil {
+		return info
+	}
+	info.InputTokens = sess.inputTokens
+	info.CacheRead = sess.cacheReadTokens
+	info.Elapsed = time.Since(sess.createdAt)
+	if sess.pendingInput != nil && sess.pendingInput.Queued {
+		// A single pending message can be queued (Tab)
+		// waiting for the current turn to finish. Surface
+		// it as "1 queued" in the status bar so the user
+		// knows they have something waiting.
+		info.QueuedMsgs = 1
+	}
+	if spec := m.currentSettingsModel(); spec != "" {
+		info.ModelName = m.displayNameForModelSpec(spec)
+		if colon := strings.Index(spec, ":"); colon > 0 {
+			info.ProviderTag = spec[:colon]
+		}
+	}
+	if max := cortexconfig.ModelContextWindow(m.currentSettingsModel()); max > 0 {
+		info.ContextMax = max
+	}
+	// Fallback to chars/4 estimate so the bar shows something
+	// even before the first turn completes.
+	if info.InputTokens == 0 {
+		chars := 0
+		for _, msg := range sess.chatMessages {
+			chars += len(msg.Text)
+		}
+		if chars > 0 {
+			info.InputTokens = int64(chars / 4)
+		}
+	}
+	return info
+}
+
+// buildRightPanelInfoView collects the data the right panel's
+// info / status mode needs from the live model state. Keeping
+// this in the model layer (rather than the view layer) means the
+// right panel never has to know about SessionState / config /
+// timing, and tests can build an info view by hand.
+func (m *Model) buildRightPanelInfoView(sess *SessionState) RightPanelInfoView {
+	info := RightPanelInfoView{
+		SessionCount: len(m.sessions),
+		AutoCompact:  m.configuredAutoCompact(),
+	}
+	if sess != nil {
+		info.InputTokens = sess.inputTokens
+		info.OutputTokens = sess.outputTokens
+		info.CacheRead = sess.cacheReadTokens
+		info.Elapsed = time.Since(sess.createdAt)
+		if sess.pendingInput != nil && sess.pendingInput.Queued {
+			info.QueuedMsgs = 1
+		}
+		if sess.client != nil {
+			// SessionClient has no public Connected()
+			// method, so we treat non-nil + not currently
+			// reconnecting as "connected". This matches
+			// the status-bar connection check a few
+			// hundred lines down.
+			info.Connected = !sess.reconnecting
+		}
+		if sess.modelName != "" {
+			info.ModelName = sess.modelName
+		}
+		// Look up the provider display name from the
+		// cortexconfig presets so the panel can show
+		// "ChatGPT (codex)" instead of just "codex".
+		if m.cortexCfg != nil {
+			// First try: currentSettingsModel() returns
+			// the spec the user picked via /model; if
+			// that has a friendly name use it.
+			if spec := m.currentSettingsModel(); spec != "" {
+				if display := m.displayNameForModelSpec(spec); display != "" {
+					info.ModelName = display
+				}
+			}
+			// Resolve "provider" by stripping the
+			// "<provider>:" prefix from the spec.
+			if spec := m.currentSettingsModel(); spec != "" {
+				if colon := strings.Index(spec, ":"); colon > 0 {
+					info.ProviderName = cortexconfig.ProviderDisplayName(spec[:colon])
+				}
+			}
+		}
+	}
+	// Look up the model's context window.
+	if m.cortexCfg != nil {
+		if max := cortexconfig.ModelContextWindow(m.currentSettingsModel()); max > 0 {
+			info.ContextMax = max
+		}
+	}
+	// Fallback to the configured model's known window so the
+	// bar always shows a percentage (even for the default
+	// model the user hasn't picked via /model).
+	if info.ContextMax == 0 && m.cortexCfg != nil && m.cortexCfg.DefaultModel != "" {
+		if max := cortexconfig.ModelContextWindow(m.cortexCfg.DefaultModel); max > 0 {
+			info.ContextMax = max
+		}
+	}
+	// If we still don't have a real token count, fall back to a
+	// chars/4 estimate across the chat history so the bar isn't
+	// permanently at 0% on a brand-new session.
+	if info.InputTokens == 0 && sess != nil {
+		chars := 0
+		for _, msg := range sess.chatMessages {
+			chars += len(msg.Text)
+		}
+		if chars > 0 {
+			info.InputTokens = int64(chars / 4)
+		}
+	}
+	// If we still don't have a model name, fall back to the
+	// configured default. (Helps when the session hasn't
+	// resolved its model yet.)
+	if info.ModelName == "" && m.cortexCfg != nil {
+		info.ModelName = m.cortexCfg.DefaultModel
+	}
+	return info
 }
 
 // refreshSettingsKeys rebuilds the Settings provider/API rows from Cortex config.
@@ -1400,6 +1536,25 @@ func (m *Model) configuredShowUsage() bool {
 	return m.cortexCfg.ShowUsage
 }
 
+// configuredAutoCompact reports whether the user has enabled
+// auto-compact in Settings → Other Settings. The default is true
+// so brand-new users get the safety net; power users can turn it
+// off in the Settings tab.
+func (m *Model) configuredAutoCompact() bool {
+	if m.cortexCfg == nil {
+		return true
+	}
+	return m.cortexCfg.AutoCompact
+}
+
+func (m *Model) setConfiguredAutoCompact(v bool) {
+	if m.cortexCfg == nil {
+		return
+	}
+	m.cortexCfg.AutoCompact = v
+	_ = cortexconfig.Save(m.cortexCfg)
+}
+
 func (m *Model) setConfiguredTheme(theme string) {
 	if m.cortexCfg == nil {
 		return
@@ -1427,7 +1582,7 @@ func (m *Model) setConfiguredShowUsage(v bool) {
 
 // settingsOtherOptionCount matches the row count rendered in renderSettingsView
 // for the "Other Settings" section. Keep in sync with tabs.go.
-const settingsOtherOptionCount = 5
+const settingsOtherOptionCount = 6
 
 func (m *Model) setAllSessionsShowThinking(show bool) {
 	for _, sess := range m.sessions {
@@ -1748,10 +1903,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			newIdx := len(m.sessions)
 			m.sessions = append(m.sessions, newSess)
 			m.selectedSession = newIdx
+			cmds = append(cmds, m.emitStatusMsg("New session created", StatusMsgInfo))
+			// Continue the switch logic to wire up the
+			// session properly.
 			m.activeTab = TabKindChat
 			m.persistSessions()
 			cmds = append(cmds, attemptReconnect(m.socketPath, m.cwd, m.cfg.ConfigDir, activeModel, m.authToken, false, m.enableAutomaticWritePermission, m.enableAutomaticDirectoryAccess, newSess.daemonSessionID))
 			return m, tea.Batch(cmds...)
+
+		case "ctrl+b":
+			// Toggle the right-side info / status panel
+			// (OpenCode-style). The panel is read-only and
+			// shows: active model, context window usage,
+			// elapsed time, queued message count, and a
+			// compact keybind legend. The chat input keeps
+			// focus so the user can keep typing while
+			// glancing at the stats.
+			if sess != nil {
+				if sess.rightPanel.IsVisible() && sess.rightPanel.mode == rpModeInfo {
+					sess.rightPanel.Close()
+					m.updateChatWidth()
+				} else {
+					// Use a generous height; the panel
+					// will internally clamp. We don't
+					// have access to the live layout
+					// from the Update function, but the
+					// chat height is recomputed by the
+					// View() on the next frame.
+					sess.rightPanel.OpenInfo(m.height - 6)
+					m.updateChatWidth()
+				}
+			}
+			return m, nil
 
 		}
 
@@ -1971,6 +2154,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.settingsActiveSection == 0 {
 				// Provider/API section
 				m.refreshSettingsKeys()
+				m.refreshSettingsKeys()
 				if m.settingsWizard.active {
 					// Wizard is open. It owns the entire Providers
 					// section. Only arrows, Enter, and Esc are
@@ -2042,6 +2226,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						cmds = append(cmds, m.emitStatusMsg("Refreshing models for "+providerName, StatusMsgInfo), m.fetchModelsForProvider(providerName))
 					}
 				case "tab":
+					// Move to Other Settings. The 1 here is the
+					// section index (Providers=0, Other Settings=1)
+					// and matches the `sectionIdx` helper in
+					// tabs.go.
+					m.settingsActiveSection = 1
+				case "shift+tab":
 					m.settingsActiveSection = 1
 				case "f1":
 					m.activeTab = TabKindSessions
@@ -2097,8 +2287,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							state = "off"
 						}
 						cmds = append(cmds, m.emitStatusMsg("Show token usage: "+state, StatusMsgInfo))
+					case 5: // Auto-compact context — toggle
+						m.setConfiguredAutoCompact(!m.configuredAutoCompact())
+						state := "on"
+						if !m.configuredAutoCompact() {
+							state = "off"
+						}
+						cmds = append(cmds, m.emitStatusMsg("Auto-compact context: "+state+" (use /compact to run manually)", StatusMsgInfo))
 					}
 				case "tab":
+					// Move back to Providers (section 0).
+					m.settingsActiveSection = 0
+				case "shift+tab":
 					m.settingsActiveSection = 0
 				case "f1":
 					m.activeTab = TabKindSessions
@@ -2775,6 +2975,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case codexLoginFailedMsg:
 		return m, m.handleCodexLoginFailed(msg.err, msg.authorizeURL)
 
+	case compactMsg:
+		// /compact (or auto-compact) finished. Show the
+		// before/after stats in the status bar.
+		return m, m.handleCompactMsg(msg)
+
 	case selfUpdateFinishedMsg:
 		// Surface the result in the status bar so the user
 		// gets explicit feedback regardless of outcome.
@@ -3154,6 +3359,14 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		if done.ElapsedMs > 0 {
 			sess.lastOutputTokens = done.OutputTokens
 			sess.elapsed = time.Duration(done.ElapsedMs) * time.Millisecond
+		}
+		// After every assistant turn, check whether the
+		// session is close to its context window. If
+		// auto-compact is enabled and usage >= 80%, kick
+		// off a compaction in the background so the next
+		// turn starts with a clean context.
+		if autoCmd := m.maybeAutoCompact(); autoCmd != nil {
+			cmds = append(cmds, autoCmd)
 		}
 
 	case "event.tool_call":
@@ -3574,7 +3787,8 @@ func (m Model) View() tea.View {
 		// Right panel
 		if sess != nil && sess.rightPanel.IsVisible() {
 			rpHeight := layout.ChatHeight + 1
-			rpView := sess.rightPanel.View(rpHeight, m.styles, sess.focus == FocusRightPanel, sess.modelName, &sess.workflowGraphPanel, sess.todos)
+			infoView := m.buildRightPanelInfoView(sess)
+			rpView := sess.rightPanel.View(rpHeight, m.styles, sess.focus == FocusRightPanel, sess.modelName, &sess.workflowGraphPanel, sess.todos, infoView)
 			rpX := m.width - sess.rightPanel.PanelWidth()
 			uv.NewStyledString(rpView).Draw(canvas, image.Rect(rpX, y-1, m.width, y-1+rpHeight))
 		}
@@ -3630,6 +3844,7 @@ func (m Model) View() tea.View {
 			ReasoningEffort: m.currentReasoningEffort(),
 			Streaming:       m.configuredStreaming(),
 			ShowUsage:       m.configuredShowUsage(),
+			AutoCompact:     m.configuredAutoCompact(),
 		}
 		inspectView := m.settingsInspectView()
 		wizardView := m.settingsWizardView()
@@ -3649,7 +3864,7 @@ func (m Model) View() tea.View {
 			reconnecting = true
 		}
 	}
-	statusBar := renderStatusBar(m.width, connected, reconnecting, m.statusMsg, m.styles)
+	statusBar := renderStatusBar(m.width, connected, reconnecting, m.statusMsg, m.styles, m.buildStatusBarInfo(m.currentSession()))
 	uv.NewStyledString(statusBar).Draw(canvas, image.Rect(0, y, m.width, m.height))
 
 	// Command palette overlay
@@ -3774,6 +3989,11 @@ func (m Model) View() tea.View {
 func (m *Model) handleCommandAction(action string, sess *SessionState) []tea.Cmd {
 	var cmds []tea.Cmd
 	switch action {
+	case "compact_context":
+		// /compact slash command. Fire the compaction in
+		// a goroutine so the TUI stays responsive. The
+		// result lands in handleCompactMsg.
+		cmds = append(cmds, m.compactCmd())
 	case "open_model_picker":
 		// Open the centered /model picker overlay. The picker
 		// itself handles its own key events (filter, navigation,

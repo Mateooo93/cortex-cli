@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -22,6 +24,7 @@ const (
 	rpModeCodexSignIn                     // ChatGPT OAuth sign-in prompt
 	rpModeWorkflow                        // live workflow step progress
 	rpModeTodos                           // pending todo list
+	rpModeInfo                            // session info: model, ctx %, elapsed, keybinds
 )
 
 // RightPanelAction is the action returned by HandleKey.
@@ -108,6 +111,23 @@ func (rp *RightPanel) OpenWorkflow(height int) {
 func (rp *RightPanel) OpenTodos(height int) {
 	rp.visible = true
 	rp.mode = rpModeTodos
+	rp.height = height
+}
+
+// OpenInfo opens the info / status panel. This is the default
+// right-panel mode (toggled with Ctrl+B) and shows:
+//   - the active model + provider
+//   - context window usage (provider token counts with a
+//     chars/4 fallback)
+//   - elapsed time since session start
+//   - a compact keybind legend so the user doesn't have to dig
+//     through the status bar to find F1/F2/F3 etc.
+//
+// The info panel is read-only: every key (except esc) is a no-op
+// so it doesn't steal focus from the chat input behind it.
+func (rp *RightPanel) OpenInfo(height int) {
+	rp.visible = true
+	rp.mode = rpModeInfo
 	rp.height = height
 }
 
@@ -238,12 +258,31 @@ func (rp *RightPanel) HandleKey(msg tea.KeyPressMsg) (RightPanelAction, string) 
 	return rpActionNone, ""
 }
 
+// RightPanelInfoView is the rendered state of the info / status
+// panel (rpModeInfo). Computed by the View orchestrator so the
+// right panel doesn't have to know about SessionState /
+// cortexconfig.
+type RightPanelInfoView struct {
+	ModelName    string // e.g. "GPT-5.5 (ChatGPT)"
+	ProviderName string // e.g. "ChatGPT (codex)"
+	InputTokens  int64  // running total of input tokens (0 if unknown)
+	OutputTokens int64  // running total of output tokens
+	ContextMax   int64  // model's context window in tokens (0 if unknown)
+	CacheRead    int64  // total cache-read tokens (counted towards context)
+	Elapsed      time.Duration
+	Connected    bool
+	AutoCompact  bool // "auto-compact when context > 80%" setting
+	SessionCount int  // number of sessions in the sessions tab
+	QueuedMsgs   int  // number of pending user messages
+}
+
 // View renders the right panel as a bordered, full-height string.
 // focused controls whether the panel border uses the focus color.
 // activeModel is the currently active model API name (used to mark the selected model).
 // wfp is the workflow graph panel (used when mode is rpModeWorkflow).
 // todos is the current todo list (used in rpModeTodos and appended below steps in rpModeWorkflow).
-func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel string, wfp *WorkflowGraphPanel, todos []protocol.TodoItem) string {
+// info is the data for the info / status mode (rpModeInfo).
+func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel string, wfp *WorkflowGraphPanel, todos []protocol.TodoItem, info RightPanelInfoView) string {
 	innerWidth := panelWidth - 4 // border (2) + padding (2)
 
 	var lines []string
@@ -350,6 +389,17 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 		for _, t := range todos {
 			lines = append(lines, renderTodoOrStepLine(t.Content, string(t.Status), innerWidth))
 		}
+
+	case rpModeInfo:
+		// OpenCode-style info panel. Shows a compact
+		// dashboard of: active model, context window
+		// usage, elapsed time, and a quick keybind
+		// legend. Read-only.
+		//
+		// `info` is a parameterised view-model built by
+		// the View() caller so we don't have to depend
+		// on the live SessionState here.
+		lines = append(lines, rp.renderInfoView(innerWidth, info, s)...)
 	}
 
 	// Pad to fill height (subtract 2 for border top+bottom).
@@ -395,6 +445,213 @@ func stepStatus(step workflowGraphStep) string {
 	default:
 		return "failed"
 	}
+}
+
+// renderInfoView draws the OpenCode-style info / status panel:
+//   - Active model + provider (top)
+//   - Context window usage bar with percentage
+//   - Session stats: elapsed time, queued messages, sessions count
+//   - A compact keybind legend at the bottom
+//
+// The view is read-only — every keypress is ignored — so the chat
+// input behind the panel keeps focus and the user can keep typing
+// while glancing at the stats. The bar in the context section
+// uses a 20-character scale: each "▮" = 5% of the context window.
+func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s Styles) []string {
+	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
+	primaryStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
+	whiteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+	badgeStyle := lipgloss.NewStyle().Background(colorSecondary).Foreground(lipgloss.Color("0")).Bold(true)
+	warnStyle := lipgloss.NewStyle().Foreground(colorWarning)
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	okStyle := lipgloss.NewStyle().Foreground(colorSuccess)
+
+	lines := []string{}
+	title := " Status "
+	sep := strings.Repeat("─", innerWidth)
+	lines = append(lines,
+		primaryStyle.Width(innerWidth).Render(title),
+		dimStyle.Width(innerWidth).Render(sep),
+	)
+
+	// ── Active model block ───────────────────────────────────────
+	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Model"))
+	if info.ModelName != "" {
+		lines = append(lines, dimStyle.Width(innerWidth).Render(truncateRight(info.ModelName, innerWidth)))
+	} else {
+		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("(none)"))
+	}
+	if info.ProviderName != "" {
+		lines = append(lines, dimStyle.Width(innerWidth).Render(truncateRight("via "+info.ProviderName, innerWidth)))
+	}
+
+	lines = append(lines, "")
+
+	// ── Context usage block ──────────────────────────────────────
+	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Context"))
+	// used = input tokens + cache-read tokens (cache counts
+	// toward the model's context window).
+	used := info.InputTokens
+	if info.CacheRead > 0 {
+		// Some providers report cache reads separately; they
+		// still occupy context. Add them so the bar doesn't
+		// understate usage.
+		used += info.CacheRead
+	}
+	maxCtx := info.ContextMax
+	var pct float64
+	if maxCtx > 0 {
+		pct = float64(used) / float64(maxCtx) * 100
+		if pct > 100 {
+			pct = 100
+		}
+	} else {
+		// Unknown model — show the count but no percentage.
+		pct = -1
+	}
+	// 20-cell bar
+	const barCells = 20
+	filled := 0
+	if pct >= 0 {
+		filled = int(pct/100*float64(barCells) + 0.5)
+		if filled > barCells {
+			filled = barCells
+		}
+	}
+	bar := strings.Repeat("▮", filled) + strings.Repeat("▯", barCells-filled)
+	pctLabel := "?"
+	if pct >= 0 {
+		pctLabel = fmt.Sprintf("%.0f%%", pct)
+	}
+	// Colour the bar based on how close we are to the limit.
+	barColorStyle := okStyle
+	switch {
+	case pct >= 95:
+		barColorStyle = errStyle
+	case pct >= 80:
+		barColorStyle = warnStyle
+	}
+	lines = append(lines, barColorStyle.Width(innerWidth).Render(bar))
+	if maxCtx > 0 {
+		lines = append(lines, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
+			"%s / %s (%s)",
+			formatTokenCountShort(used),
+			formatTokenCountShort(maxCtx),
+			pctLabel,
+		)))
+	} else {
+		lines = append(lines, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
+			"%s tokens (window unknown)",
+			formatTokenCountShort(used),
+		)))
+	}
+	if info.AutoCompact && pct >= 80 {
+		// Pre-emptively warn the user that auto-compact will
+		// fire on the next turn unless they turn it off in
+		// Settings → Other Settings → Auto-compact context.
+		lines = append(lines, warnStyle.Italic(true).Width(innerWidth).Render("⚠ auto-compact will run on next turn"))
+	}
+
+	lines = append(lines, "")
+
+	// ── Session stats block ──────────────────────────────────────
+	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Session"))
+	lines = append(lines, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
+		"⏱  %s", formatDurationShort(info.Elapsed),
+	)))
+	if info.SessionCount > 0 {
+		lines = append(lines, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
+			"%d session%s", info.SessionCount, plural(info.SessionCount),
+		)))
+	}
+	if info.QueuedMsgs > 0 {
+		lines = append(lines, warnStyle.Width(innerWidth).Render(fmt.Sprintf(
+			"%d queued", info.QueuedMsgs,
+		)))
+	}
+	conn := okStyle.Render("● connected")
+	if !info.Connected {
+		conn = errStyle.Render("● disconnected")
+	}
+	lines = append(lines, dimStyle.Width(innerWidth).Render(conn))
+
+	lines = append(lines, "")
+
+	// ── Keybind legend ──────────────────────────────────────────
+	// Compact two-column key/value table. Each key gets a tiny
+	// inverse-color badge so it pops against the dim labels.
+	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Keys"))
+	for _, row := range [][2]string{
+		{"F1", "Sessions"},
+		{"F2", "Chat"},
+		{"F3", "Settings"},
+		{"Tab", "queue / § switch"},
+		{"Enter", "send"},
+		{"Esc", "cancel"},
+		{"Ctrl+T", "new session"},
+		{"Ctrl+B", "toggle panel"},
+		{"/", "slash menu"},
+	} {
+		// 8 chars for the badge column, rest for the action.
+		badge := badgeStyle.Render(fmt.Sprintf(" %-5s", row[0]))
+		lines = append(lines, badge+" "+dimStyle.Render(truncateRight(row[1], innerWidth-8)))
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("Esc close panel"))
+	return lines
+}
+
+// truncateRight is like settingsTruncate but right-side cut and
+// doesn't add "…" for an exact-fit string.
+func truncateRight(text string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= width {
+		return text
+	}
+	if width == 1 {
+		return "…"
+	}
+	return string(runes[:width-1]) + "…"
+}
+
+// formatTokenCountShort formats a token count as "1.2k" / "234k"
+// / "1.5M" so it fits in the right panel's 38-character inner
+// width.
+func formatTokenCountShort(n int64) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	if n < 10000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	if n < 1_000_000 {
+		return fmt.Sprintf("%dk", n/1000)
+	}
+	return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+}
+
+// formatDurationShort formats a duration as "0:42" / "1:23:45"
+// — the same format the chat turn-info line uses.
+func formatDurationShort(d time.Duration) string {
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%d:%02d", m, s)
+}
+
+// plural returns "s" if n != 1 (English pluralization helper).
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // renderTodoOrStepLine renders a single labelled item with a status icon, wrapped to innerWidth.

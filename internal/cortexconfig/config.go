@@ -242,6 +242,98 @@ func ProviderDisplayName(provider string) string {
 	return provider
 }
 
+// ModelContextWindow returns the model's context window in
+// tokens, or 0 if the model is unknown. Used by the right panel
+// to render the context-usage bar (input + cache-read / max).
+//
+// Values come from a built-in lookup table of the most common
+// 2024–2026 frontier models. The lookup is best-effort; if the
+// model isn't in the table, callers should treat 0 as "unknown"
+// and show the token count without a percentage.
+func ModelContextWindow(spec string) int64 {
+	if spec == "" {
+		return 0
+	}
+	// Normalize: drop the "provider:" prefix and lowercase.
+	raw := spec
+	if colon := strings.Index(raw, ":"); colon >= 0 {
+		raw = raw[colon+1:]
+	}
+	raw = strings.ToLower(strings.TrimSpace(raw))
+
+	// OpenAI / ChatGPT
+	if strings.HasPrefix(raw, "gpt-5") || raw == "gpt-5" {
+		return 400_000
+	}
+	if strings.HasPrefix(raw, "gpt-4.1") {
+		return 1_000_000
+	}
+	if strings.HasPrefix(raw, "gpt-4o") {
+		return 128_000
+	}
+	if strings.HasPrefix(raw, "gpt-4-turbo") || raw == "gpt-4-turbo" {
+		return 128_000
+	}
+	if strings.HasPrefix(raw, "o3") || strings.HasPrefix(raw, "o4") {
+		return 200_000
+	}
+	// Anthropic Claude
+	if strings.HasPrefix(raw, "claude-opus-4") || strings.HasPrefix(raw, "claude-4-opus") {
+		return 200_000
+	}
+	if strings.HasPrefix(raw, "claude-sonnet-4") || strings.HasPrefix(raw, "claude-4-sonnet") {
+		return 200_000
+	}
+	if strings.HasPrefix(raw, "claude-3-7-sonnet") || strings.HasPrefix(raw, "claude-3.7-sonnet") {
+		return 200_000
+	}
+	if strings.HasPrefix(raw, "claude-3-5-sonnet") {
+		return 200_000
+	}
+	if strings.HasPrefix(raw, "claude-3-5-haiku") {
+		return 200_000
+	}
+	if strings.HasPrefix(raw, "claude-3-opus") {
+		return 200_000
+	}
+	// Google Gemini
+	if strings.HasPrefix(raw, "gemini-2.5-pro") || strings.HasPrefix(raw, "gemini-2.5-flash") {
+		return 1_000_000
+	}
+	if strings.HasPrefix(raw, "gemini-2.0") {
+		return 1_000_000
+	}
+	if strings.HasPrefix(raw, "gemini-1.5-pro") {
+		return 2_000_000
+	}
+	if strings.HasPrefix(raw, "gemini-1.5-flash") {
+		return 1_000_000
+	}
+	// Mistral / Mixtral
+	if strings.HasPrefix(raw, "mistral-large-2") || strings.HasPrefix(raw, "mistral-large") {
+		return 128_000
+	}
+	if strings.HasPrefix(raw, "codestral") {
+		return 256_000
+	}
+	// Meta Llama
+	if strings.HasPrefix(raw, "llama-3.1-405b") || strings.HasPrefix(raw, "llama-3.1-70b") ||
+		strings.HasPrefix(raw, "llama-3.1-8b") || strings.HasPrefix(raw, "llama-3.3") {
+		return 128_000
+	}
+	// DeepSeek
+	if strings.HasPrefix(raw, "deepseek") {
+		return 128_000
+	}
+	// Qwen
+	if strings.HasPrefix(raw, "qwen-2.5") {
+		return 128_000
+	}
+	// Local models typically don't have a known window
+	// (depends on the deployment), so leave 0.
+	return 0
+}
+
 // ProviderEnvVar returns the API-key environment variable for a provider.
 func ProviderEnvVar(provider string) string {
 	if p, ok := presetForProvider(provider); ok {
@@ -368,6 +460,12 @@ type Config struct {
 	Streaming     bool                   `yaml:"streaming"`
 	ShowUsage     bool                   `yaml:"showUsage"`
 	Theme         string                 `yaml:"theme"`
+	// AutoCompact triggers an automatic /compact run when the
+	// current context window usage exceeds 80% of the model's
+	// window. Default true so users get a safety net on long
+	// sessions; power users can turn it off in Settings →
+	// Other Settings.
+	AutoCompact   bool                   `yaml:"autoCompact"`
 }
 
 // Default is the default config (matches the original TS default).
@@ -423,6 +521,7 @@ func Default() *Config {
 		},
 		Streaming: true,
 		ShowUsage: true,
+		AutoCompact: true,
 		Theme:     "auto",
 	}
 }

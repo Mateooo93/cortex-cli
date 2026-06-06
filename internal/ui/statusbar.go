@@ -8,58 +8,151 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// renderStatusBar renders the two-line status bar.
+// StatusBarInfo is the live data the slim footer needs to render
+// the context / model / elapsed-time readouts. Built by the model
+// from session state + cortexconfig. When fields are zero, the
+// corresponding segment is omitted (no "0 tokens" clutter).
+type StatusBarInfo struct {
+	ModelName   string
+	ProviderTag string        // short tag like "codex" or "anthropic"
+	InputTokens int64
+	CacheRead   int64
+	ContextMax  int64
+	Elapsed     time.Duration
+	QueuedMsgs  int
+	AutoCompact bool
+}
+
+// renderStatusBar renders the slim single-line status bar.
 //
-// Line 1 — always visible: shortcut hints on the left, connection status on the right.
-// Line 2 — either a transient message (warning / info / error) shown for 3 s, or the
-//          always-visible keybind hint that tells the user how to send, queue, and
-//          interrupt the agent. The hint is shown on the bottom-left so it never
-//          gets squeezed out by the connection badge.
+// The previous design was two lines: line 1 a wall of
+// F1/F2/F3/Tab/Enter/Ctrl+T keybind badges, line 2 a keybind
+// hint. That overflowed the available width on terminal < 120
+// cols and looked cluttered. The new design is a single slim
+// footer line: connection status · active model · context
+// usage · elapsed time · F1 F2 F3 tab bar (the only keybinds
+// that still need a persistent reminder).
+//
+// The keybind hint "Tab queue / Enter send / Esc cancel" moved
+// to the right-side info panel (Ctrl+B toggle) where the user
+// can read it without it competing with the rest of the UI.
 func renderStatusBar(
 	width int,
 	connected bool,
 	reconnecting bool,
 	msg StatusMessage,
 	s Styles,
+	info StatusBarInfo,
 ) string {
-	// ── Line 1: shortcuts + connection status ───────────────────────────────
 	badgeStyle := lipgloss.NewStyle().Background(colorSecondary).Foreground(lipgloss.Color("0")).Bold(true)
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	f1Badge := badgeStyle.Render(" F1 ")
-	f2Badge := badgeStyle.Render(" F2 ")
-	f3Badge := badgeStyle.Render(" F3 ")
-	tabBadge := badgeStyle.Render(" Tab ")
-	enterBadge := badgeStyle.Render(" Enter ")
-	ctrlTBadge := badgeStyle.Render(" Ctrl+T ")
-	shortcuts := f1Badge + labelStyle.Render(" Sessions ") +
-		f2Badge + labelStyle.Render(" Chat ") +
-		f3Badge + labelStyle.Render(" Settings ") +
-		enterBadge + labelStyle.Render(" send ") +
-		tabBadge + labelStyle.Render(" queue ") +
-		ctrlTBadge + labelStyle.Render(" new session")
+	dimLabel := lipgloss.NewStyle().Foreground(s.ColorDimGray)
 
+	// ── Connection status (left) ───────────────────────────────────────────
 	var connStatus string
 	if connected {
-		connStatus = statusConnectedStyle.Render("● Connected")
+		connStatus = statusConnectedStyle.Render("● connected")
 	} else if reconnecting {
-		connStatus = statusReconnectingStyle.Render("● Reconnecting")
+		connStatus = statusReconnectingStyle.Render("● reconnecting")
 	} else {
-		connStatus = statusDisconnectedStyle.Render("● Disconnected")
+		connStatus = statusDisconnectedStyle.Render("● disconnected")
 	}
 
-	shortcutsLen := lipgloss.Width(shortcuts)
-	connLen := lipgloss.Width(connStatus)
-	totalContent := shortcutsLen + connLen
-	remaining := width - totalContent - 2
-	if remaining < 2 {
-		remaining = 2
+	// ── Center: model + context + elapsed ───────────────────────────────
+	centerParts := []string{}
+	if info.ModelName != "" {
+		modelTag := info.ModelName
+		if info.ProviderTag != "" {
+			modelTag = modelTag + " · " + info.ProviderTag
+		}
+		centerParts = append(centerParts, labelStyle.Render(modelTag))
 	}
-	leftPad := remaining / 2
-	rightPad := remaining - leftPad
-	line1 := strings.Repeat(" ", leftPad) + shortcuts + strings.Repeat(" ", rightPad) + connStatus
+	// Context usage: "ctx 12k/200k (6%)" or "ctx 12k" if no
+	// window known. Use the chars/4 fallback in buildStatusBarInfo.
+	used := info.InputTokens + info.CacheRead
+	if used > 0 || info.ContextMax > 0 {
+		ctxSeg := "ctx "
+		if info.ContextMax > 0 {
+			pct := float64(used) / float64(info.ContextMax) * 100
+			if pct > 100 {
+				pct = 100
+			}
+			pctLabel := fmt.Sprintf("%.0f%%", pct)
+			ctxSeg += fmt.Sprintf("%s / %s (%s)",
+				formatTokenCount(used),
+				formatTokenCount(info.ContextMax),
+				pctLabel,
+			)
+		} else {
+			ctxSeg += formatTokenCount(used)
+		}
+		// If auto-compact is on and we're close to the
+		// threshold, colour the segment warning.
+		ctxStyle := dimLabel
+		if info.AutoCompact && info.ContextMax > 0 {
+			pct := float64(used) / float64(info.ContextMax) * 100
+			if pct >= 80 {
+				ctxStyle = lipgloss.NewStyle().Foreground(colorWarning)
+			}
+		}
+		centerParts = append(centerParts, ctxStyle.Render(ctxSeg))
+	}
+	if info.Elapsed > 0 {
+		centerParts = append(centerParts, dimLabel.Render("⏱  "+formatDuration(info.Elapsed)))
+	}
+	if info.QueuedMsgs > 0 {
+		centerParts = append(centerParts, lipgloss.NewStyle().Foreground(colorWarning).Render(fmt.Sprintf("%d queued", info.QueuedMsgs)))
+	}
 
-	// ── Line 2: transient message OR always-visible keybind hint ────────────
-	var line2 string
+	// ── Right: F1 F2 F3 tab bar (the one reminder users need) ──────────
+	tabs := badgeStyle.Render(" F1 ") + dimLabel.Render(" ") +
+		badgeStyle.Render(" F2 ") + dimLabel.Render(" ") +
+		badgeStyle.Render(" F3 ") + dimLabel.Render(" ")
+
+	// Build the three segments and pad with spaces to fill
+	// the line. Center segment is centred in the remaining
+	// space.
+	leftSeg := connStatus
+	rightSeg := tabs
+	centerSeg := strings.Join(centerParts, dimLabel.Render("  "))
+
+	leftLen := lipgloss.Width(leftSeg)
+	rightLen := lipgloss.Width(rightSeg)
+	centerLen := lipgloss.Width(centerSeg)
+	fixed := leftLen + rightLen + 2
+	remaining := width - fixed
+	if remaining < 0 {
+		remaining = 0
+	}
+	if centerLen > remaining {
+		// The center segment is too long for the available
+		// width — truncate from the right. The user can
+		// open the right panel (Ctrl+B) for the full
+		// breakdown.
+		centerSeg = lipgloss.NewStyle().MaxWidth(remaining).Render(centerSeg)
+		centerLen = remaining
+	}
+	leftPad := (remaining - centerLen) / 2
+	if leftPad < 1 {
+		leftPad = 1
+	}
+	rightPad := remaining - centerLen - leftPad
+	if rightPad < 0 {
+		rightPad = 0
+	}
+
+	line := leftSeg +
+		strings.Repeat(" ", leftPad) +
+		centerSeg +
+		strings.Repeat(" ", rightPad) +
+		rightSeg
+
+	// If a transient status message is active, render the
+	// status line above the slim footer (so the user sees
+	// "Saving API key…" or "OAuth flow failed" without losing
+	// the connection/model readouts). When there's no
+	// message, the status bar collapses to a single line so
+	// the chat viewport gets the extra row.
 	if msg.Text != "" {
 		var msgStyle lipgloss.Style
 		var prefix string
@@ -74,18 +167,11 @@ func renderStatusBar(
 			msgStyle = lipgloss.NewStyle().Foreground(s.ColorDimGray).Italic(true)
 			prefix = " ℹ "
 		}
-		line2 = msgStyle.Render(prefix + msg.Text)
-	} else {
-		// No active status message — use the second line for the
-		// always-visible keybind hint. This is the "bottom-left
-		// footer telling the user what keybind to press to queue
-		// or to send it the next turn" the user asked for.
-		line2 = renderKeybindHint(width, s)
+		topLine := lipgloss.NewStyle().Width(width).Render(msgStyle.Render(prefix + msg.Text))
+		return s.StatusBarStyle.Width(width).Render(line) + "\n" + topLine
 	}
-	// Always pad line 2 to full width so the layout never shifts.
-	line2 = lipgloss.NewStyle().Width(width).Render(line2)
-
-	return line2 + "\n" + s.StatusBarStyle.Width(width).Render(line1)
+	_ = labelStyle // silence unused in some builds
+	return s.StatusBarStyle.Width(width).Render(line)
 }
 
 // renderKeybindHint returns the always-visible keybind hint shown on
