@@ -274,6 +274,18 @@ type RightPanelInfoView struct {
 	AutoCompact  bool // "auto-compact when context > 80%" setting
 	SessionCount int  // number of sessions in the sessions tab
 	QueuedMsgs   int  // number of pending user messages
+
+	// Workflow running state. Empty WorkflowName means no
+	// workflow is active. WorkflowCurrent is the
+	// currently-running step's "what is it doing" message
+	// (e.g. "developer: writing the auth middleware"), which
+	// is what the panel surfaces as "▸ <msg>" so the user
+	// can see live progress without opening the Workflows
+	// tab.
+	WorkflowName     string
+	WorkflowStatus   string        // "planning" | "running" | "synthesizing"
+	WorkflowElapsed  time.Duration
+	WorkflowCurrent  string
 }
 
 // View renders the right panel as a bordered, full-height string.
@@ -465,6 +477,7 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 	warnStyle := lipgloss.NewStyle().Foreground(colorWarning)
 	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	okStyle := lipgloss.NewStyle().Foreground(colorSuccess)
+	activeStyle := lipgloss.NewStyle().Bold(true).Foreground(colorSecondary)
 
 	lines := []string{}
 	title := " Status "
@@ -575,6 +588,26 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 	}
 	lines = append(lines, dimStyle.Width(innerWidth).Render(conn))
 
+	// ── Workflow running block (only when a workflow is active) ──
+	if info.WorkflowName != "" {
+		lines = append(lines, "")
+		lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Workflow"))
+		wfHeader := fmt.Sprintf("▸ %s", info.WorkflowName)
+		lines = append(lines, activeStyle.Width(innerWidth).Render(wfHeader))
+		statusLabel := "running"
+		if info.WorkflowStatus == "planning" {
+			statusLabel = "planning…"
+		} else if info.WorkflowStatus == "synthesizing" {
+			statusLabel = "synthesising…"
+		}
+		wfSub := fmt.Sprintf("  %s · ⏱ %s", statusLabel, formatDurationShort(info.WorkflowElapsed))
+		lines = append(lines, dimStyle.Width(innerWidth).Render(wfSub))
+		if info.WorkflowCurrent != "" {
+			lines = append(lines, activeStyle.Width(innerWidth).Render("  "+truncateRight(info.WorkflowCurrent, innerWidth-2)))
+		}
+		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  F3 Workflows tab · Esc cancel"))
+	}
+
 	lines = append(lines, "")
 
 	// ── Keybind legend ──────────────────────────────────────────
@@ -584,7 +617,8 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 	for _, row := range [][2]string{
 		{"F1", "Sessions"},
 		{"F2", "Chat"},
-		{"F3", "Settings"},
+		{"F3", "Workflows"},
+		{"F4", "Settings"},
 		{"Tab", "queue / § switch"},
 		{"Enter", "send"},
 		{"Esc", "cancel"},

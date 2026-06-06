@@ -53,7 +53,7 @@ func TestModelContextWindow(t *testing.T) {
 // asked for.
 func TestRightPanel_InfoMode_ShowsContextBar(t *testing.T) {
 	rp := RightPanel{}
-	rp.OpenInfo(20)
+	rp.OpenInfo(40)
 	s := NewStyles(true)
 	info := RightPanelInfoView{
 		ModelName:   "GPT-5.5",
@@ -63,10 +63,10 @@ func TestRightPanel_InfoMode_ShowsContextBar(t *testing.T) {
 		Elapsed:     2*time.Minute + 13*time.Second,
 		Connected:   true,
 	}
-	view := rp.View(20, s, true, "GPT-5.5", nil, nil, info)
+	view := rp.View(40, s, true, "GPT-5.5", nil, nil, info)
 	// Should contain "Model", "Context", "6%" (12k/200k),
 	// "2:13" (elapsed), and the keybind legend.
-	for _, want := range []string{"Model", "Context", "6%", "2:13", "Sessions", "Keys"} {
+	for _, want := range []string{"Model", "Context", "6%", "2:13", "Sessions", "Workflows", "Settings", "Keys"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("info panel missing %q, got:\n%s", want, view)
 		}
@@ -89,7 +89,7 @@ func TestRightPanel_InfoMode_NoContextWindow(t *testing.T) {
 		ContextMax:  0,    // unknown
 		Connected:   true,
 	}
-	view := rp.View(20, s, true, "llama3.1", nil, nil, info)
+	view := rp.View(40, s, true, "llama3.1", nil, nil, info)
 	if !strings.Contains(view, "12k") {
 		t.Errorf("expected '12k' token count, got:\n%s", view)
 	}
@@ -115,7 +115,7 @@ func TestRightPanel_InfoMode_AutoCompactWarning(t *testing.T) {
 		ContextMax:  200_000,
 		AutoCompact: true,
 	}
-	view := rp.View(20, s, true, "GPT-5.5", nil, nil, info)
+	view := rp.View(40, s, true, "GPT-5.5", nil, nil, info)
 	if !strings.Contains(view, "auto-compact") {
 		t.Errorf("expected auto-compact warning, got:\n%s", view)
 	}

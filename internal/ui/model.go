@@ -19,6 +19,7 @@ import (
 
 	"github.com/Mateooo93/cortex-cli/internal/config"
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
+	"github.com/Mateooo93/cortex-cli/internal/workflow"
 	"github.com/Mateooo93/cortex-cli/internal/daemon"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
 	"github.com/Mateooo93/cortex-cli/internal/provider/codex"
@@ -68,6 +69,18 @@ type codexLoginSuccessMsg struct {
 type codexLoginFailedMsg struct {
 	err          error
 	authorizeURL string // empty if no URL was generated
+}
+
+// workflowEventMsg is fired by the workflow engine whenever
+// something interesting happens (start, step_start, step_done,
+// complete, cancel, error). The Update loop uses it to refresh
+// the Workflows tab and (for "complete") push a brief summary
+// into the main agent's chat.
+type workflowEventMsg struct {
+	workflowID string
+	kind       string // "start" | "step_start" | "step_done" | "step_progress" | "complete"
+	stepID     string
+	extra      string
 }
 
 // reconnectSuccessMsg is sent when reconnection succeeds.
@@ -329,6 +342,26 @@ type Model struct {
 	// and fire another compaction).
 	compactInFlight          bool
 
+	// workflowEngine runs workflows in the background and
+	// notifies the UI of progress. Initialised in NewModel.
+	workflowEngine *workflow.Engine
+	// workflowsSelected is the cursor in the Workflows tab
+	// list (newest first).
+	workflowsSelected int
+	// workflowsNewMode is true when the "n" key has been
+	// pressed and we're prompting for a preset selection.
+	workflowsNewMode bool
+	// workflowsNewGoalInput holds the text of the new-workflow
+	// goal prompt (when in newMode). The current implementation
+	// uses the preset name as the goal; this field is reserved
+	// for a future free-text prompt.
+	workflowsNewGoalInput string
+	// workflowsActiveTab is 0 for the list, 1 for the detail.
+	workflowsActiveTab int
+	// workflowsCursorPreset is the cursor in the preset list
+	// shown in newMode.
+	workflowsCursorPreset int
+
 	// Shared rendering
 	mdRenderer     *MarkdownRenderer
 	commandPalette CommandPalette
@@ -380,6 +413,20 @@ func (m *Model) buildStatusBarInfo(sess *SessionState) StatusBarInfo {
 		return info
 	}
 	info.InputTokens = sess.inputTokens
+	// If a workflow is running, surface it in the
+	// slim footer so the user knows the orchestrator
+	// is busy.
+	if m.workflowEngine != nil {
+		for _, w := range m.workflowEngine.Workflows() {
+			snap := m.workflowEngine.Snapshot(w.ID)
+			if snap.Status == "running" || snap.Status == "planning" || snap.Status == "synthesizing" {
+				info.WorkflowName = snap.Name
+				info.WorkflowStatus = snap.Status
+				info.WorkflowElapsed = time.Since(snap.StartedAt)
+				break
+			}
+		}
+	}
 	info.CacheRead = sess.cacheReadTokens
 	info.Elapsed = time.Since(sess.createdAt)
 	if sess.pendingInput != nil && sess.pendingInput.Queued {
@@ -437,6 +484,22 @@ func (m *Model) buildRightPanelInfoView(sess *SessionState) RightPanelInfoView {
 			// the status-bar connection check a few
 			// hundred lines down.
 			info.Connected = !sess.reconnecting
+		}
+		// Find the active workflow (if any) so the panel
+		// can show "Workflow running: <name> (2:13)" with
+		// the currently-active step's currentMsg.
+		if m.workflowEngine != nil {
+			flows := m.workflowEngine.Workflows()
+			for _, w := range flows {
+				snap := m.workflowEngine.Snapshot(w.ID)
+				if snap.Status == "running" || snap.Status == "planning" || snap.Status == "synthesizing" {
+					info.WorkflowName = snap.Name
+					info.WorkflowStatus = snap.Status
+					info.WorkflowElapsed = time.Since(snap.StartedAt)
+					info.WorkflowCurrent = snap.CurrentMsg
+					break
+				}
+			}
 		}
 		if sess.modelName != "" {
 			info.ModelName = sess.modelName
@@ -1330,6 +1393,90 @@ func (m *Model) handleCodexLoginSuccess(pendingModel, email, planType string) te
 	return m.emitStatusMsg("Signed in to "+who, StatusMsgInfo)
 }
 
+// workflowEventMsg is the internal hook callback the engine
+// uses to notify the UI. We funnel everything through a
+// tea.Msg so the Update goroutine can react without holding
+// locks.
+//
+// `kind` is one of "start", "step_start", "step_done",
+// "step_progress:<msg>", or "complete". `stepID` is the
+// affected step (empty for workflow-level events).
+func (m *Model) workflowEventMsg(workflowID, kind, stepID string) {
+	// We can't call tea.* here because the engine hook
+	// runs in a goroutine. Push a message to a channel
+	// the Update loop will drain. As a simpler approach
+	// (used today), we just call the dispatch function
+	// directly via a tea.Cmd that the engine can return.
+	// For v0.2.5 we use the simpler direct-mutation
+	// approach: the hook captures `m` by reference and
+	// just updates state. The Update loop will pick up
+	// the changes on the next render.
+	if m.workflowEngine == nil {
+		return
+	}
+	snap := m.workflowEngine.Snapshot(workflowID)
+	// Forward a short status-bar update for the more
+	// important transitions so the user has feedback
+	// regardless of which tab they're on.
+	switch kind {
+	case "start":
+		_ = m.emitStatusMsg("Workflow started: "+snap.Name, StatusMsgInfo)
+	case "step_start":
+		// No status line per step — too noisy. The
+		// Workflows tab + right panel show the live
+		// progress.
+	case "complete":
+		switch snap.Status {
+		case "done":
+			_ = m.emitStatusMsg("Workflow done: "+snap.Name+" (see Workflows tab for the full report)", StatusMsgInfo)
+		case "failed":
+			_ = m.emitStatusMsg("Workflow failed: "+snap.Name, StatusMsgError)
+		case "cancelled":
+			_ = m.emitStatusMsg("Workflow cancelled: "+snap.Name, StatusMsgWarning)
+		}
+	}
+}
+
+// workflowSummaryToChat injects a short summary of a finished
+// workflow into the current session's chat. The main agent
+// receives a system-style message saying "the workflow
+// finished; here's the summary" so it can relay the result
+// to the user on the next turn.
+func (m *Model) workflowSummaryToChat(snap workflow.Snapshot) {
+	if snap.ID == "" {
+		return
+	}
+	sess := m.currentSession()
+	if sess == nil {
+		return
+	}
+	summary := snap.Summary
+	if summary == "" {
+		// Build a tiny inline summary if the synthesis
+		// step didn't run.
+		var b strings.Builder
+		fmt.Fprintf(&b, "Workflow %q finished (status=%s).\n", snap.Name, snap.Status)
+		for _, s := range snap.Steps {
+			fmt.Fprintf(&b, "- [%s] %s\n", s.Role, settingsTruncate(s.Description, 60))
+		}
+		summary = b.String()
+	}
+	// Render as a system message so the user (and the
+	// main agent) can see the full report inline in the
+	// chat history.
+	sess.chatMessages = append(sess.chatMessages, renderWorkflowComplete(snap.Name, snap.Status == "done", summary, nil, snap.Duration.Milliseconds(), m.styles))
+	// Push a copy of the summary into the agent context
+	// so the next user message includes it.
+	if sess.client != nil {
+		_ = sess.client.SendRestoreHistory(chatMessagesToProviderHistory(sess.chatMessages))
+	}
+	// Bump unread so the chat tab badge shows the
+	// update when the user is on a different tab.
+	if m.activeTab != TabKindChat {
+		sess.unreadCount++
+	}
+}
+
 // handleCodexLoginFailed surfaces the failure in the status bar.
 // If the browser couldn't be opened, include the authorize URL so the
 // user can copy it from the status message and paste into a browser
@@ -1644,6 +1791,34 @@ func NewModel(cfg *config.Config, cortexCfg *cortexconfig.Config, client *daemon
 		m.fillTestData()
 	}
 	m.applyConfiguredTheme()
+
+	// Initialise the workflow engine. The engine runs
+	// workflows (and individual sub-agents) in goroutines
+	// inside the same process; it sends status updates back
+	// to the TUI via a hook. The engine is owned by the
+	// model so the hooks can access `m` directly.
+	m.workflowEngine = workflow.NewEngine(m.cortexCfg)
+	m.workflowEngine.SetHooks(workflow.Hooks{
+		OnWorkflowStart: func(snap workflow.Snapshot) {
+			m.workflowEventMsg(snap.ID, "start", "")
+		},
+		OnStepStart: func(workflowID, stepID string, snap workflow.Snapshot) {
+			m.workflowEventMsg(workflowID, "step_start", stepID)
+		},
+		OnStepProgress: func(workflowID, stepID, msg string, snap workflow.Snapshot) {
+			m.workflowEventMsg(workflowID, "step_progress:"+msg, stepID)
+		},
+		OnStepDone: func(workflowID, stepID string, snap workflow.Snapshot) {
+			m.workflowEventMsg(workflowID, "step_done", stepID)
+		},
+		OnWorkflowComplete: func(snap workflow.Snapshot) {
+			m.workflowEventMsg(snap.ID, "complete", "")
+			// Forward a brief summary to the main
+			// agent's chat so the user sees the result
+			// without switching tabs.
+			m.workflowSummaryToChat(snap)
+		},
+	})
 
 	return m
 }
@@ -2045,6 +2220,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Batch(cmds...)
 			case "f3":
+				m.activeTab = TabKindWorkflows
+				m.sessionsInput.Blur()
+				return m, tea.Batch(cmds...)
+			case "f4":
 				m.openSettingsTab()
 				m.sessionsInput.Blur()
 				return m, tea.Batch(cmds...)
@@ -2243,6 +2422,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						s.unreadCount = 0
 						cmds = append(cmds, s.thinkingAnim.Resume())
 					}
+				case "f3":
+					m.activeTab = TabKindWorkflows
+				case "f4":
+					// Already here
 				}
 			} else {
 				// Other Settings section
@@ -2310,7 +2493,113 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						s.unreadCount = 0
 						cmds = append(cmds, s.thinkingAnim.Resume())
 					}
+				case "f3":
+					m.activeTab = TabKindWorkflows
+				case "f4":
+					// Already here
 				}
+			}
+			return m, tea.Batch(cmds...)
+		}
+
+		// --- Workflows tab key handling ---
+		if m.activeTab == TabKindWorkflows {
+			key := msg.String()
+			if m.workflowsNewMode {
+				// Preset picker: up/down to navigate, enter
+				// to start, esc to cancel.
+				switch key {
+				case "up", "k":
+					if m.workflowsCursorPreset > 0 {
+						m.workflowsCursorPreset--
+					}
+				case "down", "j":
+					if m.workflowsCursorPreset < len(workflow.BuiltinPresets)-1 {
+						m.workflowsCursorPreset++
+					}
+				case "enter":
+					preset := workflow.BuiltinPresets[m.workflowsCursorPreset]
+					goal := m.workflowsNewGoalInput
+					if goal == "" {
+						goal = preset.Description
+					}
+					id, err := m.workflowEngine.Start(context.Background(), preset.Name, goal, preset.Strategy, preset.MaxAgents)
+					if err != nil {
+						cmds = append(cmds, m.emitStatusMsg("workflow start failed: "+err.Error(), StatusMsgError))
+					} else {
+						cmds = append(cmds, m.emitStatusMsg("started workflow: "+preset.Name+" (id "+id+")", StatusMsgInfo))
+						m.workflowsSelected = 0
+					}
+					m.workflowsNewMode = false
+					m.workflowsNewGoalInput = ""
+				case "esc":
+					m.workflowsNewMode = false
+					m.workflowsNewGoalInput = ""
+				}
+				return m, tea.Batch(cmds...)
+			}
+			flows := m.workflowEngine.Workflows()
+			switch key {
+			case "up", "k":
+				if m.workflowsSelected > 0 {
+					m.workflowsSelected--
+				}
+			case "down", "j":
+				if m.workflowsSelected < len(flows)-1 {
+					m.workflowsSelected++
+				}
+			case "tab":
+				if m.workflowsActiveTab == 0 {
+					m.workflowsActiveTab = 1
+				} else {
+					m.workflowsActiveTab = 0
+				}
+			case "n":
+				// Open the preset picker.
+				m.workflowsNewMode = true
+				m.workflowsCursorPreset = 0
+			case "c":
+				// Cancel the selected workflow.
+				if m.workflowsSelected < len(flows) {
+					id := flows[m.workflowsSelected].ID
+					m.workflowEngine.Cancel(id)
+					cmds = append(cmds, m.emitStatusMsg("cancelling workflow", StatusMsgInfo))
+				}
+			case "s":
+				// Stop the currently-running step in the
+				// selected workflow. We use the same
+				// cancel mechanism but only for one
+				// step.
+				if m.workflowsSelected < len(flows) {
+					id := flows[m.workflowsSelected].ID
+					snap := m.workflowEngine.Snapshot(id)
+					for _, st := range snap.Steps {
+						if st.Status == workflow.StepInProgress {
+							m.workflowEngine.CancelStep(id, st.ID)
+							cmds = append(cmds, m.emitStatusMsg("stopped step: "+st.Role+" ("+st.Description+")", StatusMsgInfo))
+							break
+						}
+					}
+				}
+			case "esc":
+				// Same as F2 — jump back to chat.
+				m.activeTab = TabKindChat
+				if s := m.currentSession(); s != nil {
+					s.unreadCount = 0
+					cmds = append(cmds, s.thinkingAnim.Resume())
+				}
+			case "f1":
+				m.activeTab = TabKindSessions
+				m.syncSessionsSelected()
+				cmds = append(cmds, m.sessionsInput.Focus())
+			case "f2":
+				m.activeTab = TabKindChat
+				if s := m.currentSession(); s != nil {
+					s.unreadCount = 0
+					cmds = append(cmds, s.thinkingAnim.Resume())
+				}
+			case "f4":
+				m.openSettingsTab()
 			}
 			return m, tea.Batch(cmds...)
 		}
@@ -2632,6 +2921,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 
 		case "f3":
+			// Open the Workflows tab (between Workspace
+			// and Settings). Shows the list of saved +
+			// active workflows, with a detail panel for
+			// the active one.
+			m.activeTab = TabKindWorkflows
+			if sess := m.currentSession(); sess != nil {
+				sess.unreadCount = 0
+			}
+			return m, tea.Batch(cmds...)
+
+		case "f4":
 			m.openSettingsTab()
 			return m, tea.Batch(cmds...)
 
@@ -2980,6 +3280,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// before/after stats in the status bar.
 		return m, m.handleCompactMsg(msg)
 
+	case workflowEventMsg:
+		// The workflow engine fired an event. The state
+		// has already been mutated by the hook callback;
+		// here we just trigger a re-render and, if the
+		// workflow is now complete, push a status line.
+		return m, nil
+
 	case selfUpdateFinishedMsg:
 		// Surface the result in the status bar so the user
 		// gets explicit feedback regardless of outcome.
@@ -3138,6 +3445,32 @@ func (m Model) submitFromInput(sess *SessionState, queueOnly bool) (tea.Model, t
 	}
 	if text != "" {
 		sess.history.Save(text)
+	}
+	// Workflow auto-detect: if the user's message hints at a
+	// multi-agent task (mentions "workflow", "swarm", "agents",
+	// "in parallel", etc.) and no workflow is running, fire a
+	// brief status hint and start a workflow alongside the
+	// normal chat submission. The main agent stays available
+	// to answer follow-up questions while the orchestrator
+	// works.
+	lower := strings.ToLower(text)
+	if m.workflowEngine != nil {
+		alreadyRunning := false
+		for _, w := range m.workflowEngine.Workflows() {
+			snap := m.workflowEngine.Snapshot(w.ID)
+			if snap.Status == "running" || snap.Status == "planning" || snap.Status == "synthesizing" {
+				alreadyRunning = true
+				break
+			}
+		}
+		if !alreadyRunning && detectWorkflowIntent(lower) {
+			// Pick a preset based on the keywords.
+			preset := pickWorkflowPreset(lower)
+			id, err := m.workflowEngine.Start(context.Background(), preset.Name, text, preset.Strategy, preset.MaxAgents)
+			if err == nil {
+				_ = m.emitStatusMsg("started workflow: "+preset.Name+" (id "+id+")", StatusMsgInfo)
+			}
+		}
 	}
 	sess.input.Reset()
 	sess.input.SetHeight(1)
@@ -3851,6 +4184,21 @@ func (m Model) View() tea.View {
 		sv := renderSettingsView(m.width, settingsHeight, m.styles, m.settingsActiveSection, m.settingsProviderSel, m.settingsModelSel, m.settingsModelColumn, settingsActiveModel, settingsActiveProvider, providers, selectedModels, m.settingsKeys, m.settingsKeySel, m.settingsOtherSel, otherView, inspectView, m.settingsInKeyInput, m.settingsKeyInputLabel, m.settingsKeyInput.View(), wizardView)
 		uv.NewStyledString(sv).Draw(canvas, image.Rect(0, y, m.width, y+settingsHeight))
 		y += settingsHeight
+
+	case TabKindWorkflows:
+		wfHeight := m.height - layout.TabBarHeight - layout.StatusBarHeight
+		wv := renderWorkflowsView(
+			m.width, wfHeight, m.styles,
+			m.workflowEngine,
+			m.workflowsSelected,
+			workflow.BuiltinPresets,
+			m.workflowsCursorPreset,
+			m.workflowsNewMode,
+			m.workflowsNewGoalInput,
+			m.workflowsActiveTab,
+		)
+		uv.NewStyledString(wv).Draw(canvas, image.Rect(0, y, m.width, y+wfHeight))
+		y += wfHeight
 	}
 	// Status bar — global: connected if any session is up, reconnecting if none
 	// are connected but at least one is trying.
@@ -3994,6 +4342,17 @@ func (m *Model) handleCommandAction(action string, sess *SessionState) []tea.Cmd
 		// a goroutine so the TUI stays responsive. The
 		// result lands in handleCompactMsg.
 		cmds = append(cmds, m.compactCmd())
+	case "open_workflow_picker":
+		// /workflow slash command. Switch to the
+		// Workflows tab and open the preset picker so
+		// the user can pick code / research / test /
+		// review / docs.
+		m.activeTab = TabKindWorkflows
+		m.workflowsNewMode = true
+		m.workflowsCursorPreset = 0
+		if sess != nil {
+			sess.input.Blur()
+		}
 	case "open_model_picker":
 		// Open the centered /model picker overlay. The picker
 		// itself handles its own key events (filter, navigation,

@@ -14,6 +14,7 @@ type TabKind int
 const (
 	TabKindSessions TabKind = iota // sessions list overview
 	TabKindChat                    // chat display for the selected session
+	TabKindWorkflows               // workflows list + active workflow detail
 	TabKindSettings                // global settings
 )
 
@@ -717,6 +718,7 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 	defs := []tabDef{
 		{" Sessions ", TabKindSessions},
 		{" Workspace ", TabKindChat},
+		{" Workflows ", TabKindWorkflows},
 		{" Settings ", TabKindSettings},
 	}
 

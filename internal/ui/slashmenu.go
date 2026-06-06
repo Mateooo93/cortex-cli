@@ -12,6 +12,7 @@ const slashMenuMaxVisible = 8
 // slashCommands is the fixed list of built-in slash commands shown in the menu.
 var slashCommands = []Command{
 	{Name: "model", Description: "Switch model (any configured provider or subscription)", Action: "open_model_picker"},
+	{Name: "workflow", Description: "Start a multi-agent workflow (plan / develop / review / test)", Action: "open_workflow_picker"},
 	{Name: "compact", Description: "Compress conversation history to free up context window", Action: "compact_context"},
 	{Name: "update", Description: "Self-update to the latest GitHub release", Action: "self_update"},
 	{Name: "login", Description: "Sign in to a subscription provider (codex, claude-sub, copilot)", Action: "open_login_picker"},

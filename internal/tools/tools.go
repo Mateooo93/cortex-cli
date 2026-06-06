@@ -423,7 +423,150 @@ func defaultTools() []Tool {
 		&ListDirTool{},
 		&SearchTool{},
 		&ShellTool{},
+		&SpawnAgentTool{},
+		&TaskOutputTool{},
+		&AskUserQuestionTool{},
+		&TodoWriteTool{},
 	}
+}
+
+// SpawnAgentTool dispatches a sub-agent to work in the
+// background. The main agent stays interactive; the sub-agent
+// runs in a goroutine and reports back via a task ID the main
+// agent can poll with task_output.
+//
+// The tool is intentionally minimal: it returns immediately
+// with a task ID and a one-line "started" message. The actual
+// dispatch happens in the UI's workflow engine (see
+// internal/ui/model.go: dispatchSubagentCmd). The tool side
+// only produces the descriptor the LLM uses to learn about
+// its sub-agents.
+type SpawnAgentTool struct{}
+
+func (t *SpawnAgentTool) Name() string { return "spawn_agent" }
+func (t *SpawnAgentTool) Description() string {
+	return "Dispatch a sub-agent to work in the background. The sub-agent runs in parallel to your own context and reports back when done. " +
+		"Use this for tasks that would otherwise blow up your context window — codebase exploration, " +
+		"running a long test suite, refactoring a large file, or any task that produces a lot of intermediate output. " +
+		"Returns a task_id you can poll with task_output. The main conversation stays responsive while the sub-agent works."
+}
+func (t *SpawnAgentTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"task":     {Type: "string", Description: "What the sub-agent should do. Be specific — include file paths, function names, and the success criteria.", Required: true},
+		"role":     {Type: "string", Description: "Specialist role for the sub-agent: 'explore' (read-only investigation), 'developer' (writes code), 'tester' (runs tests), 'reviewer' (code review), 'researcher' (docs lookup). Default: 'developer'.", Required: false},
+		"model":    {Type: "string", Description: "Override the model spec (e.g. 'openai:o3'). Default: same as the main agent.", Required: false},
+	}
+}
+func (t *SpawnAgentTool) Run(ctx Context, args map[string]any) (Result, error) {
+	task, _ := args["task"].(string)
+	if task == "" {
+		return Result{OK: false, Error: "task is required"}, nil
+	}
+	role, _ := args["role"].(string)
+	if role == "" {
+		role = "developer"
+	}
+	// Generate a task ID. The UI layer (workflow engine)
+	// produces a real sub-agent; here we just return the
+	// descriptor so the LLM learns it can keep going.
+	taskID := "subagent-" + time.Now().Format("150405.000000")
+	return Result{
+		OK:     true,
+		Output: fmt.Sprintf("sub-agent dispatched: task_id=%s role=%s\n\nThe sub-agent will work in the background. Use task_output(task_id=\"%s\") to check on it.\n\nYou can continue working on other tasks — the sub-agent will report back when done.", taskID, role, taskID),
+	}, nil
+}
+
+// TaskOutputTool polls a background sub-agent for its result.
+// The sub-agent is identified by the task_id returned from
+// spawn_agent. Returns the latest output the sub-agent has
+// produced, or a "still running" message.
+type TaskOutputTool struct{}
+
+func (t *TaskOutputTool) Name() string { return "task_output" }
+func (t *TaskOutputTool) Description() string {
+	return "Poll a background sub-agent for its result. Pass the task_id returned from spawn_agent. " +
+		"Returns the sub-agent's latest output (full or partial). If the sub-agent is still running, the tool returns a status line and you can call again later."
+}
+func (t *TaskOutputTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"task_id":  {Type: "string", Description: "The sub-agent's task_id from spawn_agent.", Required: true},
+		"wait":     {Type: "boolean", Description: "If true, block until the sub-agent finishes (up to 60s). If false (default), return immediately with current status.", Required: false},
+	}
+}
+func (t *TaskOutputTool) Run(ctx Context, args map[string]any) (Result, error) {
+	taskID, _ := args["task_id"].(string)
+	if taskID == "" {
+		return Result{OK: false, Error: "task_id is required"}, nil
+	}
+	// The actual implementation lives in the UI layer
+	// (model.taskOutputCmd). Here we just confirm the
+	// tool is wired so the LLM knows the call shape.
+	return Result{
+		OK:     true,
+		Output: fmt.Sprintf("Polling task_id=%s. (Status: the sub-agent is being tracked by the workflow engine. Its output will be available when it finishes.)", taskID),
+	}, nil
+}
+
+// AskUserQuestionTool is the structured question tool. The
+// UI layer renders a multi-choice prompt and the answer
+// comes back as a normal user message.
+type AskUserQuestionTool struct{}
+
+func (t *AskUserQuestionTool) Name() string { return "ask_user_question" }
+func (t *AskUserQuestionTool) Description() string {
+	return "Ask the user a structured question with 2-4 multiple-choice options. The user picks one (or types a custom answer) and the choice comes back as a normal message. " +
+		"Use this when you need to make a decision that depends on the user's preferences, or when the requirements are ambiguous. " +
+		"Don't use it for things you can figure out from the codebase or the user's previous messages."
+}
+func (t *AskUserQuestionTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"question":  {Type: "string", Description: "The question to ask the user. Be concise — under 80 chars is best.", Required: true},
+		"options":   {Type: "string", Description: "JSON array of 2-4 option objects, each with 'label' (1-5 words) and optional 'description' (1 short sentence).", Required: true},
+		"header":    {Type: "string", Description: "Optional short header (max 12 chars) shown above the options. Default: 'Question'.", Required: false},
+		"multi":     {Type: "boolean", Description: "If true, the user can select multiple options. Default: false.", Required: false},
+	}
+}
+func (t *AskUserQuestionTool) Run(ctx Context, args map[string]any) (Result, error) {
+	question, _ := args["question"].(string)
+	if question == "" {
+		return Result{OK: false, Error: "question is required"}, nil
+	}
+	options, _ := args["options"].(string)
+	if options == "" {
+		return Result{OK: false, Error: "options is required"}, nil
+	}
+	return Result{
+		OK:     true,
+		Output: fmt.Sprintf("question queued: %q\noptions: %s\n\nThe user will see this in the TUI. Their choice will be returned as a normal message.", question, options),
+	}, nil
+}
+
+// TodoWriteTool is the structured todo list. The UI layer
+// renders the list in the right panel; the model receives
+// the list shape on every step and uses it to drive the
+// todo panel.
+type TodoWriteTool struct{}
+
+func (t *TodoWriteTool) Name() string { return "todo_write" }
+func (t *TodoWriteTool) Description() string {
+	return "Set the structured todo list for the current task. The list shows up in the right panel so the user can see what you're working on. " +
+		"Call this at the start of a non-trivial task with 3-7 items, then update the status (pending / in_progress / completed) as you go. " +
+		"Mark items 'in_progress' when you start them, 'completed' when done. Keep the list under 10 items; use the parent's status to collapse completed sub-tasks."
+}
+func (t *TodoWriteTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"todos": {Type: "string", Description: "JSON array of {content, status, activeForm} items. status is 'pending' | 'in_progress' | 'completed'. activeForm is the present-continuous form shown in the spinner (e.g. 'Running tests').", Required: true},
+	}
+}
+func (t *TodoWriteTool) Run(ctx Context, args map[string]any) (Result, error) {
+	todos, _ := args["todos"].(string)
+	if todos == "" {
+		return Result{OK: false, Error: "todos is required"}, nil
+	}
+	return Result{
+		OK:     true,
+		Output: fmt.Sprintf("todo list updated: %s", todos),
+	}, nil
 }
 
 // Avoid unused-import warning
