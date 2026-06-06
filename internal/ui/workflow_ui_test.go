@@ -51,7 +51,7 @@ func TestRenderStatusBarOmitsWorkflowWhenIdle(t *testing.T) {
 // status, and currentMsg when a workflow is active.
 func TestRightPanel_InfoMode_ShowsWorkflowRunning(t *testing.T) {
 	rp := RightPanel{}
-	rp.OpenInfo(30)
+	rp.OpenInfo(40)
 	s := NewStyles(true)
 	info := RightPanelInfoView{
 		ModelName:        "GPT-5.5",
@@ -63,12 +63,7 @@ func TestRightPanel_InfoMode_ShowsWorkflowRunning(t *testing.T) {
 		WorkflowElapsed:  2*time.Minute + 13*time.Second,
 		WorkflowCurrent:  "developer: writing the auth middleware",
 	}
-	view := rp.View(30, s, true, "GPT-5.5", nil, nil, info)
-	// The panel must include the workflow name and
-	// currentMsg. We don't assert on the section header
-	// (the renderer uses different labels depending on
-	// status) but the user-visible bits must all be
-	// there.
+	view := rp.View(40, s, true, "GPT-5.5", nil, nil, info)
 	for _, want := range []string{"Workflow", "code", "developer", "auth", "2:13"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("info panel missing %q, got:\n%s", want, view)
@@ -77,44 +72,34 @@ func TestRightPanel_InfoMode_ShowsWorkflowRunning(t *testing.T) {
 }
 
 // TestRenderWorkflowsView_EmptyState verifies the empty
-// state of the Workflows tab. When the user has never
-// started a workflow, the tab shows the preset list as a
-// hint and an instruction to press 'n' to start one.
+// state of the Workflows tab. When no workflows are
+// running, the tab shows a brief description of what
+// workflows are and how to start one with
+// `/workflow <prompt>`. The user asked for a low-ceremony
+// view with no preset picker clutter.
 func TestRenderWorkflowsView_EmptyState(t *testing.T) {
 	s := NewStyles(true)
 	engine := workflow.NewEngine(nil)
-	view := renderWorkflowsView(120, 40, s, engine, 0, workflow.BuiltinPresets, 0, false, "", 0)
-	for _, want := range []string{"Workflows", "Start one with", "/workflow", "code", "research", "test", "review", "docs"} {
+	view := renderWorkflowsView(120, 40, s, engine, 0)
+	for _, want := range []string{"Workflows", "/workflow <prompt>", "build a CLI todo app in Go"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("empty state missing %q, got:\n%s", want, view)
 		}
 	}
-}
-
-// TestRenderWorkflowsView_NewModePrompt verifies the preset
-// picker overlay that appears when the user presses 'n'.
-// It must list every preset with a cursor marker on the
-// highlighted row.
-func TestRenderWorkflowsView_NewModePrompt(t *testing.T) {
-	s := NewStyles(true)
-	engine := workflow.NewEngine(nil)
-	// Start a dummy workflow so the view doesn't render
-	// the empty state. The new-mode picker overlay
-	// overrides whatever else the view would show.
-	id, _ := engine.Start(context.Background(), "code", "build me a thing", "development", 3)
-	defer engine.Cancel(id)
-	view := renderWorkflowsView(120, 40, s, engine, 0, workflow.BuiltinPresets, 2, true, "build me a thing", 0)
-	for _, want := range []string{"New workflow", "code", "research", "test", "Enter start", "Esc cancel"} {
-		if !strings.Contains(view, want) {
-			t.Errorf("new-mode prompt missing %q, got:\n%s", want, view)
-		}
+	// No preset list: the user explicitly asked us to
+	// remove the preset picker from the Workflows tab.
+	// We can't check for "code" / "research" / "review" /
+	// "docs" as bare substrings (they could appear in
+	// prose), so we look for the "·" bullet that the
+	// preset list used.
+	if strings.Contains(view, "  · ") {
+		t.Errorf("empty state should not list presets with bullet '·', got:\n%s", view)
 	}
 }
 
 // TestRenderWorkflowsView_WithActiveWorkflow verifies the
 // view shows the active workflow's per-step breakdown
-// when one is running. The engine is populated manually
-// (not via Start) so the test doesn't need an LLM.
+// when one is running.
 func TestRenderWorkflowsView_WithActiveWorkflow(t *testing.T) {
 	s := NewStyles(true)
 	engine := workflow.NewEngine(nil)
@@ -126,7 +111,7 @@ func TestRenderWorkflowsView_WithActiveWorkflow(t *testing.T) {
 	// Wait briefly for the workflow to register (the
 	// engine spawns a goroutine).
 	time.Sleep(10 * time.Millisecond)
-	view := renderWorkflowsView(120, 40, s, engine, 0, workflow.BuiltinPresets, 0, false, "", 0)
+	view := renderWorkflowsView(120, 40, s, engine, 0)
 	if !strings.Contains(view, "code") {
 		t.Errorf("expected active workflow 'code' in view, got:\n%s", view)
 	}

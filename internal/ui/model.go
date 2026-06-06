@@ -365,19 +365,6 @@ type Model struct {
 	codexAuthURL       string
 	codexAuthModel     string
 	codexAuthStartedAt time.Time
-	// workflowsNewMode is true when the "n" key has been
-	// pressed and we're prompting for a preset selection.
-	workflowsNewMode bool
-	// workflowsNewGoalInput holds the text of the new-workflow
-	// goal prompt (when in newMode). The current implementation
-	// uses the preset name as the goal; this field is reserved
-	// for a future free-text prompt.
-	workflowsNewGoalInput string
-	// workflowsActiveTab is 0 for the list, 1 for the detail.
-	workflowsActiveTab int
-	// workflowsCursorPreset is the cursor in the preset list
-	// shown in newMode.
-	workflowsCursorPreset int
 
 	// Shared rendering
 	mdRenderer     *MarkdownRenderer
@@ -2562,39 +2549,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// --- Workflows tab key handling ---
 		if m.activeTab == TabKindWorkflows {
 			key := msg.String()
-			if m.workflowsNewMode {
-				// Preset picker: up/down to navigate, enter
-				// to start, esc to cancel.
-				switch key {
-				case "up", "k":
-					if m.workflowsCursorPreset > 0 {
-						m.workflowsCursorPreset--
-					}
-				case "down", "j":
-					if m.workflowsCursorPreset < len(workflow.BuiltinPresets)-1 {
-						m.workflowsCursorPreset++
-					}
-				case "enter":
-					preset := workflow.BuiltinPresets[m.workflowsCursorPreset]
-					goal := m.workflowsNewGoalInput
-					if goal == "" {
-						goal = preset.Description
-					}
-					id, err := sess.workflowEngine.Start(context.Background(), preset.Name, goal, preset.Strategy, preset.MaxAgents)
-					if err != nil {
-						cmds = append(cmds, m.emitStatusMsg("workflow start failed: "+err.Error(), StatusMsgError))
-					} else {
-						cmds = append(cmds, m.emitStatusMsg("started workflow: "+preset.Name+" (id "+id+")", StatusMsgInfo))
-						m.workflowsSelected = 0
-					}
-					m.workflowsNewMode = false
-					m.workflowsNewGoalInput = ""
-				case "esc":
-					m.workflowsNewMode = false
-					m.workflowsNewGoalInput = ""
-				}
-				return m, tea.Batch(cmds...)
-			}
 			flows := sess.workflowEngine.Workflows()
 			switch key {
 			case "up", "k":
@@ -2605,16 +2559,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.workflowsSelected < len(flows)-1 {
 					m.workflowsSelected++
 				}
-			case "tab":
-				if m.workflowsActiveTab == 0 {
-					m.workflowsActiveTab = 1
-				} else {
-					m.workflowsActiveTab = 0
-				}
-			case "n":
-				// Open the preset picker.
-				m.workflowsNewMode = true
-				m.workflowsCursorPreset = 0
 			case "c":
 				// Cancel the selected workflow.
 				if m.workflowsSelected < len(flows) {
@@ -2783,10 +2727,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter", "tab":
 				action := sess.slashMenu.SelectedAction()
 				sess.slashMenu.Close()
+				// Capture the input text BEFORE clearing
+				// it; some slash commands (like /workflow)
+				// need the prompt portion.
+				rawText := strings.TrimSpace(sess.input.Value())
 				sess.input.SetValue("")
 				sess.input.SetHeight(1)
 				if action != "" {
-					cmds = append(cmds, m.handleCommandAction(action, sess)...)
+					cmds = append(cmds, m.handleCommandAction(action, sess, rawText)...)
 				}
 				if sess.focus != FocusRightPanel && m.activeTab != TabKindSessions && m.activeTab != TabKindSettings {
 					sess.input.Focus()
@@ -3534,6 +3482,23 @@ func (m Model) submitFromInput(sess *SessionState, queueOnly bool) (tea.Model, t
 	text := strings.TrimSpace(sess.input.Value())
 	if text == "" && sess.attachmentPanel.Count() == 0 {
 		return m, nil
+	}
+	// Explicit /workflow <prompt>: user explicitly asked
+	// the agent to start a workflow. We strip the prefix
+	// and route the rest to the workflow action. The
+	// slash menu doesn't catch this case because the
+	// extractSlashQuery helper requires no whitespace
+	// after the command name, and "/workflow build a
+	// thing" has a space.
+	if strings.HasPrefix(text, "/workflow ") || text == "/workflow" {
+		rest := strings.TrimSpace(strings.TrimPrefix(text, "/workflow"))
+		if rest == "" {
+			return m, m.emitStatusMsg(
+				"Usage: /workflow <prompt>  (e.g. /workflow build a CLI todo app in Go)",
+				StatusMsgError,
+			)
+		}
+		return m, tea.Batch(m.handleCommandAction("open_workflow_picker", sess, rest)...)
 	}
 	if text != "" {
 		sess.history.Save(text)
@@ -4304,11 +4269,6 @@ func (m Model) View() tea.View {
 			m.width, wfHeight, m.styles,
 			sess.workflowEngine,
 			m.workflowsSelected,
-			workflow.BuiltinPresets,
-			m.workflowsCursorPreset,
-			m.workflowsNewMode,
-			m.workflowsNewGoalInput,
-			m.workflowsActiveTab,
 		)
 		uv.NewStyledString(wv).Draw(canvas, image.Rect(0, y, m.width, y+wfHeight))
 		y += wfHeight
@@ -4447,7 +4407,15 @@ func (m Model) View() tea.View {
 
 // handleCommandAction executes the command identified by action and returns any
 // resulting tea.Cmd values. It is shared by the command palette and slash menu.
-func (m *Model) handleCommandAction(action string, sess *SessionState) []tea.Cmd {
+// rawArg is the slash-command argument text (everything after
+// the command name, e.g. for "/workflow build a thing" the
+// rawArg is "build a thing"). Pass "" for commands that don't
+// take arguments.
+func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ...string) []tea.Cmd {
+	var arg string
+	if len(rawArg) > 0 {
+		arg = strings.TrimSpace(rawArg[0])
+	}
 	var cmds []tea.Cmd
 	switch action {
 	case "compact_context":
@@ -4456,16 +4424,68 @@ func (m *Model) handleCommandAction(action string, sess *SessionState) []tea.Cmd
 		// result lands in handleCompactMsg.
 		cmds = append(cmds, m.compactCmd())
 	case "open_workflow_picker":
-		// /workflow slash command. Switch to the
-		// Workflows tab and open the preset picker so
-		// the user can pick code / research / test /
-		// review / docs.
-		m.activeTab = TabKindWorkflows
-		m.workflowsNewMode = true
-		m.workflowsCursorPreset = 0
-		if sess != nil {
-			sess.input.Blur()
+		// /workflow [prompt] slash command. The user
+		// asked for a low-ceremony flow: typing
+		// `/workflow build a CLI todo app in Go`
+		// immediately starts a workflow with the
+		// supplied text as the task. We default to the
+		// "code" preset (planner → developer →
+		// reviewer → tester) which fits the most
+		// common use case; the orchestrator picks the
+		// right agent for each step based on the goal
+		// anyway.
+		prompt := arg
+		if prompt == "" {
+			cmds = append(cmds, m.emitStatusMsg(
+				"Usage: /workflow <prompt>  (e.g. /workflow build a CLI todo app in Go)",
+				StatusMsgError,
+			))
+			break
 		}
+		if sess == nil {
+			break
+		}
+		engine := sess.EnsureWorkflowEngine(m.cortexCfg)
+		engine.SetHooks(workflow.Hooks{
+			OnWorkflowStart: func(snap workflow.Snapshot) {
+				m.workflowEventMsg(snap.ID, "start", "")
+			},
+			OnStepStart: func(workflowID, stepID string, snap workflow.Snapshot) {
+				m.workflowEventMsg(workflowID, "step_start", stepID)
+			},
+			OnStepProgress: func(workflowID, stepID, msg string, snap workflow.Snapshot) {
+				m.workflowEventMsg(workflowID, "step_progress:"+msg, stepID)
+			},
+			OnStepDone: func(workflowID, stepID string, snap workflow.Snapshot) {
+				m.workflowEventMsg(workflowID, "step_done", stepID)
+			},
+			OnWorkflowComplete: func(snap workflow.Snapshot) {
+				m.workflowEventMsg(snap.ID, "complete", "")
+				m.workflowSummaryToChat(snap)
+			},
+		})
+		// Default preset is "code" (planner+developer+reviewer+tester+researcher).
+		var preset *workflow.Preset
+		for i := range workflow.BuiltinPresets {
+			if workflow.BuiltinPresets[i].Name == "code" {
+				preset = &workflow.BuiltinPresets[i]
+				break
+			}
+		}
+		if preset == nil {
+			preset = &workflow.BuiltinPresets[0]
+		}
+		id, err := engine.Start(context.Background(), preset.Name, prompt, preset.Strategy, preset.MaxAgents)
+		if err != nil {
+			cmds = append(cmds, m.emitStatusMsg("Failed to start workflow: "+err.Error(), StatusMsgError))
+			break
+		}
+		// Switch to the Workflows tab so the user sees
+		// the live progress; auto-detected workflows
+		// (handled in submitFromInput) stay in the chat
+		// tab to keep that flow non-intrusive.
+		m.activeTab = TabKindWorkflows
+		cmds = append(cmds, m.emitStatusMsg("Started workflow: "+preset.Name+" (id "+id+")", StatusMsgInfo))
 	case "open_model_picker":
 		// Open the centered /model picker overlay. The picker
 		// itself handles its own key events (filter, navigation,

@@ -14,7 +14,7 @@ import (
 // low-ceremony view that just shows what's running, with
 // agents indented underneath each workflow. When nothing is
 // running, we show a small text explaining what workflows
-// are and how to start one (via /workflow).
+// are and how to start one (via /workflow <prompt>).
 //
 // Layout (one workflow "code" with 3 steps running):
 //
@@ -25,8 +25,8 @@ import (
 //	  ●  developer           writing the auth middleware
 //	  ◐  reviewer            waiting on developer
 //
-//	Start a new workflow with /workflow.
-func renderWorkflowsView(width, height int, s Styles, engine *workflow.Engine, cursor int, presets []workflow.Preset, newModeCursor int, newMode bool, prompt string, scroll int) string {
+//	Start one with /workflow <prompt>.
+func renderWorkflowsView(width, height int, s Styles, engine *workflow.Engine, cursor int) string {
 	var out strings.Builder
 
 	title := s.SectionTitle.Render("Workflows")
@@ -50,47 +50,19 @@ func renderWorkflowsView(width, height int, s Styles, engine *workflow.Engine, c
 
 	if len(snapshots) == 0 {
 		// Empty state: explain what this tab is for and
-		// how to start a workflow.
+		// how to start a workflow. The user asked for
+		// a low-ceremony view with no preset picker
+		// clutter — just one line telling them how to
+		// run a workflow.
 		out.WriteString(s.DimLabel.Render("A workflow runs multiple agents in sequence to tackle a"))
 		out.WriteString("\n")
 		out.WriteString(s.DimLabel.Render("bigger task end-to-end (plan → implement → test)."))
 		out.WriteString("\n\n")
 		out.WriteString(s.DimLabel.Render("Start one with "))
-		out.WriteString(s.Bold.Render("/workflow"))
-		out.WriteString(s.DimLabel.Render(" — pick from:"))
+		out.WriteString(s.Bold.Render("/workflow <prompt>"))
 		out.WriteString("\n")
-		for _, p := range presets {
-			out.WriteString(s.DimLabel.Render("  · "))
-			out.WriteString(s.Bold.Render(p.Name))
-			out.WriteString(s.DimLabel.Render("  " + p.Description))
-			out.WriteString("\n")
-		}
-		return out.String()
-	}
-
-	if newMode {
-		// Preset picker overlay.
-		out.WriteString(s.Bold.Render("New workflow"))
-		if prompt != "" {
-			out.WriteString(s.DimLabel.Render("  \"" + truncate(prompt, 60) + "\""))
-		}
-		out.WriteString("\n\n")
-		for i, p := range presets {
-			marker := "  "
-			if i == newModeCursor {
-				marker = "▸ "
-			}
-			line := marker + p.Name
-			if i == newModeCursor {
-				out.WriteString(s.Accent.Render(line))
-			} else {
-				out.WriteString(line)
-			}
-			out.WriteString(s.DimLabel.Render("  " + p.Description))
-			out.WriteString("\n")
-		}
-		out.WriteString("\n")
-		out.WriteString(s.DimLabel.Render("Enter start · Esc cancel"))
+		out.WriteString(s.DimLabel.Render("Example: "))
+		out.WriteString(s.Bold.Render("/workflow build a CLI todo app in Go"))
 		return out.String()
 	}
 
