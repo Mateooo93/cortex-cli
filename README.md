@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/Gemini_Generated_Image_d12qhnd12qhnd12q.png" alt="Animated Cortex Logo" width="800" />
+  <img src="assets/Gemini_Generated_Image_d12qhnd12qhnd12q.png" alt="Animated Cortex Logo" width="400" />
 </p>
 
 
