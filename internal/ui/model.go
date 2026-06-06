@@ -553,6 +553,25 @@ func (m *Model) settingsWizardView() SettingsWizardView {
 		}
 		if !fv.Editable {
 			fv.Hint = "preset — read-only"
+			// Customise the hint per-field-type so the user
+			// understands why the field is locked:
+			//   - Name: the preset's display name is fixed
+			//   - BaseURL: read from the preset
+			//   - APIKey: hidden for local servers (Ollama, LM
+			//     Studio, vLLM) and env-var providers (Bedrock)
+			if field == wizardFieldAPIKey {
+				auth := cortexconfig.ProviderAuthKind(w.provider)
+				switch auth {
+				case "none":
+					fv.Hint = "no key — local server"
+				case "env":
+					if env := cortexconfig.ProviderEnvVar(w.provider); env != "" {
+						fv.Hint = "read from $" + env
+					} else {
+						fv.Hint = "read from env"
+					}
+				}
+			}
 		}
 		return fv
 	}
@@ -595,6 +614,14 @@ func (m *Model) openSettingsTextInput(mode settingsInputMode, provider, label, p
 func (m *Model) openSettingsWizard(providerName string) {
 	providerName = cortexconfig.NormalizeProviderName(providerName)
 	if providerName == "" {
+		return
+	}
+	// OAuth providers should never enter the wizard — the caller must
+	// short-circuit to startCodexLoginCmd (and the analogous flows
+	// for claude-sub / copilot). This guard is defense-in-depth in
+	// case a future refactor adds another openSettingsWizard call
+	// site.
+	if cortexconfig.ProviderAuthKind(providerName) == "oauth" {
 		return
 	}
 	w := settingsWizard{
@@ -731,6 +758,16 @@ func (w *settingsWizard) fieldLabel(field settingsWizardField) string {
 func (w *settingsWizard) isFieldEditable(field settingsWizardField) bool {
 	if field == wizardFieldName {
 		return w.isCustom
+	}
+	// API-key field is hidden for local / env-var auth kinds:
+	//   "none" — no key (Ollama, LM Studio, vLLM, Cortex)
+	//   "env"  — key lives in an env var the user can set in their
+	//            shell (Bedrock reads AWS_BEARER_TOKEN_BEDROCK)
+	if field == wizardFieldAPIKey {
+		auth := cortexconfig.ProviderAuthKind(w.provider)
+		if auth == "none" || auth == "env" {
+			return false
+		}
 	}
 	return true
 }
@@ -929,6 +966,24 @@ func (m *Model) startCodexLoginCmd(pendingModel string) tea.Cmd {
 			authURL = res.AuthorizeURL
 		}
 		return codexLoginFailedMsg{err: err, authorizeURL: authURL}
+	}
+}
+
+// startOAuthLoginCmd is the generic dispatcher for OAuth providers.
+// It only knows how to actually launch the codex flow today; other
+// OAuth providers (claude-sub, copilot) currently take their token
+// from an env var and don't need a flow. If a future refactor adds
+// real OAuth flows for those, switch on providerName here.
+func (m *Model) startOAuthLoginCmd(providerName string) tea.Cmd {
+	switch providerName {
+	case "codex":
+		return m.startCodexLoginCmd("")
+	case "claude-sub":
+		return m.emitStatusMsg("Claude Pro/Max: set CLAUDE_CODE_OAUTH_TOKEN=<token> in your environment, then restart cortex-cli", StatusMsgInfo)
+	case "copilot":
+		return m.emitStatusMsg("GitHub Copilot: set COPILOT_OAUTH_TOKEN=<token> in your environment, then restart cortex-cli", StatusMsgInfo)
+	default:
+		return m.emitStatusMsg("OAuth flow not implemented for "+providerName+"; set the relevant env var", StatusMsgError)
 	}
 }
 
@@ -1846,7 +1901,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				case "enter":
 					if m.settingsKeySel < len(m.settingsKeys) {
-						m.openSettingsWizard(m.settingsKeys[m.settingsKeySel].Provider)
+						providerName := m.settingsKeys[m.settingsKeySel].Provider
+						// OAuth providers don't have an API key or a
+						// base URL the user should edit — they sign in
+						// with their existing subscription. Skip the
+						// wizard entirely and fire the OAuth flow
+						// directly. The user sees a status line and
+						// their browser opens to auth.openai.com (or
+						// claude.ai / github.com for the other OAuth
+						// providers) immediately.
+						if cortexconfig.ProviderAuthKind(providerName) == "oauth" {
+							cmds = append(cmds, m.emitStatusMsg("Opening "+cortexconfig.ProviderDisplayName(providerName)+" sign-in in your browser…", StatusMsgInfo))
+							cmds = append(cmds, m.startOAuthLoginCmd(providerName))
+							return m, tea.Batch(cmds...)
+						}
+						// Local servers (Ollama, LM Studio, vLLM) and
+						// env-var providers (Bedrock) just need a
+						// base URL — the wizard hides the API-key
+						// field for them. Built-in API-key providers
+						// (OpenAI, Anthropic, etc.) show all three
+						// fields as before.
+						m.openSettingsWizard(providerName)
 					}
 				case "a":
 					m.openSettingsTextInput(settingsInputCustomProviderName, "", "New provider name", "e.g. groq, together, local-ai", "", false)
