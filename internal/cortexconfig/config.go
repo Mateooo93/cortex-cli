@@ -27,11 +27,11 @@ type ProviderPreset struct {
 // BuiltinProviderPresets is the ordered set shown in Settings.
 var BuiltinProviderPresets = []ProviderPreset{
 	{Name: "cortex", DisplayName: "Cortex", BaseURL: "http://127.0.0.1:8000/v1", APIKeyEnvVar: "CORTEX_API_KEY", DefaultModel: "cortex-code", NeedsAPIKey: false},
-	{Name: "openai", DisplayName: "OpenAI", BaseURL: "https://api.openai.com/v1", APIKeyEnvVar: "OPENAI_API_KEY", DefaultModel: "gpt-4o", NeedsAPIKey: true},
-	{Name: "codex", DisplayName: "ChatGPT (codex)", BaseURL: "https://api.openai.com/v1", APIKeyEnvVar: "CODEX_CODEX_TOKEN", DefaultModel: "gpt-5", NeedsAPIKey: false},
-	{Name: "anthropic", DisplayName: "Anthropic", BaseURL: "https://api.anthropic.com/v1", APIKeyEnvVar: "ANTHROPIC_API_KEY", DefaultModel: "claude-sonnet-4-20250514", NeedsAPIKey: true},
-	{Name: "ollama", DisplayName: "Ollama", BaseURL: "http://127.0.0.1:11434/v1", APIKeyEnvVar: "", DefaultModel: "llama3.2", NeedsAPIKey: false},
-	{Name: "openrouter", DisplayName: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", APIKeyEnvVar: "OPENROUTER_API_KEY", DefaultModel: "anthropic/claude-sonnet-4.5", NeedsAPIKey: true},
+	{Name: "openai", DisplayName: "OpenAI", BaseURL: "https://api.openai.com/v1", APIKeyEnvVar: "OPENAI_API_KEY", DefaultModel: "gpt-5.5", NeedsAPIKey: true},
+	{Name: "codex", DisplayName: "ChatGPT (codex)", BaseURL: "https://api.openai.com/v1", APIKeyEnvVar: "CODEX_CODEX_TOKEN", DefaultModel: "gpt-5.5", NeedsAPIKey: false},
+	{Name: "anthropic", DisplayName: "Anthropic", BaseURL: "https://api.anthropic.com/v1", APIKeyEnvVar: "ANTHROPIC_API_KEY", DefaultModel: "claude-opus-4-8", NeedsAPIKey: true},
+	{Name: "ollama", DisplayName: "Ollama", BaseURL: "http://127.0.0.1:11434/v1", APIKeyEnvVar: "", DefaultModel: "qwen3.5", NeedsAPIKey: false},
+	{Name: "openrouter", DisplayName: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", APIKeyEnvVar: "OPENROUTER_API_KEY", DefaultModel: "anthropic/claude-opus-4-8", NeedsAPIKey: true},
 	{Name: "opengateway", DisplayName: "OpenGateway", BaseURL: "https://opengateway.gitlawb.com/v1", APIKeyEnvVar: "OPENGATEWAY_API_KEY", DefaultModel: "minimax/minimax-m3", NeedsAPIKey: true},
 	{Name: "minimax", DisplayName: "MiniMax", BaseURL: "https://api.minimax.io/v1", APIKeyEnvVar: "MINIMAX_API_KEY", DefaultModel: "MiniMax-M2.7", NeedsAPIKey: true},
 	{Name: "mimo", DisplayName: "Xiaomi MiMo", BaseURL: "https://api.xiaomimimo.com/v1", APIKeyEnvVar: "MIMO_API_KEY", DefaultModel: "mimo-v2.5-pro", NeedsAPIKey: true},
@@ -179,7 +179,7 @@ func Default() *Config {
 			},
 			"openai": {
 				Provider:    "openai",
-				Model:       "gpt-4o",
+				Model:       "gpt-5.5",
 				BaseURL:     "https://api.openai.com/v1",
 				APIKey:      "",
 				Temperature: 0.2,
@@ -187,7 +187,7 @@ func Default() *Config {
 			},
 			"anthropic": {
 				Provider:    "anthropic",
-				Model:       "claude-sonnet-4-20250514",
+				Model:       "claude-opus-4-8",
 				BaseURL:     "https://api.anthropic.com/v1",
 				APIKey:      "",
 				Temperature: 0.2,
@@ -195,7 +195,7 @@ func Default() *Config {
 			},
 			"ollama": {
 				Provider:    "ollama",
-				Model:       "llama3.2",
+				Model:       "qwen3.5",
 				BaseURL:     "http://127.0.0.1:11434/v1",
 				APIKey:      "ollama",
 				Temperature: 0.2,

@@ -13,7 +13,7 @@ type modelPricing struct {
 // Pricing tables per provider, longest prefix first within each provider so
 // short prefixes don't shadow specific model variants.
 //
-// last updated: 2026-05-30
+// last updated: 2026-06-06
 var pricingByProvider = map[string][]modelPricing{
 	"anthropic": {
 		// Specific dated variants would go above the generic prefixes; today
@@ -23,19 +23,40 @@ var pricingByProvider = map[string][]modelPricing{
 		{"claude-opus-4-6", 5.00, 25.00, 6.25, 0.50},
 		{"claude-opus-4-5", 5.00, 25.00, 6.25, 0.50},
 		{"claude-opus-4", 15.00, 75.00, 18.75, 1.50},
+		{"claude-sonnet-4-6", 3.00, 15.00, 3.75, 0.30},
+		{"claude-sonnet-4-5", 3.00, 15.00, 3.75, 0.30},
 		{"claude-sonnet-4", 3.00, 15.00, 3.75, 0.30},
 		{"claude-haiku-4-6", 1.00, 5.00, 1.25, 0.10},
 		{"claude-haiku-4-5", 1.00, 5.00, 1.25, 0.10},
 	},
 	"openai": {
 		// OpenAI has no cache_creation surcharge; cacheWrite=0 everywhere.
-		{"gpt-5.1", 2.50, 10.00, 0, 0.25},
-		{"gpt-5-thinking", 2.50, 10.00, 0, 0.25},
+		// gpt-5.5 is the current flagship; gpt-5.4 is the more
+		// affordable coding/computer-use model.
+		{"gpt-5.5", 3.00, 12.00, 0, 0.30},
+		{"gpt-5.5-instant", 0.50, 2.00, 0, 0.05},
+		{"gpt-5.4", 2.50, 10.00, 0, 0.25},
+		{"gpt-5.3-codex", 2.50, 10.00, 0, 0.25},
+		{"gpt-5-codex", 2.50, 10.00, 0, 0.25},
 		{"gpt-5", 2.50, 10.00, 0, 0.25},
+		{"gpt-5-thinking", 2.50, 10.00, 0, 0.25},
 		{"o4-mini", 1.10, 4.40, 0, 0.275},
 		{"o3-mini", 1.10, 4.40, 0, 0.55},
 		{"o3", 2.00, 8.00, 0, 0.50},
 		{"gpt-4o-mini", 0.15, 0.60, 0, 0.075},
+		{"gpt-4o", 2.50, 10.00, 0, 1.25},
+	},
+	"codex": {
+		// ChatGPT-subscription routes — the API still reports token
+		// usage; we attribute the dollar cost as if it were the
+		// equivalent paid-tier model.
+		{"gpt-5.5", 3.00, 12.00, 0, 0.30},
+		{"gpt-5.5-instant", 0.50, 2.00, 0, 0.05},
+		{"gpt-5.4", 2.50, 10.00, 0, 0.25},
+		{"gpt-5.3-codex", 2.50, 10.00, 0, 0.25},
+		{"gpt-5-codex", 2.50, 10.00, 0, 0.25},
+		{"o4-mini", 1.10, 4.40, 0, 0.275},
+		{"o3", 2.00, 8.00, 0, 0.50},
 		{"gpt-4o", 2.50, 10.00, 0, 1.25},
 	},
 	"minimax": {
@@ -95,7 +116,7 @@ func CalculateCost(model string, input, output, cacheWrite, cacheRead int64) flo
 	return cost
 }
 
-// splitModelSpec returns (provider, bareModelName) from a vix-style model spec.
+// splitModelSpec returns (provider, bareModelName) from a prefixed model spec.
 // Examples:
 //
 //	"anthropic/claude-opus-4-8"             → ("anthropic", "claude-opus-4-8")

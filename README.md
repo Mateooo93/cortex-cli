@@ -1,5 +1,6 @@
 <div align="center">
 
+<img src="assets/logo.svg" alt="cortex-cli logo" width="200" />
 
 # cortex-cli
 
@@ -8,6 +9,7 @@ A sleek, fast, token-efficient AI coding agent. Multi-provider
 terminal UI.
 
 <p align="center">
+  <a href="https://github.com/Mateooo93/cortex-cli/releases"><img src="https://img.shields.io/github/v/release/Mateooo93/cortex-cli?style=for-the-badge&color=green" alt="Latest release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" alt="AGPL-3.0 License" /></a>
   <a href="https://github.com/Mateooo93/cortex-cli/stargazers"><img src="https://img.shields.io/github/stars/Mateooo93/cortex-cli?style=for-the-badge" alt="GitHub stars" /></a>
 </p>
@@ -17,33 +19,49 @@ terminal UI.
 
 ## What is cortex-cli?
 
-cortex-cli is an interactive terminal-based AI coding agent with
-session persistence, tool execution, and a multi-provider LLM
-backend. The same binary can talk to:
+cortex-cli is a **remake of [vix](https://github.com/get-vix/vix)** —
+the same Bubble Tea / Lip Gloss / Glamour TUI re-imagined as a
+single-binary, multi-provider AI coding agent. The visual style,
+keybindings, and agent loop stay faithful to vix; the Cortex-specific
+changes are in the LLM layer, the session model, the tool set, and
+the swarm orchestrator.
 
-* **Cortex** — the project's home gateway (`http://127.0.0.1:8000/v1`)
-* **OpenAI** — direct API access with an `OPENAI_API_KEY`
-* **ChatGPT (codex)** — your existing ChatGPT subscription, signed
-  in via OAuth (no separate API key required)
-* **Anthropic** — Claude models with an `ANTHROPIC_API_KEY`
-* **Ollama** — local models on `http://127.0.0.1:11434/v1`
-* **OpenRouter, OpenGateway, MiniMax, Xiaomi MiMo** — preset
-  multi-model gateways
+## Providers
 
-Highlights:
+cortex-cli ships with first-class support for the following
+providers. The default for each is the strongest publicly available
+model as of June 2026.
 
-* **In-process session** — single binary, no separate daemon.
-* **Persistent sessions** — chat history survives across CLI
+| Provider | Default model | Auth | Notes |
+|----------|---------------|------|-------|
+| **Cortex** | `cortex-code` | none (local) | `http://127.0.0.1:8000/v1` |
+| **OpenAI** | `gpt-5.5` | `OPENAI_API_KEY` | also `gpt-5.4` (computer use), `gpt-5.3-codex`, `o3`, `o4-mini` |
+| **ChatGPT (codex)** | `gpt-5.5` | OAuth sign-in | uses your existing ChatGPT subscription — no API key required |
+| **Anthropic** | `claude-opus-4-8` | `ANTHROPIC_API_KEY` | also `claude-sonnet-4-6`, `claude-haiku-4-6` |
+| **Ollama** | `qwen3.5` | none (local) | `http://127.0.0.1:11434/v1` — also Gemma 4, Llama 3.3 |
+| **OpenRouter** | `claude-opus-4-8` | `OPENROUTER_API_KEY` | routes to any model on the OpenRouter catalog |
+| **OpenGateway** | `minimax/minimax-m3` | `OPENGATEWAY_API_KEY` | multi-provider gateway |
+| **MiniMax** | `MiniMax-M2.7` | `MINIMAX_API_KEY` | also M2.5, M2.7-highspeed |
+| **Xiaomi MiMo** | `mimo-v2.5-pro` | `MIMO_API_KEY` | also mimo-v2.5, mimo-v2-flash |
+| **Custom** | — | any | any OpenAI-compatible gateway (vLLM, LiteLLM, LM Studio) |
+
+## Features
+
+- **In-process session** — single binary, no separate daemon.
+- **Persistent sessions** — chat history survives across CLI
   restarts. The Sessions tab shows prior conversations.
-* **Built-in tools** — `read_file`, `write_file`, `edit_file`,
+- **Built-in tools** — `read_file`, `write_file`, `edit_file`,
   `bash`, `grep`, `glob_files`.
-* **Multi-agent swarm** — optional planner / developer / reviewer
+- **Multi-agent swarm** — optional planner / developer / reviewer
   / tester / fixer roles for larger refactors.
-* **Status bar hints** — the bottom-left footer always shows the
+- **Status bar hints** — the bottom-left footer always shows the
   send / queue / cancel hint.
-* **Extended thinking** — the model's hidden reasoning is
+- **Extended thinking** — the model's hidden reasoning is
   rendered dim and italic so it never gets confused with the
   normal output.
+- **ChatGPT OAuth** — sign in with your ChatGPT Plus / Pro / Team
+  subscription; tokens stored in the OS keychain, transparently
+  refreshed.
 
 ## Install
 
@@ -119,7 +137,7 @@ OpenAI API key.
 
 1. Open the TUI and switch to the **Settings** tab (F3).
 2. In the left column, pick **ChatGPT (codex)**.
-3. In the right column, pick a model (e.g. `GPT-5 (ChatGPT)`)
+3. In the right column, pick a model (e.g. `GPT-5.5 (ChatGPT)`)
    and press **Enter**.
 4. The "Sign in with ChatGPT" prompt opens. Press **Enter** —
    your browser opens to `auth.openai.com`.
@@ -187,7 +205,7 @@ hint when no other status message is active.
 `~/.cortex/config.yaml`:
 
 ```yaml
-defaultModel: codex/gpt-5
+defaultModel: codex/gpt-5.5
 
 models:
   cortex:
@@ -196,21 +214,21 @@ models:
     baseUrl: http://127.0.0.1:8000/v1
   openai:
     provider: openai
-    model: gpt-5
+    model: gpt-5.5
     baseUrl: https://api.openai.com/v1
     apiKey: sk-...
   codex:
     provider: codex
-    model: gpt-5
+    model: gpt-5.5
     baseUrl: https://api.openai.com/v1
   anthropic:
     provider: anthropic
-    model: claude-sonnet-4-5
+    model: claude-opus-4-8
     baseUrl: https://api.anthropic.com/v1
     apiKey: sk-ant-...
   ollama:
     provider: ollama
-    model: llama3.2
+    model: qwen3.5
     baseUrl: http://localhost:11434/v1
 ```
 
@@ -227,7 +245,7 @@ API keys can also come from the environment (see
 │   ├── cortexconfig/        # User-facing YAML config + provider presets
 │   ├── daemon/              # In-process SessionClient
 │   ├── provider/            # LLM provider adapters
-│   │   └── codex/           # ChatGPT OAuth + JWT + responses client
+│   │   └── codex/           # ChatGPT OAuth + JWT + Bearer transport
 │   ├── protocol/            # Shared types between client + daemon
 │   ├── session/             # In-process session implementation
 │   ├── swarm/               # Optional multi-agent orchestrator
@@ -255,12 +273,17 @@ go test ./internal/provider/codex/... -v
 ./bin/cortex -test
 ```
 
-## License
+## Origin
 
-GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
+cortex-cli is a **remake of
+[vix](https://github.com/get-vix/vix)**. The original vix copyright
+is preserved in the [LICENSE](LICENSE) file; cortex-cli itself is
+distributed under GNU AGPL-3.0.
 
 ## Credits
 
+* The vix team for the original TUI, agent loop, and design
+  philosophy: <https://github.com/get-vix/vix>
 * The Bubble Tea, Lip Gloss, and Glamour teams at Charmbracelet
   for the TUI primitives.
 * The cortex project for the provider gateway.

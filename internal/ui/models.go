@@ -50,40 +50,43 @@ var AvailableProviders = []ProviderInfo{
 // can route to anything; the entries here are popular routes — users with
 // other targets set them via agent frontmatter.
 var AvailableModels = []ModelInfo{
-	// Anthropic
+	// Anthropic (current as of June 2026)
 	{Spec: "anthropic/claude-opus-4-8", Provider: "anthropic", DisplayName: "Claude Opus 4.8"},
 	{Spec: "anthropic/claude-opus-4-7", Provider: "anthropic", DisplayName: "Claude Opus 4.7"},
 	{Spec: "anthropic/claude-opus-4-6", Provider: "anthropic", DisplayName: "Claude Opus 4.6"},
-	{Spec: "anthropic/claude-opus-4-5", Provider: "anthropic", DisplayName: "Claude Opus 4.5"},
 	{Spec: "anthropic/claude-sonnet-4-6", Provider: "anthropic", DisplayName: "Claude Sonnet 4.6"},
 	{Spec: "anthropic/claude-sonnet-4-5", Provider: "anthropic", DisplayName: "Claude Sonnet 4.5"},
 	{Spec: "anthropic/claude-haiku-4-6", Provider: "anthropic", DisplayName: "Claude Haiku 4.6"},
-	{Spec: "anthropic/claude-haiku-4-5", Provider: "anthropic", DisplayName: "Claude Haiku 4.5"},
-	{Spec: "anthropic/claude-opus-4-0", Provider: "anthropic", DisplayName: "Claude Opus 4.0"},
-	{Spec: "anthropic/claude-sonnet-4-0", Provider: "anthropic", DisplayName: "Claude Sonnet 4.0"},
-	// OpenAI
-	{Spec: "openai/gpt-5.1", Provider: "openai", DisplayName: "GPT-5.1"},
+	// OpenAI API (current as of June 2026)
+	{Spec: "openai/gpt-5.5", Provider: "openai", DisplayName: "GPT-5.5"},
+	{Spec: "openai/gpt-5.5-instant", Provider: "openai", DisplayName: "GPT-5.5 Instant"},
+	{Spec: "openai/gpt-5.4", Provider: "openai", DisplayName: "GPT-5.4 (computer use)"},
+	{Spec: "openai/gpt-5", Provider: "openai", DisplayName: "GPT-5"},
 	{Spec: "openai/gpt-5-thinking", Provider: "openai", DisplayName: "GPT-5 Thinking"},
+	{Spec: "openai/gpt-5.3-codex", Provider: "openai", DisplayName: "GPT-5.3 Codex"},
+	{Spec: "openai/gpt-5-codex", Provider: "openai", DisplayName: "GPT-5 Codex"},
 	{Spec: "openai/o3", Provider: "openai", DisplayName: "o3"},
 	{Spec: "openai/o4-mini", Provider: "openai", DisplayName: "o4 Mini"},
 	{Spec: "openai/gpt-4o", Provider: "openai", DisplayName: "GPT-4o"},
-	{Spec: "openai/gpt-4o-mini", Provider: "openai", DisplayName: "GPT-4o Mini"},
 	// ChatGPT (codex) — same models, but authenticated via the
 	// user's ChatGPT subscription. Routed through the codex provider,
 	// not OpenAI's paid API. Display names note "(ChatGPT)" so users
 	// can tell which auth path each row uses.
-	{Spec: "codex/gpt-5", Provider: "codex", DisplayName: "GPT-5 (ChatGPT)"},
-	{Spec: "codex/gpt-5.1", Provider: "codex", DisplayName: "GPT-5.1 (ChatGPT)"},
+	{Spec: "codex/gpt-5.5", Provider: "codex", DisplayName: "GPT-5.5 (ChatGPT)"},
+	{Spec: "codex/gpt-5.5-instant", Provider: "codex", DisplayName: "GPT-5.5 Instant (ChatGPT)"},
+	{Spec: "codex/gpt-5.4", Provider: "codex", DisplayName: "GPT-5.4 (ChatGPT)"},
+	{Spec: "codex/gpt-5.3-codex", Provider: "codex", DisplayName: "GPT-5.3 Codex (ChatGPT)"},
 	{Spec: "codex/gpt-5-codex", Provider: "codex", DisplayName: "GPT-5 Codex (ChatGPT)"},
 	{Spec: "codex/o3", Provider: "codex", DisplayName: "o3 (ChatGPT)"},
 	{Spec: "codex/o4-mini", Provider: "codex", DisplayName: "o4 Mini (ChatGPT)"},
-	{Spec: "codex/gpt-4o", Provider: "codex", DisplayName: "GPT-4o (ChatGPT)"},
 	// OpenRouter — curated popular routes; arbitrary slugs go via agent frontmatter.
 	{Spec: "openrouter/anthropic/claude-opus-4-8", Provider: "openrouter", DisplayName: "Claude Opus 4.8 (via OpenRouter)"},
 	{Spec: "openrouter/anthropic/claude-sonnet-4-6", Provider: "openrouter", DisplayName: "Claude Sonnet 4.6 (via OpenRouter)"},
-	{Spec: "openrouter/openai/gpt-5.1", Provider: "openrouter", DisplayName: "GPT-5.1 (via OpenRouter)"},
+	{Spec: "openrouter/openai/gpt-5.5", Provider: "openrouter", DisplayName: "GPT-5.5 (via OpenRouter)"},
+	{Spec: "openrouter/openai/gpt-5.4", Provider: "openrouter", DisplayName: "GPT-5.4 (via OpenRouter)"},
+	{Spec: "openrouter/openai/gpt-5.3-codex", Provider: "openrouter", DisplayName: "GPT-5.3 Codex (via OpenRouter)"},
 	{Spec: "openrouter/openai/o3", Provider: "openrouter", DisplayName: "o3 (via OpenRouter)"},
-	{Spec: "openrouter/google/gemini-2-flash", Provider: "openrouter", DisplayName: "Gemini 2 Flash (via OpenRouter)"},
+	{Spec: "openrouter/google/gemini-2.5-pro", Provider: "openrouter", DisplayName: "Gemini 2.5 Pro (via OpenRouter)"},
 	// OpenGateway — provider-scoped routes; keep the upstream prefix in the model ID.
 	{Spec: "opengateway/minimax/minimax-m3", Provider: "opengateway", DisplayName: "MiniMax M3 (via OpenGateway)"},
 	{Spec: "opengateway/xiaomi/mimo-v2.5-pro", Provider: "opengateway", DisplayName: "MiMo v2.5 Pro (via OpenGateway)"},
