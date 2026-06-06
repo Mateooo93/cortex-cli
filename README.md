@@ -1,7 +1,8 @@
-<div align="center">
 <p align="center">
   <img src="assets/cortex-animation.gif" alt="Animated Cortex Logo" width="800" />
 </p>
+
+<h1 align="center">cortex-cli</h1>
 # cortex-cli
 
 A sleek, fast, token-efficient AI coding agent. Multi-provider
