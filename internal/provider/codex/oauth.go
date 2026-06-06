@@ -40,14 +40,28 @@ const (
 	// AuthEndpoint is OpenAI's OAuth authorize URL for ChatGPT logins.
 	AuthEndpoint = "https://auth.openai.com/oauth/authorize"
 	// ClientID is the public OAuth client_id used by the official
-	// Codex CLI. It is intentionally a public client — no secret.
-	ClientID = "app_oauth_agent"
+	// Codex CLI (verified against openai/codex, codex-rs/login).
+	// It is intentionally a public client — no secret. The value
+	// `app_EMoamEEZ73f0CkXaXp7hrann` is the only one OpenAI's
+	// authorize endpoint accepts for this flow; passing any other
+	// (e.g. the older `app_oauth_agent`) returns `invalid_client`.
+	ClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 	// DefaultCallbackPort matches the port the official Codex CLI uses.
 	// The same number is hard-coded in the authorize URL the user clicks,
 	// so changing it would break the redirect.
 	DefaultCallbackPort = 1455
-	// scope is the OpenID scope set the official Codex CLI requests.
-	scope = "openid profile email offline_access com.chatgpt.agent.completion"
+	// scope is the OpenID scope set the official Codex CLI requests
+	// (verified against openai/codex, codex-rs/login/src/server.rs).
+	// The old "com.chatgpt.agent.completion" scope has been replaced
+	// by the connector scopes which is what the ChatGPT backend
+	// expects as of mid-2026.
+	scope = "openid profile email offline_access api.connectors.read api.connectors.invoke"
+	// originator is a query param OpenAI's auth server uses to
+	// identify which client is initiating the flow. The Codex CLI
+	// sends `codex_cli_rs`; sending a missing or unrecognized
+	// value triggers the "Invalid client specified" error in the
+	// token-exchange step.
+	originator = "codex_cli_rs"
 )
 
 // TokenEndpoint is OpenAI's OAuth token-exchange URL. Declared as a
@@ -179,17 +193,19 @@ func Refresh(ctx context.Context, refreshToken string) (*Token, error) {
 }
 
 // buildAuthURL assembles the authorize URL with all PKCE params.
+// Matches the openai/codex CLI flow (codex-rs/login/src/server.rs).
 func buildAuthURL(redirectURI, state, challenge string) string {
 	q := url.Values{
-		"client_id":              {ClientID},
-		"response_type":          {"code"},
-		"redirect_uri":           {redirectURI},
-		"scope":                  {scope},
-		"state":                  {state},
-		"code_challenge":         {challenge},
-		"code_challenge_method":  {"S256"},
-		"prompt":                 {"login"},
-		"id_token_add_organizations": {"true"},
+		"client_id":                    {ClientID},
+		"response_type":                {"code"},
+		"redirect_uri":                 {redirectURI},
+		"scope":                        {scope},
+		"state":                        {state},
+		"code_challenge":               {challenge},
+		"code_challenge_method":        {"S256"},
+		"id_token_add_organizations":   {"true"},
+		"codex_cli_simplified_flow":    {"true"},
+		"originator":                   {originator},
 	}
 	return AuthEndpoint + "?" + q.Encode()
 }

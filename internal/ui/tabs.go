@@ -393,12 +393,9 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	}
 
 	// Models section was removed. Use /model in the chat tab to
-	// switch models; the Settings tab now just shows the
-	// current model + provider as context, then drops straight
-	// into the Providers list.
-	if activeModel != "" {
-		lines = append(lines, dimStyle.Width(innerWidth).Render("  Active model: "+settingsTruncate(activeModel, innerWidth-16)+"  (type /model in chat to change)"))
-	}
+	// switch models; the active model is already shown in the
+	// header above (activeSummary) so we just drop straight into
+	// the Providers list here.
 	lines = append(lines, divider)
 
 	// Providers section: provider name only, no status text.

@@ -24,14 +24,15 @@ func TestBuildAuthURL_AllParams(t *testing.T) {
 	}
 	q := u.Query()
 	want := map[string]string{
-		"client_id":              ClientID,
-		"response_type":          "code",
-		"redirect_uri":           "http://localhost:1455/auth/callback",
-		"state":                  "state-xyz",
-		"code_challenge":         "chal-abc",
-		"code_challenge_method":  "S256",
-		"prompt":                 "login",
-		"id_token_add_organizations": "true",
+		"client_id":                    ClientID,
+		"response_type":                "code",
+		"redirect_uri":                 "http://localhost:1455/auth/callback",
+		"state":                        "state-xyz",
+		"code_challenge":               "chal-abc",
+		"code_challenge_method":        "S256",
+		"id_token_add_organizations":   "true",
+		"codex_cli_simplified_flow":    "true",
+		"originator":                   "codex_cli_rs",
 	}
 	for k, v := range want {
 		if got := q.Get(k); got != v {
