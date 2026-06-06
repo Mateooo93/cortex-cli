@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 )
 
 // ModelPickerEntry is one row in the /model picker overlay.
@@ -45,12 +47,13 @@ func NewModelPicker() ModelPicker {
 
 // Open populates the picker with entries from the current config
 // and shows it. Pass the cortexCfg so the picker can include
-// provider-specific fetched models.
-func (p *ModelPicker) Open(cfg interface{ ProviderNames() []string }) {
+// provider-specific fetched models and any custom providers the
+// user has added in Settings.
+func (p *ModelPicker) Open(cfg *cortexconfig.Config) {
 	p.visible = true
 	p.query = ""
 	p.selected = 0
-	p.entries = buildModelPickerEntries()
+	p.entries = buildModelPickerEntries(cfg)
 }
 
 // Close hides the picker.
@@ -106,8 +109,8 @@ func (p *ModelPicker) VisibleHeight() int {
 }
 
 // Refresh re-applies the filter against the existing entries.
-func (p *ModelPicker) Refresh() {
-	all := buildModelPickerEntries()
+func (p *ModelPicker) Refresh(cfg *cortexconfig.Config) {
+	all := buildModelPickerEntries(cfg)
 	filtered := filterModelPickerEntries(all, p.query)
 	p.entries = filtered
 	if p.selected >= len(p.entries) {
@@ -116,9 +119,9 @@ func (p *ModelPicker) Refresh() {
 }
 
 // SetQuery updates the filter query and re-applies the filter.
-func (p *ModelPicker) SetQuery(q string) {
+func (p *ModelPicker) SetQuery(q string, cfg *cortexconfig.Config) {
 	p.query = q
-	p.Refresh()
+	p.Refresh(cfg)
 }
 
 // Query returns the current filter query.
@@ -156,10 +159,12 @@ func (p *ModelPicker) Selected() string {
 //  2. Per-provider entries for any custom models the user has
 //     configured in cortexconfig — so a user who added their own
 //     openrouter/<random-model> still sees it here.
+//  3. Any custom providers the user added in Settings that the
+//     curated catalogue doesn't already cover.
 //
 // Within each provider, entries are sorted alphabetically so the
 // picker is stable across launches.
-func buildModelPickerEntries() []ModelPickerEntry {
+func buildModelPickerEntries(cfg *cortexconfig.Config) []ModelPickerEntry {
 	var entries []ModelPickerEntry
 	seen := map[string]bool{}
 
@@ -180,17 +185,43 @@ func buildModelPickerEntries() []ModelPickerEntry {
 	}
 
 	// 2. Per-provider configured models from cortexconfig.
-	// ModelsForProviderFromConfig merges configured + curated and
-	// deduplicates; we re-run that here to make sure custom-config
-	// rows (e.g. an openrouter route the user added by hand)
-	// surface in the picker too.
-	providerNames := []string{
+	// We iterate the user's configured providers (which includes
+	// any custom providers added in Settings) so freshly-added
+	// providers appear in the picker immediately.
+	customProviders := map[string]bool{}
+	if cfg != nil {
+		for _, p := range cfg.ProviderNames() {
+			customProviders[p] = true
+			auth := providerAuthKindByName(p)
+			for _, m := range ModelsForProviderFromConfig(p, cfg) {
+				if seen[m.Spec] {
+					continue
+				}
+				entries = append(entries, ModelPickerEntry{
+					Spec:          m.Spec,
+					DisplayName:   m.DisplayName,
+					ProviderName:  p,
+					ProviderLabel: formatProviderLabel(p, auth),
+					AuthKind:      auth,
+				})
+				seen[m.Spec] = true
+			}
+		}
+	}
+
+	// 3. Built-in providers that the user hasn't configured yet
+	// still get their curated models so the picker is useful
+	// even before the user visits Settings.
+	builtinProviders := []string{
 		"openai", "anthropic", "gemini", "xai", "deepseek", "mistral",
 		"groq", "cohere", "perplexity", "openrouter", "opengateway",
 		"minimax", "mimo", "bedrock", "cortex", "ollama", "lmstudio",
 		"vllm", "codex", "claude-sub", "copilot",
 	}
-	for _, prov := range providerNames {
+	for _, prov := range builtinProviders {
+		if customProviders[prov] {
+			continue
+		}
 		auth := providerAuthKindByName(prov)
 		for _, m := range ModelsForProvider(prov) {
 			if seen[m.Spec] {

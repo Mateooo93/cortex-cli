@@ -64,6 +64,13 @@ type RightPanel struct {
 	codexSignInPending string // model name waiting for the OAuth flow
 }
 
+// NewRightPanel returns a panel that is visible in info mode by
+// default — the user asked for the panel to be ON from the first
+// paint and Ctrl+B to hide it. Use Toggle() to flip visibility.
+func NewRightPanel() RightPanel {
+	return RightPanel{visible: true, mode: rpModeInfo}
+}
+
 // panelWidth is the fixed display width of the right panel.
 const panelWidth = 42
 
@@ -75,6 +82,16 @@ func (rp *RightPanel) IsVisible() bool { return rp.visible }
 
 // Close hides the panel.
 func (rp *RightPanel) Close() { rp.visible = false }
+
+// Toggle flips the panel between hidden and visible. Bound to
+// Ctrl+B from the chat tab.
+func (rp *RightPanel) Toggle() {
+	if rp.visible {
+		rp.Close()
+		return
+	}
+	rp.OpenInfo(rp.height)
+}
 
 // OpenModelSelect opens the model selection list, pre-selecting the active model.
 func (rp *RightPanel) OpenModelSelect(height int, activeModel string) {
@@ -623,7 +640,7 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 		{"Enter", "send"},
 		{"Esc", "cancel"},
 		{"Ctrl+T", "new session"},
-		{"Ctrl+B", "toggle panel"},
+		{"Ctrl+B", "hide panel"},
 		{"/", "slash menu"},
 	} {
 		// 8 chars for the badge column, rest for the action.

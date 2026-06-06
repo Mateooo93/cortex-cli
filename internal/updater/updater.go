@@ -224,12 +224,31 @@ var HTTPClient = &http.Client{
 // result. The caller should run this in a tea.Cmd goroutine so
 // the UI doesn't freeze on the network.
 func Run(ctx context.Context) Result {
+	return RunWithProgress(ctx, nil)
+}
+
+// ProgressFunc is invoked from inside Run() at each meaningful
+// step so the UI can render a spinner + step name. The TUI uses
+// this to drive the "Checking for updates…" / "Downloading…"
+// / "Verifying hash…" / "Installing…" progress messages.
+type ProgressFunc func(step string)
+
+// RunWithProgress is Run() with a per-step progress callback.
+// Pass nil to disable progress reporting (the CLI subcommand does
+// this; only the TUI needs the spinner).
+func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
+	if progress != nil {
+		progress("Checking for updates…")
+	}
 	assetName, err := AssetName()
 	if err != nil {
 		return Result{Kind: "error", Error: err}
 	}
 
 	// 1. Fetch latest release metadata.
+	if progress != nil {
+		progress("Fetching release metadata…")
+	}
 	rel, err := latestRelease(ctx, HTTPClient)
 	if err != nil {
 		return Result{Kind: "error", Error: err, AssetName: assetName}
@@ -273,12 +292,18 @@ func Run(ctx context.Context) Result {
 	if err := os.RemoveAll(tmpPath); err != nil {
 		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
 	}
+	if progress != nil {
+		progress(fmt.Sprintf("Downloading %s…", rel.TagName))
+	}
 	downloadedHash, err := download(ctx, HTTPClient, asset.BrowserDownloadURL, tmpPath)
 	if err != nil {
 		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
 	}
 
 	// 6. Verify SHA-256 against SHA256SUMS in the same release.
+	if progress != nil {
+		progress("Verifying SHA-256…")
+	}
 	sumsAsset, err := findAsset(rel, "SHA256SUMS")
 	if err != nil {
 		// No SHA256SUMS — that's a release bug, not a download
@@ -310,6 +335,9 @@ func Run(ctx context.Context) Result {
 	}
 
 	// 7. Make the downloaded file executable on POSIX.
+	if progress != nil {
+		progress("Installing new binary…")
+	}
 	if runtime.GOOS != "windows" {
 		if err := os.Chmod(tmpPath, 0o755); err != nil {
 			_ = os.RemoveAll(tmpPath)

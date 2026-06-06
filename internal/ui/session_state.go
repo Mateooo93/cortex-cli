@@ -5,8 +5,10 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	"github.com/Mateooo93/cortex-cli/internal/config"
+	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 	"github.com/Mateooo93/cortex-cli/internal/daemon"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
+	"github.com/Mateooo93/cortex-cli/internal/workflow"
 )
 
 // SessionState holds all accumulated UI state for a single agent session.
@@ -69,6 +71,9 @@ type SessionState struct {
 	pendingTools      map[string]int
 
 	// Panels
+	// rightPanel is visible by default in info mode so the
+	// user can see model / context / keybinds from the first
+	// paint. Ctrl+B toggles it.
 	rightPanel         RightPanel
 	workflowGraphPanel WorkflowGraphPanel
 	questionPanel      QuestionPanel
@@ -111,6 +116,19 @@ type SessionState struct {
 	// createdAt is the time this session was first opened. Used for
 	// sorting + display in the Sessions tab.
 	createdAt time.Time
+
+	// workflowEngine is per-session so workflows started in
+	// one session don't bleed into another. When the user
+	// switches tabs, this engine is replaced.
+	workflowEngine *workflow.Engine
+	// turnElapsed accumulates the time the agent has actually
+	// spent thinking/streaming for the current turn. We use this
+	// for the "⏱  2:13" indicator in the slim footer + right
+	// panel — the user asked the timer to count only when the
+	// agent is working, not the wall-clock since session open.
+	turnElapsed   time.Duration
+	turnActive    bool
+	turnStartedAt time.Time
 	// persistID is a stable identifier for the saved-sessions file.
 	// For live sessions it equals daemonSessionID; for restored
 	// placeholders it's the ID we wrote to disk.
@@ -120,20 +138,69 @@ type SessionState struct {
 // newSessionState initialises a fresh session state ready for a new agent session.
 func newSessionState(cfg *config.Config, client *daemon.SessionClient) *SessionState {
 	s := &SessionState{
-		agentState:    StateWaitingForInput,
-		input:         newInput(),
-		thinkingAnim:  NewThinkingAnim(),
-		questionPanel: NewQuestionPanel(),
-		focus:         FocusEditor,
-		client:        client,
-		modelName:     cfg.Model,
-		history:       NewHistory(cfg.Paths.Primary()),
-		showThinking:  config.ShowThinking(),
-		createdAt:     time.Now(),
+		agentState:     StateWaitingForInput,
+		input:          newInput(),
+		thinkingAnim:   NewThinkingAnim(),
+		questionPanel:  NewQuestionPanel(),
+		focus:          FocusEditor,
+		client:         client,
+		modelName:      cfg.Model,
+		history:        NewHistory(cfg.Paths.Primary()),
+		showThinking:   config.ShowThinking(),
+		createdAt:      time.Now(),
+		rightPanel:     NewRightPanel(),
 	}
 	if client != nil {
 		s.daemonSessionID = client.SessionID()
 		s.persistID = s.daemonSessionID
 	}
 	return s
+}
+
+// TurnElapsed returns the accumulated time the agent has spent
+// working on the current turn. While the agent is busy
+// (agentState == StateStreaming / StateToolExecuting) the value
+// keeps ticking up; while it's idle it returns the accumulated
+// total. The user asked for a "turn timer" instead of a
+// wall-clock-since-session-open indicator.
+func (s *SessionState) TurnElapsed() time.Duration {
+	if s.turnActive {
+		return s.turnElapsed + time.Since(s.turnStartedAt)
+	}
+	return s.turnElapsed
+}
+
+// StartTurn begins accumulating elapsed time. Call this when the
+// agent begins processing a new user turn.
+func (s *SessionState) StartTurn() {
+	if s.turnActive {
+		return
+	}
+	s.turnActive = true
+	s.turnStartedAt = time.Now()
+}
+
+// FinishTurn stops accumulating and returns the final elapsed
+// for the turn. The next call to StartTurn() resets the clock
+// for the next user turn.
+func (s *SessionState) FinishTurn() time.Duration {
+	if s.turnActive {
+		s.turnElapsed += time.Since(s.turnStartedAt)
+		s.turnActive = false
+	}
+	d := s.turnElapsed
+	s.turnElapsed = 0
+	return d
+}
+
+// EnsureWorkflowEngine returns a per-session workflow engine.
+// First call creates the engine bound to the user's config; later
+// calls return the same instance. We make the engine per-session
+// because each session is a separate conversation context and the
+// user expects workflow state to reset when they start a new chat.
+func (s *SessionState) EnsureWorkflowEngine(cfg *cortexconfig.Config) *workflow.Engine {
+	if s.workflowEngine == nil {
+		s.workflowEngine = workflow.NewEngine(cfg)
+	}
+	return s.workflowEngine
 }

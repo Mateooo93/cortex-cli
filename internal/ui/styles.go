@@ -181,6 +181,16 @@ type Styles struct {
 	ColorDimGray     color.Color
 	ColorBlurBorder  color.Color
 
+	// Reusable semantic styles. SectionTitle is used for tab
+	// section headers (e.g. "Workflows"). Bold is for
+	// highlighted-but-not-colour-shifted inline text. Accent
+	// is the brand colour for active items. DimLabel is for
+	// sub-text and explanations.
+	SectionTitle lipgloss.Style
+	Bold         lipgloss.Style
+	Accent       lipgloss.Style
+	DimLabel     lipgloss.Style
+
 	// Styles using colorWhite
 	ToolResultStyle            lipgloss.Style
 	QuestionTextStyle          lipgloss.Style
@@ -254,6 +264,13 @@ func NewStyles(hasDarkBG bool) Styles {
 		ColorWhite:      white,
 		ColorDimGray:    dimGray,
 		ColorBlurBorder: blurredBorder,
+
+		// Semantic styles. SectionTitle reuses the same
+		// accent as the active tab so the two feel coherent.
+		SectionTitle: lipgloss.NewStyle().Bold(true).Foreground(white),
+		Bold:         lipgloss.NewStyle().Bold(true).Foreground(white),
+		Accent:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#3B82F6")),
+		DimLabel:     lipgloss.NewStyle().Foreground(dimGray),
 
 		ToolResultStyle:            lipgloss.NewStyle().Foreground(white),
 		QuestionTextStyle:          lipgloss.NewStyle().Foreground(white),

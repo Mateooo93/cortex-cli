@@ -210,6 +210,23 @@ func buildAuthURL(redirectURI, state, challenge string) string {
 	return AuthEndpoint + "?" + q.Encode()
 }
 
+// AuthURL builds a fresh authorize URL with a new state and
+// PKCE verifier. The UI uses this to display the URL up front
+// (in the "waiting for auth" overlay) so the user can copy it
+// into a browser manually if the auto-open fails. The URL is
+// not associated with a specific Login() call — the user has
+// to start Login() separately, and the verifier + state in
+// that flow will be different. The two flows are
+// independent: the on-screen URL is for "fallback / manual"
+// sign-in; the auto-flow runs in parallel and updates the
+// TUI when the browser callback arrives.
+func AuthURL() string {
+	_, challenge, _ := pkce()
+	state, _ := randB64URL(16)
+	redirectURI := fmt.Sprintf("http://localhost:%d/auth/callback", DefaultCallbackPort)
+	return buildAuthURL(redirectURI, state, challenge)
+}
+
 // pkce returns a base64url(verifier) and base64url(sha256(verifier)).
 func pkce() (verifier, challenge string, err error) {
 	v, err := randB64URL(64)

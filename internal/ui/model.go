@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
@@ -342,12 +343,28 @@ type Model struct {
 	// and fire another compaction).
 	compactInFlight          bool
 
-	// workflowEngine runs workflows in the background and
-	// notifies the UI of progress. Initialised in NewModel.
-	workflowEngine *workflow.Engine
+	// workflowEngine has moved to SessionState — each
+	// session owns its own engine so workflows from one
+	// session don't bleed into another when the user
+	// switches sessions.
 	// workflowsSelected is the cursor in the Workflows tab
 	// list (newest first).
 	workflowsSelected int
+	// updateProgress is the latest step name from the
+	// /update self-update flow. It's a sync/atomic.Value
+	// string so the progress tick goroutine can write it
+	// without locking. The status bar reads it on every
+	// frame and shows the value as a transient message.
+	updateProgress atomic.Value // string
+	// codexAuthPending is true while the codex OAuth flow
+	// is in flight. The View() shows a full-screen
+	// "waiting for auth" overlay with the authorize URL
+	// so the user can copy it into a browser manually if
+	// the auto-open fails.
+	codexAuthPending   bool
+	codexAuthURL       string
+	codexAuthModel     string
+	codexAuthStartedAt time.Time
 	// workflowsNewMode is true when the "n" key has been
 	// pressed and we're prompting for a preset selection.
 	workflowsNewMode bool
@@ -416,9 +433,9 @@ func (m *Model) buildStatusBarInfo(sess *SessionState) StatusBarInfo {
 	// If a workflow is running, surface it in the
 	// slim footer so the user knows the orchestrator
 	// is busy.
-	if m.workflowEngine != nil {
-		for _, w := range m.workflowEngine.Workflows() {
-			snap := m.workflowEngine.Snapshot(w.ID)
+	if sess.workflowEngine != nil {
+		for _, w := range sess.workflowEngine.Workflows() {
+			snap := sess.workflowEngine.Snapshot(w.ID)
 			if snap.Status == "running" || snap.Status == "planning" || snap.Status == "synthesizing" {
 				info.WorkflowName = snap.Name
 				info.WorkflowStatus = snap.Status
@@ -428,7 +445,7 @@ func (m *Model) buildStatusBarInfo(sess *SessionState) StatusBarInfo {
 		}
 	}
 	info.CacheRead = sess.cacheReadTokens
-	info.Elapsed = time.Since(sess.createdAt)
+	info.Elapsed = sess.TurnElapsed()
 	if sess.pendingInput != nil && sess.pendingInput.Queued {
 		// A single pending message can be queued (Tab)
 		// waiting for the current turn to finish. Surface
@@ -473,7 +490,7 @@ func (m *Model) buildRightPanelInfoView(sess *SessionState) RightPanelInfoView {
 		info.InputTokens = sess.inputTokens
 		info.OutputTokens = sess.outputTokens
 		info.CacheRead = sess.cacheReadTokens
-		info.Elapsed = time.Since(sess.createdAt)
+		info.Elapsed = sess.TurnElapsed()
 		if sess.pendingInput != nil && sess.pendingInput.Queued {
 			info.QueuedMsgs = 1
 		}
@@ -488,10 +505,10 @@ func (m *Model) buildRightPanelInfoView(sess *SessionState) RightPanelInfoView {
 		// Find the active workflow (if any) so the panel
 		// can show "Workflow running: <name> (2:13)" with
 		// the currently-active step's currentMsg.
-		if m.workflowEngine != nil {
-			flows := m.workflowEngine.Workflows()
+		if sess.workflowEngine != nil {
+			flows := sess.workflowEngine.Workflows()
 			for _, w := range flows {
-				snap := m.workflowEngine.Snapshot(w.ID)
+				snap := sess.workflowEngine.Snapshot(w.ID)
 				if snap.Status == "running" || snap.Status == "planning" || snap.Status == "synthesizing" {
 					info.WorkflowName = snap.Name
 					info.WorkflowStatus = snap.Status
@@ -538,6 +555,14 @@ func (m *Model) buildRightPanelInfoView(sess *SessionState) RightPanelInfoView {
 		if max := cortexconfig.ModelContextWindow(m.cortexCfg.DefaultModel); max > 0 {
 			info.ContextMax = max
 		}
+	}
+	// Final fallback: if we still have no context window
+	// (custom / local / unknown model), assume 200k so the
+	// user always sees a meaningful "12k / 200k (6%)" line
+	// in the right panel and slim footer instead of a
+	// permanent "ctx 12k" with no denominator.
+	if info.ContextMax == 0 {
+		info.ContextMax = 200_000
 	}
 	// If we still don't have a real token count, fall back to a
 	// chars/4 estimate across the chat history so the bar isn't
@@ -1130,35 +1155,45 @@ func (m *Model) fetchModelsForProvider(providerName string) tea.Cmd {
 }
 
 // startCodexLoginCmd kicks off the codex OAuth flow in the background.
-// The returned tea.Cmd resolves to a codexLoginSuccessMsg or
-// codexLoginFailedMsg after the browser round-trip. Callers should
-// also emit a status message ("Opening ChatGPT sign-in in your
-// browser…") so the user has immediate feedback that the flow is
-// running.
+// The returned tea.Cmd resolves to a codexLoginStartedMsg
+// (with the authorize URL) immediately, then to a
+// codexLoginSuccessMsg or codexLoginFailedMsg after the browser
+// round-trip. The UI listens for the started msg to show a
+// large "waiting for auth" overlay with the URL — this is the
+// big pop-up the user asked for, in case the browser doesn't
+// auto-open (headless mode, WSL, SSH) the user can copy the
+// URL and paste it in any browser.
 func (m *Model) startCodexLoginCmd(pendingModel string) tea.Cmd {
-	return func() tea.Msg {
-		// Give the user a 5-minute window to complete the OAuth flow.
-		// Plenty for the typical 5–10s ChatGPT sign-in; long enough
-		// that an SSO detour or two doesn't time out.
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		res, err := codex.Login(ctx)
-		if err == nil && res != nil && res.Token != nil {
-			if saveErr := codex.Save(res.Token); saveErr != nil {
-				return codexLoginFailedMsg{err: fmt.Errorf("codex: save token: %w", saveErr)}
+	return tea.Batch(
+		func() tea.Msg {
+			// The login itself happens here. We need the URL
+			// before we kick off the round-trip so the UI
+			// can show it; we pre-build it via codex.AuthURL().
+			authURL := codex.AuthURL()
+			return codexLoginStartedMsg{pendingModel: pendingModel, authorizeURL: authURL}
+		},
+		func() tea.Msg {
+			// Give the user a 5-minute window to complete the OAuth flow.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			res, err := codex.Login(ctx)
+			if err == nil && res != nil && res.Token != nil {
+				if saveErr := codex.Save(res.Token); saveErr != nil {
+					return codexLoginFailedMsg{err: fmt.Errorf("codex: save token: %w", saveErr)}
+				}
+				return codexLoginSuccessMsg{
+					pendingModel: pendingModel,
+					email:        res.Token.Email,
+					planType:     res.Token.PlanType,
+				}
 			}
-			return codexLoginSuccessMsg{
-				pendingModel: pendingModel,
-				email:        res.Token.Email,
-				planType:     res.Token.PlanType,
+			authURL := ""
+			if res != nil {
+				authURL = res.AuthorizeURL
 			}
-		}
-		authURL := ""
-		if res != nil {
-			authURL = res.AuthorizeURL
-		}
-		return codexLoginFailedMsg{err: err, authorizeURL: authURL}
-	}
+			return codexLoginFailedMsg{err: err, authorizeURL: authURL}
+		},
+	)
 }
 
 // startCodexDeviceLoginCmd is the device-code fallback for the
@@ -1252,16 +1287,38 @@ func (m *Model) startOAuthLoginCmd(providerName string) tea.Cmd {
 // SHA-256 / install lives in internal/updater so it can be reused
 // outside the TUI (the /update slash command and the future
 // `cortex update` CLI subcommand both call the same Run()).
+//
+// The progress callback writes a per-step message into
+// m.updateProgress (a guarded atomic.Value) so the status
+// bar can render a live spinner while the update runs.
 func (m *Model) runSelfUpdateCmd() tea.Cmd {
+	m.updateProgress.Store("Checking for updates\u2026")
 	cmds := []tea.Cmd{
 		m.emitStatusMsg("Checking for updates\u2026", StatusMsgInfo),
 		func() tea.Msg {
-			res := updater.Run(context.Background())
+			res := updater.RunWithProgress(context.Background(), func(step string) {
+				m.updateProgress.Store(step)
+			})
 			return selfUpdateFinishedMsg{result: res}
 		},
+		selfUpdateProgressTick(),
 	}
 	return tea.Batch(cmds...)
 }
+
+// selfUpdateProgressTick re-renders the progress message
+// every 200ms so the spinner / step name updates while
+// the updater is doing network I/O.
+func selfUpdateProgressTick() tea.Cmd {
+	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg {
+		return selfUpdateProgressMsg{}
+	})
+}
+
+// selfUpdateProgressMsg fires periodically while an update
+// is in progress. The handler re-renders the status bar with
+// the latest progress step captured in m.updateProgress.
+type selfUpdateProgressMsg struct{}
 
 // selfUpdateFinishedMsg is fired by runSelfUpdateCmd when the
 // download + verify + install round-trip completes. We surface
@@ -1411,10 +1468,11 @@ func (m *Model) workflowEventMsg(workflowID, kind, stepID string) {
 	// approach: the hook captures `m` by reference and
 	// just updates state. The Update loop will pick up
 	// the changes on the next render.
-	if m.workflowEngine == nil {
+	sess := m.currentSession()
+	if sess == nil || sess.workflowEngine == nil {
 		return
 	}
-	snap := m.workflowEngine.Snapshot(workflowID)
+	snap := sess.workflowEngine.Snapshot(workflowID)
 	// Forward a short status-bar update for the more
 	// important transitions so the user has feedback
 	// regardless of which tab they're on.
@@ -1792,13 +1850,14 @@ func NewModel(cfg *config.Config, cortexCfg *cortexconfig.Config, client *daemon
 	}
 	m.applyConfiguredTheme()
 
-	// Initialise the workflow engine. The engine runs
-	// workflows (and individual sub-agents) in goroutines
-	// inside the same process; it sends status updates back
-	// to the TUI via a hook. The engine is owned by the
-	// model so the hooks can access `m` directly.
-	m.workflowEngine = workflow.NewEngine(m.cortexCfg)
-	m.workflowEngine.SetHooks(workflow.Hooks{
+	// Initialise the workflow engine per-session. The
+	// engine runs workflows (and individual sub-agents) in
+	// goroutines inside the same process; it sends status
+	// updates back to the TUI via a hook. The engine is
+	// owned by the session so workflows from one chat don't
+	// bleed into another when the user switches.
+	engine := initialSession.EnsureWorkflowEngine(m.cortexCfg)
+	engine.SetHooks(workflow.Hooks{
 		OnWorkflowStart: func(snap workflow.Snapshot) {
 			m.workflowEventMsg(snap.ID, "start", "")
 		},
@@ -1856,6 +1915,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		// --- Codex "waiting for auth" overlay ---
+		// Esc dismisses the overlay; the OAuth flow keeps
+		// running in the background and will surface its
+		// result through the existing codexLoginSuccessMsg
+		// / codexLoginFailedMsg handlers.
+		if m.codexAuthPending && (msg.String() == "esc" || msg.String() == "Esc") {
+			m.codexAuthPending = false
+			return m, nil
+		}
 		// --- Global quit confirm overlay ---
 		if msg.String() == "ctrl+c" || msg.String() == "ctrl+d" {
 			if m.state == StateQuitConfirm {
@@ -2095,19 +2163,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// focus so the user can keep typing while
 			// glancing at the stats.
 			if sess != nil {
-				if sess.rightPanel.IsVisible() && sess.rightPanel.mode == rpModeInfo {
-					sess.rightPanel.Close()
-					m.updateChatWidth()
-				} else {
-					// Use a generous height; the panel
-					// will internally clamp. We don't
-					// have access to the live layout
-					// from the Update function, but the
-					// chat height is recomputed by the
-					// View() on the next frame.
-					sess.rightPanel.OpenInfo(m.height - 6)
-					m.updateChatWidth()
-				}
+				sess.rightPanel.Toggle()
+				m.updateChatWidth()
 			}
 			return m, nil
 
@@ -2523,7 +2580,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if goal == "" {
 						goal = preset.Description
 					}
-					id, err := m.workflowEngine.Start(context.Background(), preset.Name, goal, preset.Strategy, preset.MaxAgents)
+					id, err := sess.workflowEngine.Start(context.Background(), preset.Name, goal, preset.Strategy, preset.MaxAgents)
 					if err != nil {
 						cmds = append(cmds, m.emitStatusMsg("workflow start failed: "+err.Error(), StatusMsgError))
 					} else {
@@ -2538,7 +2595,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Batch(cmds...)
 			}
-			flows := m.workflowEngine.Workflows()
+			flows := sess.workflowEngine.Workflows()
 			switch key {
 			case "up", "k":
 				if m.workflowsSelected > 0 {
@@ -2562,7 +2619,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Cancel the selected workflow.
 				if m.workflowsSelected < len(flows) {
 					id := flows[m.workflowsSelected].ID
-					m.workflowEngine.Cancel(id)
+					sess.workflowEngine.Cancel(id)
 					cmds = append(cmds, m.emitStatusMsg("cancelling workflow", StatusMsgInfo))
 				}
 			case "s":
@@ -2572,10 +2629,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// step.
 				if m.workflowsSelected < len(flows) {
 					id := flows[m.workflowsSelected].ID
-					snap := m.workflowEngine.Snapshot(id)
+					snap := sess.workflowEngine.Snapshot(id)
 					for _, st := range snap.Steps {
 						if st.Status == workflow.StepInProgress {
-							m.workflowEngine.CancelStep(id, st.ID)
+							sess.workflowEngine.CancelStep(id, st.ID)
 							cmds = append(cmds, m.emitStatusMsg("stopped step: "+st.Role+" ("+st.Description+")", StatusMsgInfo))
 							break
 						}
@@ -2694,7 +2751,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "backspace":
 				q := m.modelPicker.Query()
 				if len(q) > 0 {
-					m.modelPicker.SetQuery(q[:len(q)-1])
+					m.modelPicker.SetQuery(q[:len(q)-1], m.cortexCfg)
 				}
 			default:
 				// Treat printable key strings as filter input.
@@ -2705,7 +2762,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// bubbletea naming convention.
 				ks := msg.String()
 				if isPickerFilterKey(ks) {
-					m.modelPicker.SetQuery(m.modelPicker.Query() + ks)
+					m.modelPicker.SetQuery(m.modelPicker.Query() + ks, m.cortexCfg)
 				}
 			}
 			return m, tea.Batch(cmds...)
@@ -3269,10 +3326,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.emitStatusMsg(fmt.Sprintf("Loaded %d model(s) for %s", len(msg.models), providerName), StatusMsgInfo)
 
+	case codexLoginStartedMsg:
+		// The codex OAuth flow has just been kicked off.
+		// Show the full-screen "waiting for auth" overlay
+		// with the URL so the user can copy it into a
+		// browser manually if the auto-open fails (headless
+		// / WSL / SSH).
+		m.codexAuthPending = true
+		m.codexAuthURL = msg.authorizeURL
+		m.codexAuthModel = msg.pendingModel
+		m.codexAuthStartedAt = time.Now()
+		// Also surface a quick status-bar line so the
+		// user knows the flow has started even before
+		// they look at the overlay.
+		return m, m.emitStatusMsg("Waiting for ChatGPT sign-in. If your browser didn't open, copy the URL from the overlay.", StatusMsgInfo)
+
 	case codexLoginSuccessMsg:
+		// Clear the "waiting for auth" overlay.
+		m.codexAuthPending = false
 		return m, m.handleCodexLoginSuccess(msg.pendingModel, msg.email, msg.planType)
 
 	case codexLoginFailedMsg:
+		m.codexAuthPending = false
 		return m, m.handleCodexLoginFailed(msg.err, msg.authorizeURL)
 
 	case compactMsg:
@@ -3290,6 +3365,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case selfUpdateFinishedMsg:
 		// Surface the result in the status bar so the user
 		// gets explicit feedback regardless of outcome.
+		m.updateProgress.Store("")
 		switch msg.result.Kind {
 		case "up-to-date":
 			return m, m.emitStatusMsg("Already on the latest version ("+msg.result.NewVersion+").", StatusMsgInfo)
@@ -3304,6 +3380,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.emitStatusMsg(errMsg, StatusMsgError)
 		}
+
+	case selfUpdateProgressMsg:
+		// Refresh the status bar with the latest progress
+		// step from m.updateProgress (set by the updater
+		// goroutine). We keep the progress visible until
+		// selfUpdateFinishedMsg fires.
+		if step, ok := m.updateProgress.Load().(string); ok && step != "" {
+			m.statusMsg.Text = step
+			m.statusMsg.Kind = StatusMsgInfo
+			m.statusMsg.gen++ // bump so the auto-clear timer
+			// restarts for each step (otherwise the
+			// 3-second auto-clear from emitStatusMsg could
+			// wipe the message mid-update).
+			return m, selfUpdateProgressTick()
+		}
+		return m, nil
 
 	case animStepMsg:
 		// Route to whichever session owns this generation tick.
@@ -3454,10 +3546,10 @@ func (m Model) submitFromInput(sess *SessionState, queueOnly bool) (tea.Model, t
 	// to answer follow-up questions while the orchestrator
 	// works.
 	lower := strings.ToLower(text)
-	if m.workflowEngine != nil {
+	if sess.workflowEngine != nil {
 		alreadyRunning := false
-		for _, w := range m.workflowEngine.Workflows() {
-			snap := m.workflowEngine.Snapshot(w.ID)
+		for _, w := range sess.workflowEngine.Workflows() {
+			snap := sess.workflowEngine.Snapshot(w.ID)
 			if snap.Status == "running" || snap.Status == "planning" || snap.Status == "synthesizing" {
 				alreadyRunning = true
 				break
@@ -3466,7 +3558,7 @@ func (m Model) submitFromInput(sess *SessionState, queueOnly bool) (tea.Model, t
 		if !alreadyRunning && detectWorkflowIntent(lower) {
 			// Pick a preset based on the keywords.
 			preset := pickWorkflowPreset(lower)
-			id, err := m.workflowEngine.Start(context.Background(), preset.Name, text, preset.Strategy, preset.MaxAgents)
+			id, err := sess.workflowEngine.Start(context.Background(), preset.Name, text, preset.Strategy, preset.MaxAgents)
 			if err == nil {
 				_ = m.emitStatusMsg("started workflow: "+preset.Name+" (id "+id+")", StatusMsgInfo)
 			}
@@ -3595,6 +3687,10 @@ func (m Model) handleEnter(sess *SessionState) (tea.Model, tea.Cmd) {
 		sess.chatScrollOffset = 0
 
 		sess.agentState = StateStreaming
+		// Start the per-turn timer so the "⏱ 0:42" indicator
+		// counts only while the agent is working, not wall
+		// clock since session open.
+		sess.StartTurn()
 		animCmd := sess.thinkingAnim.Start()
 
 		if sess.client != nil {
@@ -3689,6 +3785,9 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		sess.outputTokens += done.OutputTokens
 		sess.cacheCreationTokens += done.CacheCreationTokens
 		sess.cacheReadTokens += done.CacheReadTokens
+		// Finalise the per-turn timer. The accumulator is
+		// reset to 0 for the next turn.
+		sess.FinishTurn()
 		if done.ElapsedMs > 0 {
 			sess.lastOutputTokens = done.OutputTokens
 			sess.elapsed = time.Duration(done.ElapsedMs) * time.Millisecond
@@ -3907,6 +4006,9 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 				}
 			}
 			sess.agentState = StateStreaming
+			// The pending message became a fresh user turn —
+			// restart the per-turn timer.
+			sess.StartTurn()
 			// If another message is queued (e.g. the user
 			// pressed Tab again while this turn was running),
 			// keep showing the queued badge in the placeholder.
@@ -3979,6 +4081,17 @@ func (m Model) View() tea.View {
 	}
 
 	sess := m.currentSession()
+
+	// If a codex OAuth flow is in flight, show the big
+	// "waiting for auth" overlay on top of whatever the
+	// user is doing. They can dismiss it with Esc to
+	// continue using the TUI while the browser round-trip
+	// continues in the background.
+	if m.codexAuthPending {
+		v := tea.NewView(m.renderCodexAuthOverlay())
+		v.AltScreen = true
+		return v
+	}
 
 	// Layout
 	var panelHeights []int
@@ -4189,7 +4302,7 @@ func (m Model) View() tea.View {
 		wfHeight := m.height - layout.TabBarHeight - layout.StatusBarHeight
 		wv := renderWorkflowsView(
 			m.width, wfHeight, m.styles,
-			m.workflowEngine,
+			sess.workflowEngine,
 			m.workflowsSelected,
 			workflow.BuiltinPresets,
 			m.workflowsCursorPreset,
@@ -4615,6 +4728,7 @@ func (m *Model) doFork(sep TurnSepInfo) (Model, tea.Cmd) {
 	newSess := newSessionState(m.cfg, nil)
 	newSess.modelName = activeModel
 	newSess.reconnecting = true
+	newSess.EnsureWorkflowEngine(m.cortexCfg)
 	forkedMsgs := make([]ChatMessage, sep.MsgIdx+1)
 	copy(forkedMsgs, sess.chatMessages[:sep.MsgIdx+1])
 	newSess.chatMessages = forkedMsgs
@@ -4684,6 +4798,7 @@ func (m *Model) doCloseSession(sessionIdx int) (Model, tea.Cmd) {
 		newSess := newSessionState(m.cfg, nil)
 		newSess.modelName = activeModel
 		newSess.reconnecting = true
+		newSess.EnsureWorkflowEngine(m.cortexCfg)
 		m.sessions = append(m.sessions, newSess)
 		m.selectedSession = 0
 		reconnectCmd = attemptReconnect(m.socketPath, m.cwd, m.cfg.ConfigDir, activeModel, m.authToken, false, m.enableAutomaticWritePermission, m.enableAutomaticDirectoryAccess, newSess.daemonSessionID)

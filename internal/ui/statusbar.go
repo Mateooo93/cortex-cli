@@ -85,7 +85,7 @@ func renderStatusBar(
 				pct = 100
 			}
 			pctLabel := fmt.Sprintf("%.0f%%", pct)
-			ctxSeg += fmt.Sprintf("%s / %s (%s)",
+			ctxSeg += fmt.Sprintf("%s/%s (%s)",
 				formatTokenCount(used),
 				formatTokenCount(info.ContextMax),
 				pctLabel,

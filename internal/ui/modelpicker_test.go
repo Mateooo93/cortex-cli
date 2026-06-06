@@ -6,7 +6,7 @@ import (
 )
 
 func TestBuildModelPickerEntries_IncludesCodex(t *testing.T) {
-	entries := buildModelPickerEntries()
+	entries := buildModelPickerEntries(nil)
 	if len(entries) == 0 {
 		t.Fatal("buildModelPickerEntries returned no entries")
 	}
@@ -23,7 +23,7 @@ func TestBuildModelPickerEntries_IncludesCodex(t *testing.T) {
 }
 
 func TestBuildModelPickerEntries_ProviderLabelShowsAuthKind(t *testing.T) {
-	entries := buildModelPickerEntries()
+	entries := buildModelPickerEntries(nil)
 	wantSubstr := map[string]string{
 		"codex":     "OAuth (subscription)",
 		"openai":    "API key",
@@ -45,7 +45,7 @@ func TestBuildModelPickerEntries_ProviderLabelShowsAuthKind(t *testing.T) {
 }
 
 func TestFilterModelPickerEntries(t *testing.T) {
-	entries := buildModelPickerEntries()
+	entries := buildModelPickerEntries(nil)
 	if len(entries) == 0 {
 		t.Fatal("no entries")
 	}
@@ -73,7 +73,7 @@ func TestModelPicker_OpenCloseQuery(t *testing.T) {
 	if !p.IsVisible() {
 		t.Error("Open should make picker visible")
 	}
-	p.SetQuery("gpt")
+	p.SetQuery("gpt", nil)
 	if p.Query() != "gpt" {
 		t.Errorf("Query() = %q, want \"gpt\"", p.Query())
 	}

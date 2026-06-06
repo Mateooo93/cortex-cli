@@ -12,8 +12,28 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 )
 
+// chdir is a test helper that switches the process working
+// directory for the duration of the test. We need it because
+// the session_persist code is now per-project: it reads
+// sessions from `<cwd>/.cortex/sessions.json` so different
+// projects don't see each other's history.
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(old)
+	})
+}
+
 func TestSessionPersistRoundTrip(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -61,6 +81,7 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 
 func TestSessionPersistMissingFile(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -73,6 +94,7 @@ func TestSessionPersistMissingFile(t *testing.T) {
 
 func TestSessionPersistCorruptFile(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -110,6 +132,7 @@ func TestFirstUserMessage(t *testing.T) {
 
 func TestSaveLoadChatRoundTrip(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -159,6 +182,7 @@ func TestSaveLoadChatRoundTrip(t *testing.T) {
 
 func TestLoadSavedChatMissing(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -173,6 +197,7 @@ func TestLoadSavedChatMissing(t *testing.T) {
 
 func TestLoadSavedChatCorrupt(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex", "chats"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -188,6 +213,7 @@ func TestLoadSavedChatCorrupt(t *testing.T) {
 
 func TestDeleteSavedChat(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -207,6 +233,7 @@ func TestDeleteSavedChat(t *testing.T) {
 
 func TestSaveChatEmptyIDIsNoOp(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -220,6 +247,7 @@ func TestSaveChatEmptyIDIsNoOp(t *testing.T) {
 
 func TestRestoreSavedSessionsLoadsChat(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -288,6 +316,7 @@ func TestRestoreSavedSessionsLoadsChat(t *testing.T) {
 // agent's last partial response (the user-reported bug).
 func TestPersistSessionsFlushesInFlightBuffers(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -340,6 +369,7 @@ func TestPersistSessionsFlushesInFlightBuffers(t *testing.T) {
 // sessions if a write fails partway.
 func TestPersistSessionsIsAtomic(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -375,6 +405,7 @@ func TestPersistSessionsIsAtomic(t *testing.T) {
 // a corrupt mix).
 func TestPersistSessionsSurvivesConcurrentWrites(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -436,6 +467,7 @@ func TestPersistSessionsSurvivesConcurrentWrites(t *testing.T) {
 // non-empty Rendered output.
 func TestRestoreChatHistoryVisibleAfterRestart(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -500,6 +532,7 @@ func TestRestoreChatHistoryVisibleAfterRestart(t *testing.T) {
 // silently skips messages with an empty Rendered field.
 func TestSaveLoadChatPreservesRendered(t *testing.T) {
 	dir := t.TempDir()
+	chdir(t, dir)
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -524,3 +557,52 @@ func TestSaveLoadChatPreservesRendered(t *testing.T) {
 	}
 }
 
+
+// chdir is a test helper that switches the process working
+// directory for the duration of the test. We need it because
+// the session_persist code is now per-project: it reads
+// sessions from `<cwd>/.cortex/sessions.json` so different
+// projects don't see each other's history.
+
+// TestSessionsPerProject_AreScopedToCwd verifies that two
+// different working directories have isolated session lists
+// (the user wanted session history scoped to the project so
+// they don't see another project's chats when they cd
+// somewhere else).
+func TestSessionsPerProject_AreScopedToCwd(t *testing.T) {
+	// Clean slate.
+	projectA := t.TempDir()
+	projectB := t.TempDir()
+
+	// Write a session in projectA.
+	chdir(t, projectA)
+	_ = os.MkdirAll(".cortex", 0o755)
+	sessionsA := []SavedSession{
+		{ID: "a-1", Label: "Refactor auth", Model: "openai/gpt-4o", CreatedAt: time.Now()},
+	}
+	data, _ := json.MarshalIndent(sessionsA, "", "  ")
+	_ = os.WriteFile(filepath.Join(projectA, ".cortex", "sessions.json"), data, 0o644)
+
+	// Switch to projectB and verify the session from A is
+	// not visible.
+	chdir(t, projectB)
+	_ = os.MkdirAll(".cortex", 0o755)
+	sessionsB := []SavedSession{
+		{ID: "b-1", Label: "Document the API", Model: "anthropic/claude-opus-4", CreatedAt: time.Now()},
+	}
+	data, _ = json.MarshalIndent(sessionsB, "", "  ")
+	_ = os.WriteFile(filepath.Join(projectB, ".cortex", "sessions.json"), data, 0o644)
+
+	got := loadSavedSessions()
+	if len(got) != 1 || got[0].ID != "b-1" {
+		t.Errorf("project B should see only its own session, got %+v", got)
+	}
+
+	// Switch back to projectA and verify the original
+	// session is intact.
+	chdir(t, projectA)
+	got = loadSavedSessions()
+	if len(got) != 1 || got[0].ID != "a-1" {
+		t.Errorf("project A should see only its own session, got %+v", got)
+	}
+}

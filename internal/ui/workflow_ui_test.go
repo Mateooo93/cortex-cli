@@ -84,7 +84,7 @@ func TestRenderWorkflowsView_EmptyState(t *testing.T) {
 	s := NewStyles(true)
 	engine := workflow.NewEngine(nil)
 	view := renderWorkflowsView(120, 40, s, engine, 0, workflow.BuiltinPresets, 0, false, "", 0)
-	for _, want := range []string{"Workflows", "No workflows yet", "code", "research", "test", "review", "docs"} {
+	for _, want := range []string{"Workflows", "Start one with", "/workflow", "code", "research", "test", "review", "docs"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("empty state missing %q, got:\n%s", want, view)
 		}
@@ -98,6 +98,11 @@ func TestRenderWorkflowsView_EmptyState(t *testing.T) {
 func TestRenderWorkflowsView_NewModePrompt(t *testing.T) {
 	s := NewStyles(true)
 	engine := workflow.NewEngine(nil)
+	// Start a dummy workflow so the view doesn't render
+	// the empty state. The new-mode picker overlay
+	// overrides whatever else the view would show.
+	id, _ := engine.Start(context.Background(), "code", "build me a thing", "development", 3)
+	defer engine.Cancel(id)
 	view := renderWorkflowsView(120, 40, s, engine, 0, workflow.BuiltinPresets, 2, true, "build me a thing", 0)
 	for _, want := range []string{"New workflow", "code", "research", "test", "Enter start", "Esc cancel"} {
 		if !strings.Contains(view, want) {

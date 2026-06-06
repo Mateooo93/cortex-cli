@@ -161,6 +161,7 @@ type Step struct {
 	Role        string
 	Status      string
 	Output      string
+	CurrentMsg  string        // "what the agent is doing right now"
 	StartedAt   time.Time
 	EndedAt     time.Time
 	Duration    time.Duration
@@ -178,6 +179,8 @@ type Snapshot struct {
 	Steps      []Step
 	Summary    string
 	CurrentMsg string // what the active step is currently doing
+	DoneSteps  int    // count of steps whose Status == StepDone
+	TotalSteps int    // total steps the workflow will execute
 }
 
 // Engine runs workflows. The engine is goroutine-safe; multiple
@@ -251,6 +254,20 @@ func (e *Engine) Workflows() []*Workflow {
 	return out
 }
 
+// Snapshots returns a Snapshot for every workflow the engine
+// knows about, newest first. The UI uses this to render the
+// Workflows tab. Each snapshot is a deep-enough copy that the
+// caller can render without worrying about concurrent
+// mutation by the engine goroutines.
+func (e *Engine) Snapshots() []Snapshot {
+	wfs := e.Workflows()
+	out := make([]Snapshot, 0, len(wfs))
+	for _, w := range wfs {
+		out = append(out, e.Snapshot(w.ID))
+	}
+	return out
+}
+
 // Get returns a workflow by id, or nil.
 func (e *Engine) Get(id string) *Workflow {
 	e.mu.RLock()
@@ -268,8 +285,23 @@ func (e *Engine) Snapshot(id string) Snapshot {
 		return Snapshot{}
 	}
 	steps := make([]Step, 0, len(w.Steps))
+	done := 0
 	for _, s := range w.Steps {
 		steps = append(steps, *s)
+		if s.Status == StepDone {
+			done++
+		}
+	}
+	// TotalSteps = current steps + the final synthesis step
+	// (the engine always adds an implicit "synthesise" step
+	// at the end, which the UI should count as part of the
+	// progress meter).
+	total := len(w.Steps)
+	if total == 0 {
+		// planning phase: nothing to count yet
+	} else {
+		// +1 for the synthesis step
+		total = total + 1
 	}
 	currentMsg, _ := w.currentMsg.Load().(string)
 	return Snapshot{
@@ -283,6 +315,8 @@ func (e *Engine) Snapshot(id string) Snapshot {
 		Steps:      steps,
 		Summary:    w.Summary,
 		CurrentMsg: currentMsg,
+		DoneSteps:  done,
+		TotalSteps: total,
 	}
 }
 

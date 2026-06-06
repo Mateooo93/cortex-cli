@@ -25,7 +25,7 @@ type SavedSession struct {
 }
 
 func chatsDirPath() string {
-	dir := cortexconfig.Dir()
+	dir := projectConfigDir()
 	if dir == "" {
 		return ""
 	}
@@ -33,11 +33,28 @@ func chatsDirPath() string {
 }
 
 func sessionsFilePath() string {
-	dir := cortexconfig.Dir()
+	dir := projectConfigDir()
 	if dir == "" {
 		return ""
 	}
 	return filepath.Join(dir, "sessions.json")
+}
+
+// projectConfigDir returns the per-project .cortex directory.
+// Sessions are scoped to the project they're started in so the
+// user doesn't see chat history from another project in a
+// different folder. The directory is `<cwd>/.cortex`. We fall
+// back to the global ~/.cortex dir if we can't determine cwd.
+func projectConfigDir() string {
+	wd, err := os.Getwd()
+	if err != nil || wd == "" {
+		return cortexconfig.Dir()
+	}
+	projectDir := filepath.Join(wd, ".cortex")
+	// Make sure the directory exists. Sessions are written
+	// lazily; we don't want a missing dir to look like a bug.
+	_ = os.MkdirAll(projectDir, 0o755)
+	return projectDir
 }
 
 func loadSavedSessions() []SavedSession {
@@ -333,6 +350,20 @@ func (m *Model) persistSessions() {
 		if created.IsZero() {
 			created = time.Now()
 		}
+		// Skip sessions that have no chat history and no
+		// label. They were created by mistake (e.g. user
+		// hit Ctrl+T without typing anything) and just
+		// clutter the Sessions tab on next launch.
+		totalMsgs := len(sess.chatMessages)
+		if sess.showThinking && sess.thinkingBuf != "" {
+			totalMsgs++
+		}
+		if sess.assistantBuf != "" {
+			totalMsgs++
+		}
+		if totalMsgs == 0 && sess.label == "" && firstUserMessage(sess) == "" {
+			continue
+		}
 		saved = append(saved, SavedSession{
 			ID:          id,
 			Label:       label,
@@ -465,6 +496,10 @@ func (m *Model) restoreSavedSessions(saved []SavedSession, current *SessionState
 		sess.modelName = s.Model
 		sess.createdAt = s.CreatedAt
 		sess.parentID = s.ParentID
+		// Restored sessions start with an empty workflow
+		// engine — workflows are not persisted (they're
+		// in-memory only).
+		sess.EnsureWorkflowEngine(m.cortexCfg)
 		sess.forkTurnIdx = s.ForkTurnIdx
 		sess.reconnecting = true
 
