@@ -27,7 +27,9 @@ the swarm orchestrator.
 
 cortex-cli ships with first-class support for the following
 providers. The default for each is the strongest publicly available
-model as of June 2026.
+model as of June 2026. The **ChatGPT (codex)** row is new — it
+authenticates with your existing ChatGPT subscription via OAuth,
+so you don't need a separate OpenAI API key.
 
 | Provider | Default model | Auth | Notes |
 |----------|---------------|------|-------|
