@@ -110,54 +110,67 @@ func wrapLine(line string, maxWidth int) []string {
 		return []string{""}
 	}
 
-	var result []string
+	// The previous implementation advanced `start` to
+	// a word boundary while still iterating with the old
+	// loop index. On long wrapped user messages this
+	// could make start > i and panic with slice bounds
+	// out of range (e.g. [182:137]) during a resize /
+	// re-render. This version wraps by repeatedly
+	// consuming a prefix of the remaining runes, so
+	// slice bounds are always local and valid.
 	runes := []rune(line)
-	start := 0
-	col := 0
-	lastSpace := -1
+	var result []string
+	for len(runes) > 0 {
+		// Find the largest prefix that fits.
+		end := 0
+		cols := 0
+		for end < len(runes) {
+			w := 1
+			if runes[end] >= 0x1100 { // rough check for wide chars
+				w = 2
+			}
+			if end > 0 && cols+w > maxWidth {
+				break
+			}
+			cols += w
+			end++
+			if cols >= maxWidth {
+				break
+			}
+		}
+		if end <= 0 {
+			end = 1 // always make progress, even for a very wide rune
+		}
+		if end >= len(runes) {
+			result = append(result, string(runes))
+			break
+		}
 
-	for i, r := range runes {
-		w := 1
-		if r >= 0x1100 { // rough check for wide chars
-			w = 2
-		}
-		if r == ' ' || r == '\t' {
-			lastSpace = i
-		}
-		if col+w > maxWidth {
-			// wrap at last space if available, otherwise hard-wrap
-			end := i
-			if lastSpace > start {
-				end = lastSpace + 1
+		// Prefer wrapping at the last whitespace inside
+		// the fitting prefix. Exclude index 0 so we don't
+		// emit an empty line for leading whitespace.
+		wrapEnd := end
+		consume := end
+		for i := end - 1; i > 0; i-- {
+			if runes[i] == ' ' || runes[i] == '\t' {
+				wrapEnd = i
+				consume = i + 1
+				break
 			}
-			result = append(result, string(runes[start:end]))
-			start = end
-			// skip leading spaces on the new line
-			for start < len(runes) && runes[start] == ' ' {
-				start++
-			}
-			col = 0
-			lastSpace = -1
-			// recount from start to current position
-			for k := start; k <= i && k < len(runes); k++ {
-				kw := 1
-				if runes[k] >= 0x1100 {
-					kw = 2
-				}
-				col += kw
-				if runes[k] == ' ' || runes[k] == '\t' {
-					lastSpace = k
-				}
-			}
-			continue
 		}
-		col += w
-	}
-	if start < len(runes) {
-		result = append(result, string(runes[start:]))
+		if wrapEnd <= 0 {
+			wrapEnd = end
+			consume = end
+		}
+		result = append(result, string(runes[:wrapEnd]))
+		runes = runes[consume:]
+		// Skip leading spaces on the next visual line.
+		for len(runes) > 0 && runes[0] == ' ' {
+			runes = runes[1:]
+		}
 	}
 	if len(result) == 0 {
-		result = []string{""}
+		return []string{""}
 	}
 	return result
 }
@@ -419,7 +432,6 @@ func renderToolResultWithContext(name, output string, isError bool, showToolName
 		ShowToolName: showToolName,
 	}
 }
-
 
 // renderDiffDetail formats an edit diff for side-by-side display below a tool result.
 // It parses the structured tag format emitted by FormatEditDiff:

@@ -1419,6 +1419,20 @@ func workflowTick() tea.Cmd {
 	})
 }
 
+// autosaveTickMsg periodically persists sessions
+// while the TUI is running. This protects users from
+// losing recent chat state when cortex crashes or the
+// terminal/process is killed. Empty sessions are still
+// filtered by persistSessions(), so autosave won't
+// bloat the Sessions tab.
+type autosaveTickMsg struct{}
+
+func autosaveTick() tea.Cmd {
+	return tea.Tick(20*time.Second, func(time.Time) tea.Msg {
+		return autosaveTickMsg{}
+	})
+}
+
 // applyModelPickerSelection routes a spec chosen from the /model
 // picker to the right action. OAuth providers (codex, claude-sub,
 // copilot) fire the OAuth flow directly — the user never sees the
@@ -1982,7 +1996,7 @@ func (m Model) Init() tea.Cmd {
 	if sess := m.currentSession(); sess != nil && sess.client != nil {
 		cmds = append(cmds, startSessionEventLoop(sess.client))
 	}
-	cmds = append(cmds, waitForResume, tea.RequestBackgroundColor)
+	cmds = append(cmds, waitForResume, tea.RequestBackgroundColor, autosaveTick())
 	return tea.Batch(cmds...)
 }
 
@@ -3588,6 +3602,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, compactProgressTick()
 		}
 		// Compaction done — don't reschedule the tick.
+		return m, nil
+
+	case autosaveTickMsg:
+		// Periodic crash-safety persistence. This is
+		// intentionally lightweight and uses the same
+		// persistSessions path as quit/SIGINT. Empty
+		// sessions are filtered there, so autosave won't
+		// clutter the Sessions tab.
+		if !m.testMode {
+			m.persistSessions()
+			return m, autosaveTick()
+		}
 		return m, nil
 
 	case workflowTickMsg:
