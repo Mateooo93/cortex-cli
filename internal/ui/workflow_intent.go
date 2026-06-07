@@ -189,3 +189,50 @@ func pickWorkflowPreset(input string) struct {
 		return presetShape{Name: "code", Strategy: "development", MaxAgents: 5, Description: "Plan, implement, review, and test a coding task end-to-end."}
 	}
 }
+
+// isSubstantivePrompt returns true when the user's message looks
+// like a multi-step engineering task that would benefit from
+// workflow orchestration — even without explicit trigger keywords.
+// Used by ultracode mode to auto-dispatch workflows for every
+// substantive request.
+func isSubstantivePrompt(lower string) bool {
+	// Multi-component signals (landing page, full app, etc.)
+	multiComponent := []string{
+		"landing page", "homepage", "hero section", "pricing section",
+		"full app", "full site", "full build", "end to end", "e2e",
+		"build me a", "build a full", "create a full", "make me a",
+		"make a full", "make a complete", "with sections",
+		"with multiple sections", "with hero", "with pricing",
+		"mobile responsive", "responsive design",
+	}
+	for _, t := range multiComponent {
+		if strings.Contains(lower, t) {
+			return true
+		}
+	}
+
+	// Multi-file refactors
+	multiFile := []string{
+		"refactor", "migrate", "across the codebase", "every file",
+		"all files", "every endpoint", "across all", "bulk update",
+		"batch update", "across the repo",
+	}
+	for _, t := range multiFile {
+		if strings.Contains(lower, t) {
+			return true
+		}
+	}
+
+	// Audit / review tasks
+	auditTerms := []string{
+		"audit", "security review", "code review of",
+		"review every", "scan for", "find all",
+	}
+	for _, t := range auditTerms {
+		if strings.Contains(lower, t) {
+			return true
+		}
+	}
+
+	return false
+}

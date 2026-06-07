@@ -442,11 +442,12 @@ func (m *Model) buildStatusBarInfo(sess *SessionState) StatusBarInfo {
 	if sess == nil {
 		return info
 	}
-	// Goal indicator
-	if sess.goalManager != nil {
-		if g := sess.goalManager.Active(); g != nil {
+	// Goal indicator — query the daemon session's real goal state
+	if sess.client != nil {
+		_, active, turns, _ := sess.client.GoalState()
+		if active {
 			info.GoalActive = true
-			info.GoalTurns = g.Turns
+			info.GoalTurns = turns
 		}
 	}
 	// Effort level
@@ -3871,7 +3872,19 @@ func (m Model) submitFromInput(sess *SessionState, queueOnly bool) (tea.Model, t
 				break
 			}
 		}
-		if !alreadyRunning && detectWorkflowIntent(lower) {
+		// Ultracode mode: automatically dispatch a workflow for
+		// every substantive prompt, not just when trigger keywords
+		// are present. The intent detector still fires for explicit
+		// mentions, but ultracode also catches multi-component
+		// project signals (landing page, full app, etc.).
+		shouldWorkflow := detectWorkflowIntent(lower)
+		if !shouldWorkflow && sess.effortLevel == "ultracode" {
+			// In ultracode mode, also dispatch when the prompt
+			// looks substantive (multi-sentence, or mentions
+			// multiple files/modules, or is a build/create task).
+			shouldWorkflow = isSubstantivePrompt(lower)
+		}
+		if !alreadyRunning && shouldWorkflow {
 			// Pick a preset based on the keywords.
 			preset := pickWorkflowPreset(lower)
 			id, err := sess.workflowEngine.Start(context.Background(), preset.Name, text, preset.Strategy, preset.MaxAgents)

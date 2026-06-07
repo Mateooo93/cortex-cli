@@ -269,6 +269,17 @@ func (c *SessionClient) SendSteer(text string) {
 	}
 }
 
+// GoalState returns the current goal state from the underlying session.
+// Returns empty strings and false when no goal has been set.
+func (c *SessionClient) GoalState() (condition string, active bool, turns int, lastVerdict string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sess == nil {
+		return "", false, 0, ""
+	}
+	return c.sess.GoalState()
+}
+
 // SendClose shuts the session.
 func (c *SessionClient) SendClose() {
 	c.mu.Lock()

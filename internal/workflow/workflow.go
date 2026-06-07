@@ -575,10 +575,25 @@ func (e *Engine) run(ctx context.Context, wf *Workflow) {
 // callRole invokes the LLM with a role's system prompt + the
 // given user prompt. Uses the engine's config to resolve the
 // active model and API key.
+//
+// Budget and journal integration:
+//   - Checks wf.Budget.Exhausted() before calling; returns an
+//     error if the budget cap has been reached.
+//   - Estimates token usage from response length and calls
+//     wf.Budget.Spend(n) after a successful call.
+//   - Records a JournalEntry if wf.Journal is non-nil for
+//     deterministic resume on re-run.
 func (e *Engine) callRole(ctx context.Context, role Role, prompt string, wf *Workflow) (string, error) {
 	if e.cfg == nil {
 		return "", fmt.Errorf("workflow engine has no config")
 	}
+
+	// Budget gate
+	if wf.Budget != nil && wf.Budget.Exhausted() {
+		return "", fmt.Errorf("budget exhausted: spent %d of %d tokens",
+			wf.Budget.Spent(), wf.Budget.Total())
+	}
+
 	_, mc, err := e.cfg.GetModel(e.cfg.DefaultModel)
 	if err != nil {
 		return "", err
@@ -613,6 +628,23 @@ func (e *Engine) callRole(ctx context.Context, role Role, prompt string, wf *Wor
 	if err != nil {
 		return "", err
 	}
+
+	// Budget: estimate tokens used (~ chars/4 for output, add
+	// prompt size estimate for input). This is a rough heuristic
+	// since we don't always get usage back from all providers.
+	estimatedTokens := int64(len(prompt)/4 + len(resp.Content)/4)
+	if wf.Budget != nil {
+		wf.Budget.Spend(estimatedTokens)
+	}
+
+	// Journal: record this call for deterministic resume
+	if wf.Journal != nil {
+		wf.Journal.Record(JournalEntry{
+			Prompt: prompt,
+			Output: resp.Content,
+		})
+	}
+
 	return resp.Content, nil
 }
 
