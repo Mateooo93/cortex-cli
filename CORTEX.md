@@ -27,7 +27,7 @@ session storage.
 
 ```bash
 # Build the cortex binary
-go build -o bin/cortex .
+go build -o bin/cortex ./cmd/cortex
 
 # Run
 ./bin/cortex chat          # interactive TUI (default)

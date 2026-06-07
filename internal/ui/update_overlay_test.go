@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -16,9 +17,9 @@ import (
 // The user reported: "the /update animation should show a
 // big pop up with a cool animation!". We verify:
 //   - The title "Updating cortex" is rendered
-//   - A braille-matrix frame is shown (one of loadMorphFrames)
+//   - A Heroku/bubbles braille spinner + meter bar
 //   - The step text is rendered
-//   - The progress bar is rendered (filled + empty cells)
+//   - Animation changes between frames
 func TestRenderUpdateOverlay_RunningPhase(t *testing.T) {
 	setupPersistDir(t)
 	cfg := &config.Config{}
@@ -28,12 +29,14 @@ func TestRenderUpdateOverlay_RunningPhase(t *testing.T) {
 	m := NewModel(cfg, cortexCfg, nil, false, "", true, true)
 	m.width = 120
 	m.height = 40
+	now := time.Now()
 	m.updateOverlay = updateOverlayState{
 		active:    true,
 		step:      "Downloading v0.2.15\u2026",
 		stepIdx:   1,
 		frame:     3,
 		phase:     "running",
+		startedAt: now,
 	}
 	view := m.renderUpdateOverlay()
 	if view == "" {
@@ -45,11 +48,27 @@ func TestRenderUpdateOverlay_RunningPhase(t *testing.T) {
 	if !strings.Contains(view, "Downloading v0.2.15") {
 		t.Errorf("expected step text in view, got: %s", view)
 	}
-	if !strings.Contains(view, "\u25ae") {
-		t.Errorf("expected progress bar (filled cells) in view, got: %s", view)
+	hasBraille := false
+	for _, ch := range view {
+		if ch >= '\u2800' && ch <= '\u28ff' {
+			hasBraille = true
+			break
+		}
+	}
+	if !hasBraille {
+		t.Errorf("expected braille spinner glyphs in view, got: %s", view)
+	}
+	if !strings.Contains(view, "█") && !strings.Contains(view, "░") {
+		t.Errorf("expected progress bar glyphs in view, got: %s", view)
 	}
 	if !strings.Contains(view, "Elapsed") {
 		t.Errorf("expected 'Elapsed' label in view, got: %s", view)
+	}
+
+	m.updateOverlay.frame = 18
+	view2 := m.renderUpdateOverlay()
+	if view == view2 {
+		t.Error("expected animation to change between frames")
 	}
 }
 
@@ -105,6 +124,56 @@ func TestRenderUpdateOverlay_ErrorPhase(t *testing.T) {
 	}
 	if !strings.Contains(view, "Esc to dismiss") {
 		t.Errorf("expected 'Esc to dismiss' hint in view, got: %s", view)
+	}
+}
+
+// TestRenderUpdateOverlay_DonePhaseWaitsForEnter verifies the
+// green success screen prompts the user to press Enter before restart.
+func TestRenderUpdateOverlay_DonePhaseWaitsForEnter(t *testing.T) {
+	setupPersistDir(t)
+	cfg := &config.Config{}
+	cortexCfg := cortexconfig.Default()
+	daemon.SetGlobalConfigLoader(func() *cortexconfig.Config { return cortexCfg })
+
+	m := NewModel(cfg, cortexCfg, nil, false, "", true, true)
+	m.width = 120
+	m.height = 40
+	m.updateOverlay = updateOverlayState{
+		active:        true,
+		phase:         "done",
+		step:          "Complete",
+		resultMessage: "Updated to v0.2.15",
+	}
+	view := m.renderUpdateOverlay()
+	if !strings.Contains(view, "All done") {
+		t.Errorf("expected 'All done' title in view, got: %s", view)
+	}
+	if !strings.Contains(view, "Press Enter to restart") {
+		t.Errorf("expected Enter prompt in view, got: %s", view)
+	}
+	if strings.Contains(view, "Restarting automatically") {
+		t.Errorf("should not auto-restart hint, got: %s", view)
+	}
+}
+
+// TestDonePhase_EnterTriggersRestartCmd verifies Enter on the
+// success overlay schedules a restart (execSelfCmd).
+func TestDonePhase_EnterTriggersRestartCmd(t *testing.T) {
+	setupPersistDir(t)
+	cfg := &config.Config{}
+	cortexCfg := cortexconfig.Default()
+	daemon.SetGlobalConfigLoader(func() *cortexconfig.Config { return cortexCfg })
+
+	m := NewModel(cfg, cortexCfg, nil, false, "", true, true)
+	m.width = 120
+	m.height = 40
+	m.updateOverlay = updateOverlayState{
+		active: true,
+		phase:  "done",
+	}
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd when Enter pressed on done overlay")
 	}
 }
 

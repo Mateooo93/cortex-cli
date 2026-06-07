@@ -22,7 +22,6 @@ const (
 	rpModeKeys                            // stored API key manager
 	rpModeKeyInput                        // inline key entry form
 	rpModeCodexSignIn                     // ChatGPT OAuth sign-in prompt
-	rpModeWorkflow                        // live workflow step progress
 	rpModeTodos                           // pending todo list
 	rpModeInfo                            // session info: model, ctx %, elapsed, keybinds
 )
@@ -117,13 +116,6 @@ func (rp *RightPanel) OpenKeyManager(height int) {
 	rp.keys = config.ListStoredProviderKeys()
 }
 
-// OpenWorkflow opens the panel in workflow-progress mode.
-func (rp *RightPanel) OpenWorkflow(height int) {
-	rp.visible = true
-	rp.mode = rpModeWorkflow
-	rp.height = height
-}
-
 // OpenTodos opens the panel in todo-list mode.
 func (rp *RightPanel) OpenTodos(height int) {
 	rp.visible = true
@@ -179,8 +171,8 @@ func (rp *RightPanel) OpenCodexSignIn(pendingModel string, height int) {
 func (rp *RightPanel) HandleKey(msg tea.KeyPressMsg) (RightPanelAction, string) {
 	key := msg.String()
 
-	// Workflow and todos modes are read-only; ignore all keys.
-	if rp.mode == rpModeWorkflow || rp.mode == rpModeTodos {
+	// Todos mode is read-only; ignore all keys.
+	if rp.mode == rpModeTodos {
 		return rpActionNone, ""
 	}
 
@@ -292,18 +284,6 @@ type RightPanelInfoView struct {
 	SessionCount int  // number of sessions in the sessions tab
 	QueuedMsgs   int  // number of pending user messages
 
-	// Workflow running state. Empty WorkflowName means no
-	// workflow is active. WorkflowCurrent is the
-	// currently-running step's "what is it doing" message
-	// (e.g. "developer: writing the auth middleware"), which
-	// is what the panel surfaces as "▸ <msg>" so the user
-	// can see live progress without opening the Workflows
-	// tab.
-	WorkflowName     string
-	WorkflowStatus   string        // "planning" | "running" | "synthesizing"
-	WorkflowElapsed  time.Duration
-	WorkflowCurrent  string
-
 	// Todos is the structured todo list emitted by the
 	// AI via the todo_write tool. Shown as a separate
 	// block in the right panel so the user can see what
@@ -314,10 +294,9 @@ type RightPanelInfoView struct {
 // View renders the right panel as a bordered, full-height string.
 // focused controls whether the panel border uses the focus color.
 // activeModel is the currently active model API name (used to mark the selected model).
-// wfp is the workflow graph panel (used when mode is rpModeWorkflow).
-// todos is the current todo list (used in rpModeTodos and appended below steps in rpModeWorkflow).
+// todos is the current todo list (used in rpModeTodos).
 // info is the data for the info / status mode (rpModeInfo).
-func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel string, wfp *WorkflowGraphPanel, todos []protocol.TodoItem, info RightPanelInfoView) string {
+func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel string, todos []protocol.TodoItem, info RightPanelInfoView) string {
 	innerWidth := panelWidth - 4 // border (2) + padding (2)
 
 	var lines []string
@@ -400,23 +379,6 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 		hint := lipgloss.NewStyle().Foreground(colorDim).Italic(true).Width(innerWidth).Render("Enter sign in  Del sign out  Esc cancel")
 		lines = append(lines, title, sep, body, "", warn, "", del, "", hint)
 
-	case rpModeWorkflow:
-		if wfp != nil {
-			title := lipgloss.NewStyle().Bold(true).Foreground(colorSecondary).Width(innerWidth).Render("Workflow: " + wfp.workflowName)
-			sep := lipgloss.NewStyle().Foreground(colorDim).Width(innerWidth).Render(strings.Repeat("─", innerWidth))
-			lines = append(lines, title, sep)
-			for _, step := range wfp.steps {
-				lines = append(lines, renderTodoOrStepLine(stepLabel(step), stepStatus(step), innerWidth))
-			}
-		}
-		if hasPendingTodos(todos) {
-			lines = append(lines, "", lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Width(innerWidth).Render("Todos"))
-			lines = append(lines, lipgloss.NewStyle().Foreground(colorDim).Width(innerWidth).Render(strings.Repeat("─", innerWidth)))
-			for _, t := range todos {
-				lines = append(lines, renderTodoOrStepLine(t.Content, string(t.Status), innerWidth))
-			}
-		}
-
 	case rpModeTodos:
 		title := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Width(innerWidth).Render("Todos")
 		sep := lipgloss.NewStyle().Foreground(colorDim).Width(innerWidth).Render(strings.Repeat("─", innerWidth))
@@ -468,20 +430,6 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 	return box
 }
 
-// stepStatus converts a workflowGraphStep into a string status token shared with renderTodoOrStepLine.
-func stepStatus(step workflowGraphStep) string {
-	switch {
-	case step.active:
-		return "in_progress"
-	case step.success == nil:
-		return "pending"
-	case *step.success:
-		return "completed"
-	default:
-		return "failed"
-	}
-}
-
 // renderInfoView draws the OpenCode-style info / status panel:
 //   - Active model + provider (top)
 //   - Context window usage bar with percentage
@@ -500,7 +448,6 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 	warnStyle := lipgloss.NewStyle().Foreground(colorWarning)
 	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	okStyle := lipgloss.NewStyle().Foreground(colorSuccess)
-	activeStyle := lipgloss.NewStyle().Bold(true).Foreground(colorSecondary)
 
 	lines := []string{}
 	title := " Status "
@@ -620,32 +567,12 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 		}
 	}
 
-	// ── Workflow running block (only when a workflow is active) ──
-	if info.WorkflowName != "" {
-		lines = append(lines, "")
-		lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Workflow"))
-		wfHeader := fmt.Sprintf("▸ %s", info.WorkflowName)
-		lines = append(lines, activeStyle.Width(innerWidth).Render(wfHeader))
-		statusLabel := "running"
-		if info.WorkflowStatus == "planning" {
-			statusLabel = "planning…"
-		} else if info.WorkflowStatus == "synthesizing" {
-			statusLabel = "synthesising…"
-		}
-		wfSub := fmt.Sprintf("  %s · ⏱ %s", statusLabel, formatDurationShort(info.WorkflowElapsed))
-		lines = append(lines, dimStyle.Width(innerWidth).Render(wfSub))
-		if info.WorkflowCurrent != "" {
-			lines = append(lines, activeStyle.Width(innerWidth).Render("  "+truncateRight(info.WorkflowCurrent, innerWidth-2)))
-		}
-		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  F3 Workflows tab · Esc cancel"))
-	}
-
 	lines = append(lines, "")
 
 	// ── Keybind legend ──────────────────────────────────────────
 	// F1-F4 are now in the tab bar at the top of the screen
 	// (the user asked for them there so the right panel
-	// could dedicate its space to live workflow + todo data).
+	// could dedicate its space to todo data).
 	// Only the panel-specific shortcuts live here: Ctrl+T
 	// to start a new session, Ctrl+B to hide the panel, and
 	// `/` to open the slash menu. The per-input keys (Tab

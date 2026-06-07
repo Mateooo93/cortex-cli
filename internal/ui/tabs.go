@@ -15,7 +15,6 @@ type TabKind int
 const (
 	TabKindSessions TabKind = iota // sessions list overview
 	TabKindChat                    // chat display for the selected session
-	TabKindWorkflows               // workflows list + active workflow detail
 	TabKindSettings                // global settings
 )
 
@@ -603,13 +602,6 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	}
 	for i, row := range otherRows {
 		prefix := "  "
-		// Other Settings is section 1, not 2. The previous code
-		// compared against `2`, so the cursor was never drawn
-		// when the user was in this section — they could press
-		// tab to "switch" sections but the cursor was invisible
-		// so it looked like nothing happened. (The user reported
-		// this as "stays on providers, just unselects and
-		// reselects without going to other settings".)
 		isActive := activeSection == sectionIdx("Other Settings") && i == otherSel
 		if isActive {
 			prefix = "▸ "
@@ -731,37 +723,24 @@ func renderSettingsWizardView(width, height int, s Styles, dimStyle, selectedSty
 	return s.ViewportFocusedStyle.Width(width).Height(height).Render(content)
 }
 
-// renderTabBar renders the two-tab bar: Sessions | Chat.
+// renderTabBar renders the tab bar: Sessions | Chat | Settings.
 // alertBlink is true when some session needs user attention (shown on Chat tab label).
-func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, alertBlink bool) string {
+func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, alertBlink bool, hoverTab int) string {
 	type tabDef struct {
-		name string // "Sessions" | "Chat" | "Workflows" | "Settings"
+		name string // "Sessions" | "Chat" | "Settings"
 		key  string // "F1" | "F2" | "F3" | "F4"
 		kind TabKind
 	}
-	// Tab bar definition. The Workflows tab was
-	// removed from the UI per the user-reported
-	// request: 'workflows and stuff like that isnt
-	// really clear and kinda messy maybe we just
-	// remove it completely (workflows)'. The user
-	// chose 'hide tab, keep /workflow + dispatch_workflow',
-	// so the TabKindWorkflows constant and the
-	// /workflow command + dispatch_workflow tool
-	// still work — they just can't be reached via
-	// the tab bar. To open a workflow, type
-	// '/workflow <prompt>' in the chat input.
 	defs := []tabDef{
 		{"Sessions", "F1", TabKindSessions},
 		{"Chat", "F2", TabKindChat},
 		{"Settings", "F3", TabKindSettings},
 	}
 
-	var sepStyle lipgloss.Style
-	if viewportFocused {
-		sepStyle = lipgloss.NewStyle().Foreground(s.ColorWhite)
-	} else {
-		sepStyle = lipgloss.NewStyle().Foreground(s.ColorBlurBorder)
-	}
+	// Use a consistent outline color for the tab "frames" (╭ ─ │ ╯ etc.)
+	// across all tabs (F1, F2, F3). The active tab is distinguished by
+	// its label style (TabActiveStyle), not by changing the border/sep color.
+	var sepStyle = lipgloss.NewStyle().Foreground(s.ColorWhite)
 
 	// Key style: plain dim text in parentheses after the
 	// tab name. The user asked for "(F1)" without boxes or
@@ -791,9 +770,12 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 		}
 
 		var nameStyle lipgloss.Style
+		isHover := hoverTab >= 0 && int(d.kind) == hoverTab && d.kind != activeTab
 		switch {
 		case d.kind == activeTab:
 			nameStyle = s.TabActiveStyle
+		case isHover:
+			nameStyle = mouseHoverStyle().Foreground(s.ColorWhite)
 		case alertBlink && d.kind == TabKindSessions:
 			nameStyle = s.TabAlertStyle
 		default:

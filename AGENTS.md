@@ -17,7 +17,10 @@ as a single binary with no separate `vixd` daemon.
 ## Architecture
 
 ```
-cmd/                    # (no entries; main.go is the single entry point)
+cmd/
+  cortex/               # Main CLI entrypoint (go build ./cmd/cortex)
+  capture/              # Helper binary (optional)
+  smoke/                # Helper binary (optional)
 internal/
   config/               # Config dir resolution (~/.cortex, ./.cortex)
   cortexconfig/         # User-facing YAML config + provider presets

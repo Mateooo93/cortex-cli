@@ -530,9 +530,6 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 	case "ask_user_question":
 		s.handleAskUserQuestion(call)
 		return
-	case "dispatch_workflow":
-		s.handleDispatchWorkflow(call)
-		return
 	}
 	tool, ok := s.tools.Get(call.Name)
 	if !ok {
@@ -793,64 +790,6 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 	// next request with HTTP 400 "tool call and
 	// result not match".
 	s.recordToolResult(call.ID, call.Name, result, false, "")
-}
-
-// handleDispatchWorkflow is the session-side handler for
-// the dispatch_workflow tool. The user reported: "the
-// agent isnt using workflows, it might nto be in its
-// system prompt at all, itj ust starts working by itself
-// it doesnt seem to know". Before this tool existed,
-// the system prompt told the agent to "suggest /workflow
-// <prompt>" — but the agent had no way to actually
-// dispatch the workflow itself, so it just printed the
-// suggestion and proceeded to do the work alone. The
-// fix: register dispatch_workflow as a real tool. The
-// tool's Run() returns a marker; the session handler
-// intercepts the call, emits an EventWorkflowDispatch
-// (which the TUI uses to actually start the workflow),
-// and records a tool result so the LLM sees a
-// successful call.
-//
-// We do NOT block the LLM here — the workflow runs in
-// the background and reports back via the normal
-// workflow event channel. The LLM can move on, and the
-// orchestrator will inject a summary message when it
-// finishes.
-func (s *Session) handleDispatchWorkflow(call provider.ToolCall) {
-	prompt, _ := call.Arguments["prompt"].(string)
-	if prompt == "" {
-		s.emitToolCall(call.ID, call.Name, call.Arguments, "")
-		s.emitToolResult(call.ID, call.Name, "", true, "prompt is required", nil)
-		s.recordToolResult(call.ID, call.Name, "error: prompt is required", true, "prompt is required")
-		return
-	}
-	preset, _ := call.Arguments["preset"].(string)
-
-	// Emit the typed event so the TUI can start the
-	// workflow. The handler in internal/ui/model.go
-	// picks this up and runs the same code path as
-	// the /workflow slash command.
-	s.emitToolCall(call.ID, call.Name, call.Arguments, prompt)
-	s.safeEmit(protocol.SessionEvent{
-		Type: "workflow_dispatch",
-		Data: protocol.EventWorkflowDispatch{
-			Prompt: prompt,
-			Preset: preset,
-		},
-	})
-
-	// Confirm to the LLM that the call succeeded.
-	// The LLM will see this and know the workflow
-	// is running in the background. The
-	// orchestrator will deliver a summary message
-	// when the workflow finishes.
-	confirm := fmt.Sprintf("workflow dispatched with prompt: %q", prompt)
-	if preset != "" {
-		confirm = fmt.Sprintf("workflow dispatched with preset=%s, prompt: %q", preset, prompt)
-	}
-	confirm += "\n\nThe orchestrator will plan, implement, review, and test the work. A summary will arrive as a normal chat message when it finishes — keep chatting with the user in the meantime if they have questions."
-	s.emitToolResult(call.ID, call.Name, confirm, false, "", nil)
-	s.recordToolResult(call.ID, call.Name, confirm, false, "")
 }
 
 // parseAskUserQuestionOptions normalises the `options`

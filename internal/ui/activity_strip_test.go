@@ -153,11 +153,9 @@ func TestRenderActivityStrip_MarkDoneFindsMatchingEntry(t *testing.T) {
 // hides LLM-orchestration tools from the activity
 // strip. The user complained that ask_user_question
 // rows were cluttering the strip with internal
-// coordination noise. Same applies to
-// dispatch_workflow (renders as workflow picker)
-// and todo_write (renders as inline todo list).
+// coordination noise. todo_write renders as inline todo list.
 func TestIsOrchestrationTool(t *testing.T) {
-	for _, name := range []string{"ask_user_question", "dispatch_workflow", "todo_write"} {
+	for _, name := range []string{"ask_user_question", "todo_write"} {
 		if !isOrchestrationTool(name) {
 			t.Errorf("expected %q to be hidden from the strip (orchestration tool)", name)
 		}

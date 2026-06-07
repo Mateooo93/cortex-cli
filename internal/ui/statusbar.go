@@ -21,13 +21,6 @@ type StatusBarInfo struct {
 	Elapsed     time.Duration
 	QueuedMsgs  int
 	AutoCompact bool
-	// WorkflowName + WorkflowElapsed render a "● workflow
-	// <name> (2:13)" segment in the centre of the footer
-	// when a workflow is running. The user sees the live
-	// status without switching tabs.
-	WorkflowName    string
-	WorkflowStatus  string
-	WorkflowElapsed time.Duration
 }
 
 // renderStatusBar renders the slim single-line status bar.
@@ -108,18 +101,6 @@ func renderStatusBar(
 	}
 	if info.QueuedMsgs > 0 {
 		centerParts = append(centerParts, lipgloss.NewStyle().Foreground(colorWarning).Render(fmt.Sprintf("%d queued", info.QueuedMsgs)))
-	}
-	if info.WorkflowName != "" {
-		// Workflow is running — show a prominent
-		// "● workflow <name> (2:13)" segment so the
-		// user knows the orchestrator is busy even
-		// when they're in the chat tab.
-		wfSeg := "● workflow " + info.WorkflowName
-		if info.WorkflowElapsed > 0 {
-			wfSeg += " (" + formatDurationShort(info.WorkflowElapsed) + ")"
-		}
-		wfStyle := lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
-		centerParts = append(centerParts, wfStyle.Render(wfSeg))
 	}
 
 	// ── Right: nothing (F1-F4 moved to the top tab bar) ──────────

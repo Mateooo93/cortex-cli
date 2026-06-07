@@ -70,7 +70,7 @@ From source (Go 1.26+):
 ```bash
 git clone https://github.com/Mateooo93/cortex-cli.git
 cd cortex-cli
-go build -o cortex .
+go build -o cortex ./cmd/cortex
 ./cortex
 ```
 

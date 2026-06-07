@@ -5,6 +5,10 @@
 // TUI is identical to vix's, then replace vix's `vixd` daemon with an
 // in-process session and a cortex-aware provider layer that talks to
 // Cortex, OpenAI, Anthropic, or Ollama.
+//
+// The entrypoint lives under cmd/cortex/ following standard Go layout.
+// This makes it easier to add future subcommands (e.g. `cortex config`)
+// and keeps the root clean.
 package main
 
 import (
@@ -44,24 +48,34 @@ func init() {
 }
 
 func main() {
-	versionFlag := flag.Bool("version", false, "Print version and exit")
-	modelFlag := flag.String("m", "", "Override the active model (e.g. cortex, openai, anthropic, ollama)")
-	workdir := flag.String("workdir", "", "Set the working directory for this session")
-	prompt := flag.String("p", "", "Run a single prompt non-interactively (headless mode)")
-	testMode := flag.Bool("test", false, "Fill chat with fake data for UI testing")
-	listModels := flag.Bool("list-models", false, "List available models and exit")
-	flag.Parse()
+	if err := run(os.Args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// run contains the real main logic. It is extracted so the top-level
+// main stays tiny (easier to test, easier to add subcommands later)
+// and all error handling funnels through one place.
+func run(args []string) error {
+	fs := flag.NewFlagSet("cortex", flag.ExitOnError)
+	versionFlag := fs.Bool("version", false, "Print version and exit")
+	modelFlag := fs.String("m", "", "Override the active model (e.g. cortex, openai, anthropic, ollama)")
+	workdir := fs.String("workdir", "", "Set the working directory for this session")
+	prompt := fs.String("p", "", "Run a single prompt non-interactively (headless mode)")
+	testMode := fs.Bool("test", false, "Fill chat with fake data for UI testing")
+	listModels := fs.Bool("list-models", false, "List available models and exit")
+	_ = fs.Parse(args)
 
 	if *versionFlag {
 		fmt.Println("cortex " + Version)
-		return
+		return nil
 	}
 
 	// Load user config early so we can handle --list-models before anything else
 	cortexCfg, err := cortexconfig.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("loading config: %w", err)
 	}
 
 	if *listModels {
@@ -73,7 +87,7 @@ func main() {
 			}
 			fmt.Printf("  %s%s: %s / %s @ %s\n", name, active, m.Provider, m.Model, m.BaseURL)
 		}
-		return
+		return nil
 	}
 
 	// Wire the daemon stub's global config loader
@@ -93,8 +107,7 @@ func main() {
 	// the cortex-specific config (providers, swarm settings, etc).
 	vixCfg, err := config.Load(false, cwd, "", "")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("loading vix config: %w", err)
 	}
 
 	// Set the UI version
@@ -102,18 +115,13 @@ func main() {
 
 	// Headless mode (-p): one-shot prompt
 	if *prompt != "" {
-		if err := runHeadless(cortexCfg, cwd, *prompt, *modelFlag); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		return
+		return runHeadless(cortexCfg, cwd, *prompt, *modelFlag)
 	}
 
 	// Interactive TUI
 	client := cortexdaemon.NewSessionClient("")
 	if err := client.Connect(cwd, "", cortexCfg.DefaultModel, false, true, true, false); err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting session: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("starting session: %w", err)
 	}
 	defer client.SendClose()
 
@@ -128,15 +136,13 @@ func main() {
 				}
 			}
 		} else {
-			fmt.Fprintf(os.Stderr, "Error: no API key found for the selected provider. Set the provider API key in ~/.cortex/config.yaml or the matching environment variable.\n")
-			os.Exit(1)
+			return fmt.Errorf("no API key found for the selected provider. Set the provider API key in ~/.cortex/config.yaml or the matching environment variable")
 		}
 	}
 
 	// Reconnect with the saved key (if we just saved it)
 	if err := client.Connect(cwd, "", cortexCfg.DefaultModel, false, true, true, false); err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting session: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("reconnecting session: %w", err)
 	}
 
 	enableWrite := cortexCfg.Tools.AllowWrite
@@ -146,33 +152,44 @@ func main() {
 	p := tea.NewProgram(model)
 	ui.SetProgram(p)
 
-	// Handle SIGINT/SIGTERM by persisting the latest chat scrollback
-	// to disk before letting the TUI exit. The TUI's own Ctrl+C dialog
-	// already calls PersistSessions on confirm, but if the user hits
-	// Ctrl+C twice in a row (or the terminal sends a raw signal that
-	// bypasses the TUI's key handler), the only path out is this
-	// signal goroutine — without the persist call below, the user's
-	// most recent turn would be lost on every hard kill.
-	//
-	// We poll for the signal in a tight loop so the user can still
-	// get out of a wedged session with a single Ctrl+C. Bubbletea
-	// also catches Ctrl+C as a keypress, so the in-TUI confirm
-	// dialog is still the preferred path; this is a backstop.
-	sigCh := make(chan os.Signal, 1)
+	// Always try to leave the terminal usable. Bubble Tea restores state on
+	// graceful quit; this defer covers races and abnormal exits.
+	defer ui.RestoreTerminal()
+
+	// SIGINT/SIGTERM must go through Bubble Tea so alt-screen, mouse capture,
+	// and raw mode are restored. os.Exit bypasses that cleanup and leaves the
+	// shell unresponsive.
+	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		// Best-effort flush. Any error here is non-recoverable
-		// anyway since the user is force-killing us.
-		model.PersistSessions()
-		client.SendClose()
-		os.Exit(0)
+		p.Send(ui.SignalQuitMsg{})
+		// Second signal: force shutdown but still run renderer/TTY cleanup.
+		<-sigCh
+		p.Kill()
 	}()
 
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
+
+	// Self-update: the TUI quit cleanly after /update; re-exec the new binary
+	// now that bubbletea has restored the terminal.
+	if exe, argv, ok := ui.TakePendingRestart(); ok {
+		client.SendClose()
+		args := append([]string{exe}, argv...)
+		if err := syscall.Exec(exe, args, os.Environ()); err != nil {
+			cmd := exec.Command(exe, argv...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Env = os.Environ()
+			if runErr := cmd.Run(); runErr != nil {
+				return fmt.Errorf("restart after update: %w", runErr)
+			}
+		}
+	}
+	return nil
 }
 
 // runHeadless runs a single prompt and prints the result.
@@ -242,8 +259,6 @@ func promptAPIKey() string {
 	return strings.TrimSpace(line)
 }
 
-// Helper to avoid unused imports
-var _ = exec.Command
 var _ = time.Second
 var _ = context.Background
 var _ = swarm.New

@@ -42,10 +42,6 @@ const (
 	MsgPlanTaskStart
 	MsgPlanTaskDone
 	MsgPlanSummary
-	MsgWorkflowStart
-	MsgWorkflowStepStart
-	MsgWorkflowStepDone
-	MsgWorkflowComplete
 )
 
 // ChatMessage represents a single rendered message in the chat.
@@ -308,7 +304,7 @@ func summarizeToolOutput(name, output string) string {
 			return "no results"
 		}
 		return fmt.Sprintf("%d results", lines)
-	case "bash":
+	case "bash", "run_shell":
 		if lines == 0 || output == "" {
 			return "no output"
 		}
@@ -406,8 +402,25 @@ func renderToolResultWithContext(name, output string, isError bool, showToolName
 		}
 	}
 
+	// bash (and similar command outputs like ls): show truncated actual output
+	// so the user sees useful results (e.g. directory listing) without huge
+	// dumps "infecting" the chat when output is very long (deep dirs, logs, etc.).
+	// The *full* output is still kept in .Text so the agent/LLM context is complete.
+	// Display is limited to first 5 lines max.
 	var rendered string
-	if summary := summarizeToolOutput(name, output); summary != "" {
+	if name == "bash" || name == "run_shell" {
+		short := output
+		lines := strings.Split(output, "\n")
+		maxLines := 5
+		if len(lines) > maxLines {
+			short = strings.Join(lines[:maxLines], "\n") +
+				fmt.Sprintf("\n... (%d more lines — output truncated to keep chat readable)", len(lines)-maxLines)
+		}
+		if len(short) > 2500 {
+			short = short[:2500] + "... (truncated)"
+		}
+		rendered = s.ToolResultStyle.Render(prefix + short) + "\n"
+	} else if summary := summarizeToolOutput(name, output); summary != "" {
 		rendered = s.ToolResultStyle.Render(prefix+summary) + "\n"
 	} else {
 		short := output
@@ -1183,287 +1196,6 @@ func renderPlanSummary(plan *protocol.Plan) ChatMessage {
 		Type:     MsgPlanSummary,
 		Text:     summary,
 		Rendered: "\n" + summary,
-	}
-}
-
-// renderWorkflowStart renders a workflow-starting indicator.
-func renderWorkflowStart(name string, totalSteps int, s Styles) ChatMessage {
-	header := planHeaderStyle.Render(fmt.Sprintf(" Workflow: %s ", name))
-	rendered := fmt.Sprintf("\n%s %s\n", header, s.PlanDescStyle.Render(fmt.Sprintf("(%d steps)", totalSteps)))
-	return ChatMessage{
-		Type:     MsgWorkflowStart,
-		Text:     name,
-		Rendered: rendered,
-	}
-}
-
-// renderWorkflowStepStart renders a workflow step starting indicator.
-func renderWorkflowStepStart(stepID string, stepIdx, total int, explanation string) ChatMessage {
-	var prefix string
-	if total > 0 {
-		prefix = fmt.Sprintf(">>> Step %d/%d:", stepIdx, total)
-	} else {
-		prefix = fmt.Sprintf(">>> Step %d:", stepIdx)
-	}
-	title := capitalizeFirst(explanation)
-	stepStyle := lipgloss.NewStyle().Foreground(colorSecondary)
-	rendered := fmt.Sprintf("\n%s\n\n", stepStyle.Render(prefix+" "+title))
-	return ChatMessage{
-		Type:     MsgWorkflowStepStart,
-		Text:     stepID,
-		Rendered: rendered,
-	}
-}
-
-// renderWorkflowStepDone renders a workflow step completion indicator with tool summaries.
-func renderWorkflowStepDone(stepID string, stepIdx, total int, success bool, display, command, bashOutput string, toolStats []protocol.ToolStat, md *MarkdownRenderer, s Styles) ChatMessage {
-	var sb strings.Builder
-
-	// Bash step: show the command and first 5 lines of output
-	if command != "" {
-		sb.WriteString(s.PlanDescStyle.Render("  $ "+command) + "\n")
-		if bashOutput != "" {
-			for _, line := range strings.Split(bashOutput, "\n") {
-				sb.WriteString(s.ToolResultStyle.Render("    "+line) + "\n")
-			}
-		}
-		sb.WriteString("\n")
-	}
-
-	// Summary section
-	if display != "" {
-		sb.WriteString(sectionTitle("  Summary"))
-	}
-	if display != "" {
-		sb.WriteString(md.Render(display))
-	}
-	if len(toolStats) > 0 {
-		sb.WriteString(s.PlanDescStyle.Render("  Tool usage") + "\n\n")
-
-		// Compute column widths
-		colTool, colCalls, colSummary := len("Tool"), len("Calls"), len("Summary")
-		for _, ts := range toolStats {
-			if len(ts.Name) > colTool {
-				colTool = len(ts.Name)
-			}
-			c := fmt.Sprintf("%d", ts.Calls)
-			if len(c) > colCalls {
-				colCalls = len(c)
-			}
-			if len(ts.Summary) > colSummary {
-				colSummary = len(ts.Summary)
-			}
-		}
-
-		hLine := fmt.Sprintf("  ├─%s─┼─%s─┼─%s─┤",
-			strings.Repeat("─", colTool), strings.Repeat("─", colCalls), strings.Repeat("─", colSummary))
-		top := fmt.Sprintf("  ┌─%s─┬─%s─┬─%s─┐",
-			strings.Repeat("─", colTool), strings.Repeat("─", colCalls), strings.Repeat("─", colSummary))
-		bottom := fmt.Sprintf("  └─%s─┴─%s─┴─%s─┘",
-			strings.Repeat("─", colTool), strings.Repeat("─", colCalls), strings.Repeat("─", colSummary))
-		row := func(a, b, c string) string {
-			return fmt.Sprintf("  │ %-*s │ %-*s │ %-*s │", colTool, a, colCalls, b, colSummary, c)
-		}
-
-		sb.WriteString(s.PlanDescStyle.Render(top) + "\n")
-		sb.WriteString(s.PlanDescStyle.Render(row("Tool", "Calls", "Summary")) + "\n")
-		sb.WriteString(s.PlanDescStyle.Render(hLine) + "\n")
-		for i, ts := range toolStats {
-			sb.WriteString(s.PlanDescStyle.Render(row(ts.Name, fmt.Sprintf("%d", ts.Calls), ts.Summary)) + "\n")
-			if i < len(toolStats)-1 {
-				sb.WriteString(s.PlanDescStyle.Render(hLine) + "\n")
-			}
-		}
-		sb.WriteString(s.PlanDescStyle.Render(bottom) + "\n")
-	}
-
-	// Completion marker (failure only)
-	if !success {
-		var marker string
-		if total > 0 {
-			marker = planFailStyle.Render(fmt.Sprintf("[!] Step %d/%d:", stepIdx, total))
-		} else {
-			marker = planFailStyle.Render(fmt.Sprintf("[!] Step %d:", stepIdx))
-		}
-		sb.WriteString(fmt.Sprintf("%s %s\n", marker, planFailStyle.Render(capitalizeFirst(stepID))))
-	}
-
-	return ChatMessage{
-		Type:     MsgWorkflowStepDone,
-		Text:     stepID,
-		Rendered: sb.String(),
-	}
-}
-
-// renderWorkflowComplete renders a workflow completion summary with a cost table.
-func renderWorkflowComplete(name string, success bool, summary string, stepCosts []protocol.StepCost, durationMs int64, s Styles) ChatMessage {
-	var sb strings.Builder
-
-	// Workflow summary header
-	sb.WriteString("\n" + planRunningStyle.Render(">>> Workflow summary") + "\n\n")
-
-	// Config-driven summary (replaces hardcoded "Steps executed:" list)
-	if summary != "" {
-		sb.WriteString(s.PlanDescStyle.Render("    "+summary) + "\n")
-	}
-
-	// Cost summary table
-	if len(stepCosts) > 0 {
-		sb.WriteString("\n" + s.PlanDescStyle.Render("    Cost & Time breakdown") + "\n")
-
-		var totalInput, totalOutput, totalCacheWrite, totalCacheRead, totalDurationMs int64
-		var totalCost float64
-		for _, sc := range stepCosts {
-			totalInput += sc.InputTokens
-			totalOutput += sc.OutputTokens
-			totalCacheWrite += sc.CacheCreationTokens
-			totalCacheRead += sc.CacheReadTokens
-			totalCost += sc.Cost
-			totalDurationMs += sc.DurationMs
-		}
-
-		// Compute column widths from headers and data
-		colStep := len("Steps")
-		colInput := len("Input Tokens")
-		colCacheW := len("Cache Writes")
-		colCacheR := len("Cache Hits")
-		colOutput := len("Output Tokens")
-		colCost := len("Cost")
-		colPct := len("% (Cost)")
-		colTime := len("Time")
-		colTimePct := len("% (Time)")
-
-		type rowData struct {
-			step, input, cacheW, cacheR, output, cost, pct, time, timePct string
-		}
-		rows := make([]rowData, 0, len(stepCosts))
-		for i, sc := range stepCosts {
-			pct := "0%"
-			if totalCost > 0 {
-				pct = fmt.Sprintf("%.0f%%", sc.Cost/totalCost*100)
-			}
-			timePct := "0%"
-			if totalDurationMs > 0 {
-				timePct = fmt.Sprintf("%.0f%%", float64(sc.DurationMs)/float64(totalDurationMs)*100)
-			}
-			r := rowData{
-				step:    fmt.Sprintf("%d. %s", i+1, capitalizeFirst(sc.StepID)),
-				input:   formatTokenCount(sc.InputTokens),
-				cacheW:  formatTokenCount(sc.CacheCreationTokens),
-				cacheR:  formatTokenCount(sc.CacheReadTokens),
-				output:  formatTokenCount(sc.OutputTokens),
-				cost:    fmt.Sprintf("$%.2f", sc.Cost),
-				pct:     pct,
-				time:    fmt.Sprintf("%.1fs", float64(sc.DurationMs)/1000.0),
-				timePct: timePct,
-			}
-			rows = append(rows, r)
-			if len(r.step) > colStep {
-				colStep = len(r.step)
-			}
-			if len(r.input) > colInput {
-				colInput = len(r.input)
-			}
-			if len(r.cacheW) > colCacheW {
-				colCacheW = len(r.cacheW)
-			}
-			if len(r.cacheR) > colCacheR {
-				colCacheR = len(r.cacheR)
-			}
-			if len(r.output) > colOutput {
-				colOutput = len(r.output)
-			}
-			if len(r.cost) > colCost {
-				colCost = len(r.cost)
-			}
-			if len(r.pct) > colPct {
-				colPct = len(r.pct)
-			}
-			if len(r.time) > colTime {
-				colTime = len(r.time)
-			}
-			if len(r.timePct) > colTimePct {
-				colTimePct = len(r.timePct)
-			}
-		}
-		totalRow := rowData{
-			step:    "Total",
-			input:   formatTokenCount(totalInput),
-			cacheW:  formatTokenCount(totalCacheWrite),
-			cacheR:  formatTokenCount(totalCacheRead),
-			output:  formatTokenCount(totalOutput),
-			cost:    fmt.Sprintf("$%.2f", totalCost),
-			pct:     "100%",
-			time:    fmt.Sprintf("%.1fs", float64(durationMs)/1000.0),
-			timePct: "100%",
-		}
-		if len(totalRow.step) > colStep {
-			colStep = len(totalRow.step)
-		}
-		if len(totalRow.input) > colInput {
-			colInput = len(totalRow.input)
-		}
-		if len(totalRow.cacheW) > colCacheW {
-			colCacheW = len(totalRow.cacheW)
-		}
-		if len(totalRow.cacheR) > colCacheR {
-			colCacheR = len(totalRow.cacheR)
-		}
-		if len(totalRow.output) > colOutput {
-			colOutput = len(totalRow.output)
-		}
-		if len(totalRow.cost) > colCost {
-			colCost = len(totalRow.cost)
-		}
-		if len(totalRow.pct) > colPct {
-			colPct = len(totalRow.pct)
-		}
-		if len(totalRow.time) > colTime {
-			colTime = len(totalRow.time)
-		}
-		if len(totalRow.timePct) > colTimePct {
-			colTimePct = len(totalRow.timePct)
-		}
-
-		cols := []int{colStep, colInput, colCacheW, colCacheR, colOutput, colCost, colPct, colTime, colTimePct}
-		borderLine := func(left, mid, right string) string {
-			parts := make([]string, len(cols))
-			for i, w := range cols {
-				parts[i] = strings.Repeat("─", w+2)
-			}
-			return "    " + left + strings.Join(parts, mid) + right
-		}
-		row := func(r rowData) string {
-			return fmt.Sprintf("    │ %-*s │ %-*s │ %-*s │ %-*s │ %-*s │ %*s │ %*s │ %*s │ %*s │",
-				colStep, r.step, colInput, r.input, colCacheW, r.cacheW,
-				colCacheR, r.cacheR, colOutput, r.output, colCost, r.cost, colPct, r.pct,
-				colTime, r.time, colTimePct, r.timePct)
-		}
-
-		sb.WriteString(s.PlanDescStyle.Render(borderLine("┌", "┬", "┐")) + "\n")
-		sb.WriteString(s.PlanDescStyle.Render(row(rowData{step: "Steps", input: "Input Tokens", cacheW: "Cache Writes", cacheR: "Cache Hits", output: "Output Tokens", cost: "Cost", pct: "% (Cost)", time: "Time", timePct: "% (Time)"})) + "\n")
-		sb.WriteString(s.PlanDescStyle.Render(borderLine("├", "┼", "┤")) + "\n")
-		for _, r := range rows {
-			sb.WriteString(s.PlanDescStyle.Render(row(r)) + "\n")
-		}
-		sb.WriteString(s.PlanDescStyle.Render(borderLine("├", "┼", "┤")) + "\n")
-		sb.WriteString(s.PlanDescStyle.Bold(true).Render(row(totalRow)) + "\n")
-		sb.WriteString(s.PlanDescStyle.Render(borderLine("└", "┴", "┘")) + "\n")
-	}
-
-	// DONE / FAILED header at the end
-	if success {
-		header := planDoneHeaderStyle.Render(" DONE ")
-		sb.WriteString(fmt.Sprintf("\n%s Workflow '%s' completed\n\n", header, name))
-	} else {
-		header := planFailStyle.Render(" FAILED ")
-		sb.WriteString(fmt.Sprintf("\n%s Workflow '%s' failed\n\n", header, name))
-	}
-
-	return ChatMessage{
-		Type:     MsgWorkflowComplete,
-		Text:     name,
-		Rendered: sb.String(),
 	}
 }
 

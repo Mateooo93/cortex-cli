@@ -60,7 +60,7 @@ func NewThinkingAnim() ThinkingAnim {
 // Start activates the animation and resets timing.
 // If the animation is already running, it is a no-op — this prevents
 // multiple concurrent tick loops from accumulating when Start is called
-// repeatedly (e.g. on each workflow step).
+// repeatedly (e.g. on each plan step).
 func (a *ThinkingAnim) Start() tea.Cmd {
 	if a.active {
 		return nil

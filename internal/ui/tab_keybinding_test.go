@@ -38,10 +38,11 @@ func TestTabDuringStreamingQueuesMessage(t *testing.T) {
 	}
 }
 
-// TestTabDuringStreamingWithoutTextKeepsFocusCycling verifies that
-// Tab without input text during streaming keeps its existing
-// focus-cycling behavior (does NOT queue an empty message).
-func TestTabDuringStreamingWithoutTextKeepsFocusCycling(t *testing.T) {
+// TestTabDuringStreamingWithoutTextDoesNotQueue verifies that
+// Tab without input text during streaming does NOT queue an empty
+// message (and no longer performs focus-cycling, which has been
+// removed in favor of always-available chat scrolling on the Chat tab).
+func TestTabDuringStreamingWithoutTextDoesNotQueue(t *testing.T) {
 	setupPersistDir(t)
 	cfg := &config.Config{}
 	cortexCfg := cortexconfig.Default()
@@ -56,15 +57,14 @@ func TestTabDuringStreamingWithoutTextKeepsFocusCycling(t *testing.T) {
 	if sess.pendingInput != nil {
 		t.Errorf("expected no pendingInput for empty input + Tab, got %+v", sess.pendingInput)
 	}
-	if sess.focus != FocusChat {
-		t.Errorf("expected focus to cycle to chat when no text, got %v", sess.focus)
-	}
+	// Focus no longer cycles on Tab; scrolling works directly on Chat tab.
 }
 
-// TestTabWhileWaitingCyclesFocus verifies that the existing
-// focus-cycling Tab behavior is preserved when the agent is not
-// running.
-func TestTabWhileWaitingCyclesFocus(t *testing.T) {
+// TestTabWhileWaitingDoesNothingSpecial verifies that Tab while
+// waiting does not queue or have other side effects (focus cycling
+// via Tab was removed; chat scrolling is available on the Chat tab
+// unconditionally via wheel/keys).
+func TestTabWhileWaitingDoesNothingSpecial(t *testing.T) {
 	setupPersistDir(t)
 	cfg := &config.Config{}
 	cortexCfg := cortexconfig.Default()
@@ -76,12 +76,28 @@ func TestTabWhileWaitingCyclesFocus(t *testing.T) {
 
 	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
-	// No queueing, no cancel -- just focus cycling.
 	if sess.pendingInput != nil {
 		t.Errorf("expected no pendingInput when waiting, got %+v", sess.pendingInput)
 	}
 	if strings.TrimSpace(sess.input.Value()) != "some text" {
 		t.Errorf("expected input to be preserved when waiting, got %q", sess.input.Value())
+	}
+}
+
+// TestF3OnSessionsTabOpensSettings verifies F3 switches to Settings
+// while the Sessions tab has focus on the filter input (F2 already
+// worked; F3 was accidentally wired to only blur the input).
+func TestF3OnSessionsTabOpensSettings(t *testing.T) {
+	setupPersistDir(t)
+	cfg := &config.Config{}
+	cortexCfg := cortexconfig.Default()
+	m := NewModel(cfg, cortexCfg, nil, false, "", false, false)
+	m.activeTab = TabKindSessions
+	m.sessionsInput.Focus()
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyF3})
+	if updated.(Model).activeTab != TabKindSettings {
+		t.Fatalf("activeTab = %v, want TabKindSettings after F3 on Sessions tab", updated.(Model).activeTab)
 	}
 }
 
@@ -97,25 +113,19 @@ func TestTabWhileWaitingCyclesFocus(t *testing.T) {
 // output to confirm the F-key comes AFTER the name.
 func TestRenderTabBar_FKeysAfterName(t *testing.T) {
 	s := NewStyles(true)
-	bar := renderTabBar(TabKindChat, 120, s, true, false)
+	bar := renderTabBar(TabKindChat, 120, s, true, false, -1)
 	// Strip ANSI escape sequences so the substring check
 	// works regardless of style.
 	plain := stripANSI(bar)
-	// The Workflows tab was removed from the UI per
-	// the user-reported request 'workflows and stuff
-	// like that isnt really clear and kinda messy
-	// maybe we just remove it completely (workflows)'.
-	// The user chose 'hide tab, keep /workflow +
-	// dispatch_workflow', so the tab bar now has
-	// 3 tabs: Sessions (F1), Chat (F2), Settings (F3).
+	// The entire workflows feature (tab, /workflow,
+	// dispatch_workflow tool, engine, etc.) was removed per
+	// user request. Tab bar now has exactly the 3 tabs.
 	for _, want := range []string{"Sessions (F1)", "Chat (F2)", "Settings (F3)"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("tab bar missing %q, got:\n%s", want, plain)
 		}
 	}
-	// The Workflows tab should NOT appear in the
-	// tab bar (still accessible via /workflow and
-	// dispatch_workflow, just no tab).
+	// The Workflows tab should NOT appear in the tab bar.
 	if strings.Contains(plain, "Workflows") {
 		t.Errorf("tab bar should not contain 'Workflows' (tab removed from UI), got:\n%s", plain)
 	}
@@ -131,45 +141,16 @@ func TestRenderTabBar_FKeysAfterName(t *testing.T) {
 
 // TestRenderTabBar_AllThreeTabs verifies the bar shows exactly
 // three tabs (Sessions, Chat, Settings) with the correct F-key
-// for each. The Workflows tab was removed from the UI per
-// the user-reported request 'workflows and stuff like that
-// isnt really clear and kinda messy maybe we just remove it
-// completely (workflows)'. The /workflow command and the
-// LLM's dispatch_workflow tool still work; only the
-// dedicated UI tab is gone.
+// for each. The workflows feature was removed completely.
 func TestRenderTabBar_AllThreeTabs(t *testing.T) {
 	s := NewStyles(true)
-	bar := renderTabBar(TabKindSettings, 120, s, true, false)
+	bar := renderTabBar(TabKindSettings, 120, s, true, false, -1)
 	plain := stripANSI(bar)
 	for _, want := range []string{"Sessions", "Chat", "Settings", "(F1)", "(F2)", "(F3)"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("tab bar missing %q, got:\n%s", want, plain)
 		}
 	}
-}
-
-// stripANSI removes ANSI colour escape sequences so substring
-// checks on styled output work regardless of which colors were
-// applied. Regex matches the most common CSI sequences.
-func stripANSI(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	inEscape := false
-	for _, r := range s {
-		if r == 0x1b {
-			inEscape = true
-			continue
-		}
-		if inEscape {
-			// CSI sequence ends at the first letter.
-			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '~' {
-				inEscape = false
-			}
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
 }
 
 // TestEscDuringStreamingResetsStateToWaiting verifies that

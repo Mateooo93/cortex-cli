@@ -8,3 +8,12 @@ const (
 	FocusChat                         // chat viewport has focus (scrollable)
 	FocusRightPanel                   // right panel has focus (when open)
 )
+
+// restoreEditorFocus returns the session's chat input to editor focus.
+func (sess *SessionState) restoreEditorFocus() {
+	if sess == nil {
+		return
+	}
+	sess.focus = FocusEditor
+	sess.input.Focus()
+}

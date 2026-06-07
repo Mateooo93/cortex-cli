@@ -93,17 +93,6 @@ type SessionUserAnswerData struct {
 	Answers map[string]string `json:"answers,omitempty"` // question ID → answer (batch mode)
 }
 
-// SessionWorkflowData carries a workflow execution request.
-type SessionWorkflowData struct {
-	Name string `json:"name"`
-	Text string `json:"text"`
-}
-
-// SessionWorkflowMessageData carries a user message to inject into the running workflow.
-type SessionWorkflowMessageData struct {
-	Text string `json:"text"`
-}
-
 // SessionSetModelData carries a model switch request.
 type SessionSetModelData struct {
 	Model string `json:"model"`
@@ -236,7 +225,7 @@ type QuestionDef struct {
 	Options  []string `json:"options,omitempty"`
 }
 
-// EventQuestionOption is a structured option for workflow tool steps.
+// EventQuestionOption is a structured option for ask_user_question tool steps.
 type EventQuestionOption struct {
 	Title        string `json:"title"`
 	Description  string `json:"description"`
@@ -248,31 +237,12 @@ type EventUserQuestion struct {
 	// Single-question fields (backward compatible)
 	Question    string                `json:"question"`
 	Options     []string              `json:"options"`
-	RichOptions []EventQuestionOption `json:"rich_options,omitempty"` // structured options (workflow tool steps)
+	RichOptions []EventQuestionOption `json:"rich_options,omitempty"` // structured options for ask_user_question (rich multi-choice)
 	Placeholder string                `json:"placeholder,omitempty"`
 	Category    string                `json:"category,omitempty"`
 
 	// Multi-question batch (if set, overrides single fields)
 	Questions []QuestionDef `json:"questions,omitempty"`
-}
-
-// EventWorkflowDispatch is fired by the session when the
-// LLM calls the `dispatch_workflow` tool. The TUI uses
-// this to start a real multi-agent workflow (the same
-// flow as the /workflow <prompt> slash command) without
-// the user having to type the command manually. The user
-// reported: "the agent isnt using workflows, it might nto
-// be in its system prompt at all, itj ust starts working
-// by itself it doesnt seem to know".
-type EventWorkflowDispatch struct {
-	// Prompt is the task description the agent passed
-	// to dispatch_workflow. This becomes the workflow
-	// goal.
-	Prompt string `json:"prompt"`
-	// Preset is the optional workflow preset name (e.g.
-	// "code", "research", "test", "review", "docs").
-	// Empty defaults to "code" in the UI handler.
-	Preset string `json:"preset,omitempty"`
 }
 
 // EventError carries an error message.
@@ -294,88 +264,4 @@ type EventRetry struct {
 type EventThinkingStall struct {
 	ElapsedMs    int64 `json:"elapsed_ms"`
 	SummaryChars int   `json:"summary_chars"`
-}
-
-// --- Workflow info (sent to UI for mode cycling) ---
-
-// WorkflowInfo describes a workflow available for UI mode cycling.
-type WorkflowInfo struct {
-	Name string `json:"name"`
-}
-
-// EventWorkflowsAvailable carries the list of configured workflows to the UI.
-type EventWorkflowsAvailable struct {
-	Workflows []WorkflowInfo `json:"workflows"`
-}
-
-// --- Workflow events ---
-
-// WorkflowStepInfo carries static metadata about a single workflow step.
-type WorkflowStepInfo struct {
-	ID          string `json:"id"`
-	Explanation string `json:"explanation,omitempty"`
-}
-
-// EventWorkflowStart signals a workflow has started.
-type EventWorkflowStart struct {
-	WorkflowName string             `json:"workflow_name"`
-	TotalSteps   int                `json:"total_steps"`
-	Steps        []WorkflowStepInfo `json:"steps,omitempty"`
-}
-
-// EventWorkflowStepStart signals a workflow step is starting.
-type EventWorkflowStepStart struct {
-	StepID      string `json:"step_id"`
-	StepIdx     int    `json:"step_idx"`
-	Total       int    `json:"total"`
-	Agent       string `json:"agent"`
-	Explanation string `json:"explanation,omitempty"`
-}
-
-// ToolStat summarizes tool usage within a workflow step.
-type ToolStat struct {
-	Name    string `json:"name"`
-	Calls   int    `json:"calls"`
-	Summary string `json:"summary"`
-}
-
-// EventWorkflowStepDone signals a workflow step has finished.
-type EventWorkflowStepDone struct {
-	StepID              string     `json:"step_id"`
-	StepIdx             int        `json:"step_idx"`
-	Total               int        `json:"total"`
-	Success             bool       `json:"success"`
-	TimedOut            bool       `json:"timed_out,omitempty"` // bash step killed by per-step timeout; workflow continues
-	Display             string     `json:"display,omitempty"`
-	Command             string     `json:"command,omitempty"`     // bash step: resolved command that was run
-	BashOutput          string     `json:"bash_output,omitempty"` // bash step: first 5 lines of output
-	Model               string     `json:"model,omitempty"`
-	InputTokens         int64      `json:"input_tokens,omitempty"`
-	OutputTokens        int64      `json:"output_tokens,omitempty"`
-	CacheCreationTokens int64      `json:"cache_creation_tokens,omitempty"`
-	CacheReadTokens     int64      `json:"cache_read_tokens,omitempty"`
-	ToolStats           []ToolStat `json:"tool_stats,omitempty"`
-	DurationMs          int64      `json:"duration_ms,omitempty"`
-}
-
-// StepCost summarizes token usage and cost for a single workflow step.
-type StepCost struct {
-	StepID              string  `json:"step_id"`
-	Explanation         string  `json:"explanation,omitempty"`
-	Model               string  `json:"model"`
-	InputTokens         int64   `json:"input_tokens"`
-	OutputTokens        int64   `json:"output_tokens"`
-	CacheCreationTokens int64   `json:"cache_creation_tokens"`
-	CacheReadTokens     int64   `json:"cache_read_tokens"`
-	Cost                float64 `json:"cost"`
-	DurationMs          int64   `json:"duration_ms,omitempty"`
-}
-
-// EventWorkflowComplete signals a workflow has finished.
-type EventWorkflowComplete struct {
-	WorkflowName string     `json:"workflow_name"`
-	Success      bool       `json:"success"`
-	Summary      string     `json:"summary,omitempty"`
-	StepCosts    []StepCost `json:"step_costs,omitempty"`
-	DurationMs   int64      `json:"duration_ms,omitempty"`
 }

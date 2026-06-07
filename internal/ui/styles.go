@@ -102,7 +102,7 @@ var (
 	chatBarStyle = lipgloss.NewStyle().
 			Foreground(colorPrimary)
 
-	// Plan/workflow mode bar - teal
+	// Plan mode bar - teal
 	planBarStyle = lipgloss.NewStyle().
 			Foreground(colorSecondary)
 
@@ -182,7 +182,7 @@ type Styles struct {
 	ColorBlurBorder  color.Color
 
 	// Reusable semantic styles. SectionTitle is used for tab
-	// section headers (e.g. "Workflows"). Bold is for
+	// section headers. Bold is for
 	// highlighted-but-not-colour-shifted inline text. Accent
 	// is the brand colour for active items. DimLabel is for
 	// sub-text and explanations.
@@ -190,7 +190,7 @@ type Styles struct {
 	Bold         lipgloss.Style
 	Accent       lipgloss.Style
 	DimLabel     lipgloss.Style
-	Error        lipgloss.Style // for failed steps in the workflow view
+	Error        lipgloss.Style // for failed plan steps etc.
 
 	// Styles using colorWhite
 	ToolResultStyle            lipgloss.Style
@@ -272,7 +272,7 @@ func NewStyles(hasDarkBG bool) Styles {
 		Bold:         lipgloss.NewStyle().Bold(true).Foreground(white),
 		Accent:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#3B82F6")),
 		DimLabel:     lipgloss.NewStyle().Foreground(dimGray),
-		// Error style for failed workflow steps. Bright red
+		// Error style for failed steps. Bright red
 		// to make the failure unmissable in the per-agent
 		// table.
 		Error: lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")),

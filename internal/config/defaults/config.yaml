@@ -1,0 +1,17 @@
+# Default cortex config (bootstrapped on first run if absent).
+# Shell is explicitly enabled here so the agent can use the run_shell / bash tool
+# when appropriate (e.g. for exploration, tests, builds). User can set to false
+# to disable. Other permissions default on for convenience; deny_list in
+# settings.json is the final security boundary.
+defaultModel: anthropic/claude-sonnet-4.5
+models:
+    anthropic:
+        provider: anthropic
+        model: claude-sonnet-4.5
+tools:
+    allowShell: true
+    allowWrite: true
+    allowGit: true
+streaming: true
+showUsage: true
+autoCompact: true

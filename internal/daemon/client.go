@@ -49,10 +49,8 @@ type SessionClient struct {
 	// One-shot channels for pending user input
 	confirmCh     chan confirmReq
 	userAnswerCh  chan userAnswerReq
-	planActionCh  chan planActionReq
-	workflowCh    chan workflowReq
-	workflowMsgCh chan workflowMsgReq
-	setModelCh    chan string
+	planActionCh chan planActionReq
+	setModelCh   chan string
 	inputCh       chan inputReq
 	trimCh        chan int
 	// Listeners for events
@@ -74,13 +72,6 @@ type planActionReq struct {
 	Action string
 	Text   string
 }
-type workflowReq struct {
-	Name string
-	Text string
-}
-type workflowMsgReq struct {
-	Text string
-}
 type inputReq struct {
 	Text        string
 	Attachments []protocol.Attachment
@@ -94,10 +85,8 @@ func NewSessionClient(_ string) *SessionClient {
 		inputCh:       make(chan inputReq, 1),
 		confirmCh:     make(chan confirmReq, 1),
 		userAnswerCh:  make(chan userAnswerReq, 1),
-		planActionCh:  make(chan planActionReq, 1),
-		workflowCh:    make(chan workflowReq, 1),
-		workflowMsgCh: make(chan workflowMsgReq, 1),
-		setModelCh:    make(chan string, 1),
+		planActionCh: make(chan planActionReq, 1),
+		setModelCh:   make(chan string, 1),
 		trimCh:        make(chan int, 1),
 	}
 }
@@ -335,24 +324,6 @@ func (c *SessionClient) SendUserAnswerBatch(answers map[string]string) error {
 func (c *SessionClient) SendPlanAction(action, text string) error {
 	select {
 	case c.planActionCh <- planActionReq{Action: action, Text: text}:
-	default:
-	}
-	return nil
-}
-
-// SendWorkflow starts a workflow by name with the given text.
-func (c *SessionClient) SendWorkflow(name, text string) error {
-	select {
-	case c.workflowCh <- workflowReq{Name: name, Text: text}:
-	default:
-	}
-	return nil
-}
-
-// SendWorkflowMessage injects a message into the running workflow.
-func (c *SessionClient) SendWorkflowMessage(text string) error {
-	select {
-	case c.workflowMsgCh <- workflowMsgReq{Text: text}:
 	default:
 	}
 	return nil
