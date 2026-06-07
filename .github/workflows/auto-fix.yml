@@ -118,7 +118,7 @@ jobs:
           env | grep -i opencode
           echo "=== running opencode ==="
           # Try with free model explicitly
-          opencode --model nvidia/nemotron-3-ultra-free run "Fix issue #$ISSUE_NUM from the GitHub repository. Read the issue body, understand the problem, implement the fix in the code, and commit the changes. Do NOT create a PR - just commit the changes to the current branch." 2>&1 || true
+          opencode --model minimax/m3 run "Fix issue #$ISSUE_NUM from the GitHub repository. Read the issue body, understand the problem, implement the fix in the code, and commit the changes. Do NOT create a PR - just commit the changes to the current branch." 2>&1 || true
 
       - name: Push branch
         run: |
