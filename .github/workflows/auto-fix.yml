@@ -115,6 +115,8 @@ jobs:
 
       - name: Find created PR
         id: create-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ISSUE_NUM=${{ steps.get-issue.outputs.issue_number }}
           PR_NUMBER=$(gh pr list --repo ${{ github.repository }} --search "fixes #$ISSUE_NUM" --json number --jq '.[0].number')
@@ -175,6 +177,8 @@ jobs:
 
       - name: Fetch CodeRabbit review comments
         id: fetch-review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUMBER=${{ needs.detect-and-fix.outputs.pr_number }}
           REVIEW_BODY=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews --jq '.[] | select(.user.login=="coderabbitai") | .body' | tail -1)
@@ -192,15 +196,16 @@ jobs:
           CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
           OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUMBER=${{ needs.detect-and-fix.outputs.pr_number }}
           ISSUE_NUM=${{ needs.detect-and-fix.outputs.issue_number }}
           # Send to opencode with the review context to fix the issues
           opencode run "
           PR #$PR_NUMBER (for issue #$ISSUE_NUM) received a CodeRabbit review with the following feedback:
-          
+
           $REVIEW
-          
+
           Please address all CodeRabbit review comments. Make the necessary changes and push to the same PR branch.
           Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen.
           "
@@ -230,12 +235,20 @@ jobs:
 
       - name: Find PRs with CodeRabbit reviews needing action
         id: find-prs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PRS=$(gh pr list --repo ${{ github.repository }} --state open --json number,title,reviews --jq '.[] | select(.reviews[]?.user.login=="coderabbitai" and .reviews[]?.state=="CHANGES_REQUESTED") | .number')
           echo "prs=$PRS" >> $GITHUB_OUTPUT
 
       - name: Process each PR with CodeRabbit changes requested
         if: steps.find-prs.outputs.prs != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
+          OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for PR_NUMBER in ${{ steps.find-prs.outputs.prs }}; do
             echo "Processing PR #$PR_NUMBER"
@@ -245,18 +258,13 @@ jobs:
             FULL_REVIEW="${REVIEW_BODY}\n\n--- Inline Comments ---\n${REVIEW_COMMENTS}"
             opencode run "
             PR #$PR_NUMBER (for issue #$ISSUE_NUM) received a CodeRabbit review with the following feedback:
-            
+
             $FULL_REVIEW
-            
+
             Please address all CodeRabbit review comments. Make the necessary changes and push to the same PR branch.
             Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen.
             "
           done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
-          OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
 
   # Cron to monitor issues every minute
   monitor-issues:
@@ -272,12 +280,16 @@ jobs:
 
       - name: Find new auto-fix issues
         id: find-issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ISSUES=$(gh issue list --repo ${{ github.repository }} --label auto-fix --state open --json number,title --jq '.[] | select(.title | test("auto-fix"; "i")) | .number')
           echo "issues=$ISSUES" >> $GITHUB_OUTPUT
 
       - name: Trigger workflow for each new issue
         if: steps.find-issues.outputs.issues != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for ISSUE_NUM in ${{ steps.find-issues.outputs.issues }}; do
             PR_EXISTS=$(gh pr list --repo ${{ github.repository }} --search "fixes #$ISSUE_NUM" --json number --jq '.[0].number')
@@ -288,5 +300,3 @@ jobs:
               echo "Issue #$ISSUE_NUM already has PR #$PR_EXISTS, skipping"
             fi
           done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
