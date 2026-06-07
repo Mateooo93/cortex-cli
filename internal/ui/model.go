@@ -1377,6 +1377,19 @@ type updateOverlayExecMsg struct{}
 // result to close the overlay.
 type updateOverlayDismissMsg struct{}
 
+// compactProgressTick fires periodically while compaction is
+// in-flight so the status bar spinner animates. 120ms matches
+// the self-update spinner cadence.
+func compactProgressTick() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg {
+		return compactProgressMsg{}
+	})
+}
+
+// compactProgressMsg fires periodically while a /compact run is
+// in progress. The handler advances the status bar spinner frame.
+type compactProgressMsg struct{}
+
 // applyModelPickerSelection routes a spec chosen from the /model
 // picker to the right action. OAuth providers (codex, claude-sub,
 // copilot) fire the OAuth flow directly — the user never sees the
@@ -3448,7 +3461,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case compactMsg:
 		// /compact (or auto-compact) finished. Show the
-		// before/after stats in the status bar.
+		// before/after stats in the status bar. We also
+		// clear compactInFlight HERE (not inside the
+		// tea.Cmd closure) so the spinner stops
+		// animating only when the result is actually
+		// rendered. The previous version cleared the
+		// flag inside compactCmd, which meant the
+		// spinner stopped before the result message
+		// landed and the user saw "compacting…"
+		// freeze. CodeRabbit flagged this in PR #2.
+		m.compactInFlight = false
+		m.statusMsg.Spinner = -1
 		return m, m.handleCompactMsg(msg)
 
 	case workflowEventMsg:
@@ -3557,6 +3580,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// decrement restartIn — it just keeps the
 		// animation frames cycling.
 		return m, selfUpdateProgressTick()
+
+	case compactProgressMsg:
+		// Advance the spinner frame while compaction is
+		// in-flight. The compactInFlight flag is set when
+		// /compact starts and cleared when compactMsg fires.
+		if m.compactInFlight {
+			m.statusMsg.Spinner = (m.statusMsg.Spinner + 1) % 8
+			m.statusMsg.gen++ // bump gen so auto-clear doesn't wipe mid-compaction
+			return m, compactProgressTick()
+		}
+		// Compaction done — don't reschedule the tick.
+		return m, nil
 
 	case animStepMsg:
 		// Route to whichever session owns this generation tick.
@@ -4022,10 +4057,34 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var done protocol.EventStreamDone
 		json.Unmarshal(data, &done)
-		sess.inputTokens += done.InputTokens
+		// Context-window counting fix. The streaming API
+		// reports `InputTokens` as the prompt size of the
+		// CURRENT turn (which includes the entire
+		// conversation history). It is NOT the number of
+		// new tokens this turn. Accumulating per-turn
+		// prompt tokens (the previous behaviour) gave
+		// double / triple counting: 10 turns × 1000
+		// tokens each summed to 10000 even though the
+		// actual context was 10000 only on the last
+		// turn. The status bar then showed the context
+		// filling up "abnormally quickly" and triggered
+		// auto-compact way too early.
+		//
+		// Correct model: the most recent non-zero
+		// prompt-size report is the most accurate
+		// representation of the current context. We
+		// accept any report that's larger than the
+		// current (normal growth) AND any report that's
+		// smaller (compaction / context-reset / new
+		// session). We IGNORE 0 (some providers don't
+		// report prompt tokens on every chunk).
+		if done.InputTokens > 0 {
+			sess.inputTokens = done.InputTokens
+		}
+		// Output tokens ARE additive across turns (the
+		// model emits new tokens each turn, never re-reads
+		// old output), so accumulate them.
 		sess.outputTokens += done.OutputTokens
-		sess.cacheCreationTokens += done.CacheCreationTokens
-		sess.cacheReadTokens += done.CacheReadTokens
 		// Finalise the per-turn timer. The accumulator is
 		// reset to 0 for the next turn.
 		sess.FinishTurn()
@@ -4143,34 +4202,6 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 				m.updateChatWidth()
 			}
 		}
-
-	case "event.workflow_dispatch":
-		// The agent called the dispatch_workflow tool.
-		// The user reported: "the agent isnt using
-		// workflows, it might nto be in its system
-		// prompt at all, itj ust starts working by
-		// itself it doesnt seem to know". The fix:
-		// when we see this event, run the same code
-		// path as the /workflow <prompt> slash
-		// command. The agent no longer has to
-		// instruct the user to type /workflow
-		// manually — the workflow starts as soon as
-		// the LLM makes the tool call.
-		data := marshalData(event.Data)
-		var wd protocol.EventWorkflowDispatch
-		json.Unmarshal(data, &wd)
-		// Run the same handler the /workflow slash
-		// command runs, passing the prompt from the
-		// event. We pass the preset name as a
-		// leading tag (e.g. "preset=code build a
-		// todo CLI") so the handler can route to
-		// the right preset without a UI for
-		// picking.
-		arg := wd.Prompt
-		if wd.Preset != "" {
-			arg = "preset=" + wd.Preset + " " + wd.Prompt
-		}
-		cmds = append(cmds, m.handleCommandAction("open_workflow_picker", sess, arg)...)
 
 	case "event.plan_proposed":
 		data := marshalData(event.Data)
@@ -4745,6 +4776,20 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 		// looks frozen. handleCompactMsg replaces it
 		// with the final 'done compacting' / 'compacted
 		// 142k → 4k tokens' result.
+		//
+		// In-flight guard: repeated /compact presses
+		// (e.g. the user mashing Enter on the slash
+		// command) used to queue multiple compactions
+		// against the same session state, which could
+		// corrupt the history. CodeRabbit flagged this
+		// in PR #2 — we now check compactInFlight
+		// before starting and surface a "compaction
+		// already running" status if it's set.
+		if m.compactInFlight {
+			cmds = append(cmds, m.emitStatusMsg("compaction already running…", StatusMsgInfo))
+			break
+		}
+		m.compactInFlight = true
 		cmds = append(cmds, m.emitStatusMsg("compacting context…", StatusMsgInfo))
 		cmds = append(cmds, m.compactCmd())
 	case "open_workflow_picker":
@@ -4758,23 +4803,7 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 		// common use case; the orchestrator picks the
 		// right agent for each step based on the goal
 		// anyway.
-		//
-		// The agent can also dispatch workflows via
-		// the `dispatch_workflow` tool, which passes
-		// an optional `preset=X` prefix (e.g.
-		// "preset=research build a competitive
-		// analysis report"). When the prefix is
-		// present we use the named preset; otherwise
-		// we default to "code".
 		prompt := arg
-		presetName := "code"
-		if strings.HasPrefix(prompt, "preset=") {
-			sp := strings.SplitN(prompt, " ", 2)
-			if len(sp) == 2 {
-				presetName = strings.TrimPrefix(sp[0], "preset=")
-				prompt = sp[1]
-			}
-		}
 		if prompt == "" {
 			cmds = append(cmds, m.emitStatusMsg(
 				"Usage: /workflow <prompt>  (e.g. /workflow build a CLI todo app in Go)",
@@ -4804,26 +4833,12 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 				m.workflowSummaryToChat(snap)
 			},
 		})
-		// Preset: the agent's dispatch_workflow call
-		// can pass `preset=X` to pick a non-default
-		// preset (e.g. "research", "test", "review",
-		// "docs"). The /workflow slash command
-		// defaults to "code".
+		// Default preset is "code" (planner+developer+reviewer+tester+researcher).
 		var preset *workflow.Preset
 		for i := range workflow.BuiltinPresets {
-			if workflow.BuiltinPresets[i].Name == presetName {
+			if workflow.BuiltinPresets[i].Name == "code" {
 				preset = &workflow.BuiltinPresets[i]
 				break
-			}
-		}
-		if preset == nil {
-			// Fallback to "code" if the requested
-			// preset doesn't exist (LLM typo etc.).
-			for i := range workflow.BuiltinPresets {
-				if workflow.BuiltinPresets[i].Name == "code" {
-					preset = &workflow.BuiltinPresets[i]
-					break
-				}
 			}
 		}
 		if preset == nil {
