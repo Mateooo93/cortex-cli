@@ -351,6 +351,26 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 	_ = os.RemoveAll(oldPath) // ignore error: may not exist
 	if err := os.Rename(currentExe, oldPath); err != nil {
 		_ = os.RemoveAll(tmpPath)
+		// Friendly error: if the rename failed because
+		// the install directory isn't writable (e.g.
+		// /usr/local/bin/ on a system-wide install
+		// without root), tell the user how to fix it.
+		// The user reported "open
+		// /usr/local/bin/cortex-linux-arm64.new:
+		// permission denied" — the underlying
+		// os.Rename fails with EACCES on Linux when
+		// the source file is in a root-owned
+		// directory, and our error message was
+		// unhelpful. Wrap the original error with
+		// a hint.
+		if os.IsPermission(err) || strings.Contains(err.Error(), "permission") {
+			return Result{
+				Kind:    "error",
+				Error:  fmt.Errorf("updater: cannot replace %s (permission denied). cortex was installed system-wide; run `sudo -i` and use a user-writable install dir, or reinstall via `./install.sh` into ~/.local/bin (which is in your PATH). Original error: %w", currentExe, err),
+				NewVersion:  rel.TagName,
+				AssetName: assetName,
+			}
+		}
 		// On Windows, you can't rename a running executable. Fall
 		// back to the helper-process flow.
 		if runtime.GOOS == "windows" {

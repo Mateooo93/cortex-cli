@@ -352,6 +352,15 @@ type Model struct {
 	// workflowsSelected is the cursor in the Workflows tab
 	// list (newest first).
 	workflowsSelected int
+	// workflowAnimFrame is a 0..7 spinner index that
+	// increments on each workflowTickMsg. The Workflows
+	// tab view reads this so the in-flight step spinners
+	// animate in sequence (row 0 frame 0, row 1 frame 1,
+	// etc.) rather than all flipping in lockstep. Without
+	// this, the spinners would all be the same frame and
+	// the user couldn't tell which agents are still
+	// working.
+	workflowAnimFrame int
 	// updateProgress is the latest step name from the
 	// /update self-update flow. It's a sync/atomic.Value
 	// string so the progress tick goroutine can write it
@@ -1390,6 +1399,26 @@ func compactProgressTick() tea.Cmd {
 // in progress. The handler advances the status bar spinner frame.
 type compactProgressMsg struct{}
 
+// workflowTickMsg fires every second while the user is
+// viewing the Workflows tab. The handler re-renders the
+// view so the elapsed timers and running-step spinners
+// stay live. The user reported: 'the workflow time spent
+// clock doesnt update when looking only updates when i
+// change tabs' — this tick fixes that. We only fire it
+// while the Workflows tab is active, and we reschedule
+// only as long as there's at least one active workflow.
+type workflowTickMsg struct{}
+
+// workflowTick starts a 1Hz ticker that re-renders the
+// Workflows tab so the elapsed times + per-step spinners
+// stay live. Returns nil if the tab isn't active (the
+// caller doesn't need to schedule).
+func workflowTick() tea.Cmd {
+	return tea.Tick(1*time.Second, func(time.Time) tea.Msg {
+		return workflowTickMsg{}
+	})
+}
+
 // applyModelPickerSelection routes a spec chosen from the /model
 // picker to the right action. OAuth providers (codex, claude-sub,
 // copilot) fire the OAuth flow directly — the user never sees the
@@ -2385,6 +2414,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "f3":
 				m.activeTab = TabKindWorkflows
 				m.sessionsInput.Blur()
+				// Start the 1Hz tick that keeps the
+				// workflow elapsed timers + per-step
+				// spinners live. The user reported:
+				// 'the workflow time spent clock
+				// doesnt update when looking only
+				// updates when i change tabs'. The
+				// tick is self-stopping (see
+				// workflowTickMsg handler) so it
+				// doesn't burn CPU when no
+				// workflows are running.
+				cmds = append(cmds, workflowTick())
 				return m, tea.Batch(cmds...)
 			case "f4":
 				m.openSettingsTab()
@@ -3077,6 +3117,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if sess := m.currentSession(); sess != nil {
 				sess.unreadCount = 0
 			}
+			// Start the 1Hz tick that keeps the
+			// workflow elapsed timers + per-step
+			// spinners live. Self-stopping when no
+			// workflows are running.
+			cmds = append(cmds, workflowTick())
 			return m, tea.Batch(cmds...)
 
 		case "f4":
@@ -3591,6 +3636,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, compactProgressTick()
 		}
 		// Compaction done — don't reschedule the tick.
+		return m, nil
+
+	case workflowTickMsg:
+		// 1Hz re-render of the Workflows tab so the
+		// elapsed timers and per-step spinners stay
+		// live. The user reported: 'the workflow time
+		// spent clock doesnt update when looking only
+		// updates when i change tabs'. We reschedule
+		// only while the Workflows tab is active AND
+		// there's at least one workflow running, so
+		// we're not burning CPU when nothing's happening.
+		// (If the user has the tab open but no active
+		// workflows, the static 'empty state' is
+		// correct — no need to re-tick.)
+		m.workflowAnimFrame = (m.workflowAnimFrame + 1) % 8
+		if m.activeTab == TabKindWorkflows {
+			sess := m.currentSession()
+			if sess != nil && sess.workflowEngine != nil {
+				hasActive := false
+				for _, snap := range sess.workflowEngine.Snapshots() {
+					if snap.Status != "done" && snap.Status != "failed" && snap.Status != "cancelled" {
+						hasActive = true
+						break
+					}
+				}
+				if hasActive {
+					return m, workflowTick()
+				}
+			}
+		}
 		return m, nil
 
 	case animStepMsg:
@@ -4618,6 +4693,7 @@ func (m Model) View() tea.View {
 			m.width, wfHeight, m.styles,
 			sess.workflowEngine,
 			m.workflowsSelected,
+			m.workflowAnimFrame,
 		)
 		uv.NewStyledString(wv).Draw(canvas, image.Rect(0, y, m.width, y+wfHeight))
 		y += wfHeight

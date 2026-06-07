@@ -26,7 +26,7 @@ import (
 //	  ◐  reviewer            waiting on developer
 //
 //	Start one with /workflow <prompt>.
-func renderWorkflowsView(width, height int, s Styles, engine *workflow.Engine, cursor int) string {
+func renderWorkflowsView(width, height int, s Styles, engine *workflow.Engine, cursor int, animationFrame int) string {
 	var out strings.Builder
 
 	title := s.SectionTitle.Render("Workflows")
@@ -91,26 +91,68 @@ func renderWorkflowsView(width, height int, s Styles, engine *workflow.Engine, c
 
 		// Indented agents running under this workflow. The
 		// orchestrator is the first row (it's the planner /
-		// coordinator for the workflow).
-		for _, step := range snap.Steps {
+		// coordinator for the workflow). The user reported:
+		// 'the workflow agents should all run at the same
+		// time and its not really clear whats happening we
+		// need a time spent for every agent, what its
+		// currently doing and if its actually working'. The
+		// per-step row below shows: status marker, role
+		// name, the live "what the agent is doing" message,
+		// and a per-step elapsed timer + a braille spinner
+		// for in-flight steps. Spinners cycle every tick
+		// (driven by the workflowTickMsg handler) so the
+		// view animates even when nothing else is changing.
+		for si, step := range snap.Steps {
 			stepMarker := "○ "
+			stepStyle := s.DimLabel
 			switch step.Status {
 			case workflow.StepInProgress:
-				stepMarker = "● "
+				// The spinner frame is the absolute
+				// animation index from the 1Hz tick,
+				// not relative to the step. This
+				// makes the rows shimmer in
+				// sequence rather than all flipping
+				// at once.
+				spinnerFrame := workflowSpinnerFrames[(si+animationFrame)%len(workflowSpinnerFrames)]
+				stepMarker = spinnerFrame + " "
+				stepStyle = s.Accent
 			case workflow.StepDone:
 				stepMarker = "✓ "
 			case workflow.StepFailed:
 				stepMarker = "✗ "
+				stepStyle = s.Error
 			case workflow.StepCancelled:
 				stepMarker = "· "
 			}
-			row := fmt.Sprintf("    %s%s  %s", stepMarker, step.Role, formatWorkflowStepLine(step))
-			out.WriteString(s.DimLabel.Render(row))
+			// Per-step elapsed timer. The user wanted
+			// 'a time spent for every agent'. Show
+			// "M:SS" for active / failed steps
+			// (live time), "M:SS" + "(done)" for
+			// done, "—" for steps that never started.
+			var stepElapsed string
+			if !step.StartedAt.IsZero() {
+				if !step.EndedAt.IsZero() {
+					stepElapsed = formatWorkflowElapsed(step.EndedAt.Sub(step.StartedAt)) + " (done)"
+				} else {
+					stepElapsed = formatWorkflowElapsed(time.Since(step.StartedAt))
+				}
+			} else {
+				stepElapsed = "—"
+			}
+			row := fmt.Sprintf("    %s%-12s  %-50s  %s",
+				stepMarker, step.Role, truncate(formatWorkflowStepLine(step), 50), stepElapsed)
+			out.WriteString(stepStyle.Render(row))
 			out.WriteString("\n")
 		}
 	}
 	return out.String()
 }
+
+// workflowSpinnerFrames is the 8-frame braille spinner
+// used for in-flight workflow steps. We cycle these
+// every workflowTickMsg (1Hz) so the user can see at
+// a glance which agents are still working.
+var workflowSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"}
 
 // formatWorkflowElapsed formats an elapsed duration as M:SS.
 func formatWorkflowElapsed(d time.Duration) string {

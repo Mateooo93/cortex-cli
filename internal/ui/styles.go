@@ -190,6 +190,7 @@ type Styles struct {
 	Bold         lipgloss.Style
 	Accent       lipgloss.Style
 	DimLabel     lipgloss.Style
+	Error        lipgloss.Style // for failed steps in the workflow view
 
 	// Styles using colorWhite
 	ToolResultStyle            lipgloss.Style
@@ -271,6 +272,10 @@ func NewStyles(hasDarkBG bool) Styles {
 		Bold:         lipgloss.NewStyle().Bold(true).Foreground(white),
 		Accent:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#3B82F6")),
 		DimLabel:     lipgloss.NewStyle().Foreground(dimGray),
+		// Error style for failed workflow steps. Bright red
+		// to make the failure unmissable in the per-agent
+		// table.
+		Error: lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")),
 
 		ToolResultStyle:            lipgloss.NewStyle().Foreground(white),
 		QuestionTextStyle:          lipgloss.NewStyle().Foreground(white),

@@ -80,7 +80,7 @@ func TestRightPanel_InfoMode_ShowsWorkflowRunning(t *testing.T) {
 func TestRenderWorkflowsView_EmptyState(t *testing.T) {
 	s := NewStyles(true)
 	engine := workflow.NewEngine(nil)
-	view := renderWorkflowsView(120, 40, s, engine, 0)
+	view := renderWorkflowsView(120, 40, s, engine, 0, 0)
 	for _, want := range []string{"Workflows", "/workflow <prompt>", "build a CLI todo app in Go"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("empty state missing %q, got:\n%s", want, view)
@@ -111,7 +111,7 @@ func TestRenderWorkflowsView_WithActiveWorkflow(t *testing.T) {
 	// Wait briefly for the workflow to register (the
 	// engine spawns a goroutine).
 	time.Sleep(10 * time.Millisecond)
-	view := renderWorkflowsView(120, 40, s, engine, 0)
+	view := renderWorkflowsView(120, 40, s, engine, 0, 0)
 	if !strings.Contains(view, "code") {
 		t.Errorf("expected active workflow 'code' in view, got:\n%s", view)
 	}
