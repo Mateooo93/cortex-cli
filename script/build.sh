@@ -160,8 +160,18 @@ build_linux_docker() {
   local tag="cortex-build-${label}"
   local create_name="cortex-extract-${label}-$$"
   # Unquoted heredoc — ${VERSION} expanded by the shell before docker sees it.
+  # Note: we pin the base image to a specific arch via the
+  # `--platform` flag (already passed above) AND use the
+  # `:N-alpineN.N` variant of the tag (instead of bare
+  # `:N-alpine`) so Docker's manifest-list resolution
+  # selects a single-arch image. The bare `:1.26-alpine`
+  # tag is a multi-arch manifest that the runner's
+  # buildx occasionally mis-resolves, leading to
+  # `exec /bin/sh: exec format error` on the first
+  # RUN. Pinning `:1.26.0-alpine3.21` (or whichever
+  # alpine release Go 1.26 ships) is the safe path.
   docker build --platform "linux/${arch}" -f - -t "$tag" "$ROOT_DIR" <<DOCKERFILE >"$logfile" 2>&1
-FROM golang:1.26-alpine
+FROM --platform=linux/${arch} golang:1.26.0-alpine3.21
 RUN apk add --no-cache build-base
 WORKDIR /src
 COPY go.mod go.sum ./
