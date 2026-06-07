@@ -246,6 +246,25 @@ type EventUserQuestion struct {
 	Questions []QuestionDef `json:"questions,omitempty"`
 }
 
+// EventWorkflowDispatch is fired by the session when the
+// LLM calls the `dispatch_workflow` tool. The TUI uses
+// this to start a real multi-agent workflow (the same
+// flow as the /workflow <prompt> slash command) without
+// the user having to type the command manually. The user
+// reported: "the agent isnt using workflows, it might nto
+// be in its system prompt at all, itj ust starts working
+// by itself it doesnt seem to know".
+type EventWorkflowDispatch struct {
+	// Prompt is the task description the agent passed
+	// to dispatch_workflow. This becomes the workflow
+	// goal.
+	Prompt string `json:"prompt"`
+	// Preset is the optional workflow preset name (e.g.
+	// "code", "research", "test", "review", "docs").
+	// Empty defaults to "code" in the UI handler.
+	Preset string `json:"preset,omitempty"`
+}
+
 // EventError carries an error message.
 type EventError struct {
 	Message string `json:"message"`

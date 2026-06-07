@@ -66,7 +66,10 @@ func (m *Model) compactCmd() tea.Cmd {
 		func() tea.Msg {
 			sess := m.currentSession()
 			if sess == nil {
+<<<<<<< HEAD
 				m.compactInFlight = false
+=======
+>>>>>>> main
 				return compactMsg{ok: false, err: fmt.Errorf("no active session")}
 			}
 			oldCount := len(sess.chatMessages)
@@ -97,7 +100,10 @@ func (m *Model) compactCmd() tea.Cmd {
 				}
 			}
 			if len(transcript) < 4 {
+<<<<<<< HEAD
 				m.compactInFlight = false
+=======
+>>>>>>> main
 				return compactMsg{
 					ok:        false,
 					oldCount:  oldCount,
@@ -152,7 +158,10 @@ func (m *Model) compactCmd() tea.Cmd {
 				for _, msg := range sess.chatMessages {
 					newChars += len(msg.Text)
 				}
+<<<<<<< HEAD
 				m.compactInFlight = false
+=======
+>>>>>>> main
 				return compactMsg{
 					ok:        false,
 					oldCount:  oldCount,
@@ -192,7 +201,10 @@ func (m *Model) compactCmd() tea.Cmd {
 				_ = sess.client.SendRestoreHistory(chatMessagesToProviderHistory(sess.chatMessages))
 			}
 			newChars := len(summary) + 200 // ballpark for the 4 kept messages
+<<<<<<< HEAD
 			m.compactInFlight = false
+=======
+>>>>>>> main
 			return compactMsg{
 				ok:        true,
 				oldCount:  oldCount,

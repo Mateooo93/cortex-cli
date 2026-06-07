@@ -46,23 +46,22 @@ func TestHandleCommandAction_Compact(t *testing.T) {
 	}
 	// First cmd: status emit (clearStatusMsgMsg) — the user
 	// sees "compacting context…" right away.
-	// Second cmd: the compaction itself (tea.Batch containing
-	// compactProgressTick + the actual compaction func).
-	// Run the batch and extract the inner command that
-	// produces the compactMsg.
-	compactBatch := cmds[len(cmds)-1]
-	batchMsg := compactBatch()
-	batch, ok := batchMsg.(tea.BatchMsg)
+	// Last cmd: a tea.Batch containing [progress tick,
+	// compaction func]. Unwrap the batch and find the
+	// compaction func — it should produce a compactMsg
+	// with ok=false (because there's no session).
+	compactBatch := cmds[len(cmds)-1]()
+	batch, ok := compactBatch.(tea.BatchMsg)
 	if !ok {
-		t.Fatalf("expected tea.BatchMsg from compactCmd, got %T", batchMsg)
+		t.Fatalf("expected tea.BatchMsg from last cmd, got %T", compactBatch)
 	}
-	// The batch contains: [compactProgressTick, compactionFunc]
-	// We want the second one (the actual compaction).
 	if len(batch) < 2 {
 		t.Fatalf("expected batch with 2 cmds, got %d", len(batch))
 	}
-	compactCmd := batch[1]
-	msg := compactCmd()
+	// The last cmd in the batch is the actual
+	// compaction func.
+	compactFunc := batch[len(batch)-1]
+	msg := compactFunc()
 	if c, ok := msg.(compactMsg); !ok {
 		t.Errorf("expected compactMsg from last cmd, got %T", msg)
 	} else if c.ok {
@@ -165,9 +164,15 @@ func itoa(n int) string {
 // model's context window. Without a real session this
 // is tricky to test, so we just verify the function is
 // callable and returns nil when there's no session.
+// CodeRabbit flagged this in PR #2: NewModel() creates
+// a default session, so we have to clear it to actually
+// hit the "no session" early-return path the test
+// claims to validate.
 func TestMaybeAutoCompact_NoSessionReturnsNil(t *testing.T) {
 	cfg := &cortexconfig.Config{}
 	m := NewModel(&config.Config{}, cfg, nil, true, "", true, true)
+	m.sessions = nil
+	m.selectedSession = 0
 	if cmd := m.maybeAutoCompact(); cmd != nil {
 		t.Error("expected nil cmd when no session")
 	}

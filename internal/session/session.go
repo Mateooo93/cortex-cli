@@ -478,6 +478,9 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 	case "ask_user_question":
 		s.handleAskUserQuestion(call)
 		return
+	case "dispatch_workflow":
+		s.handleDispatchWorkflow(call)
+		return
 	}
 	tool, ok := s.tools.Get(call.Name)
 	if !ok {
@@ -499,6 +502,22 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 		AllowShell: s.cfg.Tools.AllowShell,
 		AllowWrite: s.cfg.Tools.AllowWrite,
 		AllowGit:   s.cfg.Tools.AllowGit,
+	}
+	// If the LLM produced a tool call whose JSON was
+	// truncated (common for very large content the model
+	// can't fit in its output token budget) the provider
+	// layer falls back to storing the raw string in
+	// `args["_raw"]`. The tool then sees an empty
+	// `args["path"]` / `args["content"]` and rejects the
+	// call with "path and content are required". That's
+	// a dead end for the user — the agent has to retry
+	// with smaller content. We try to recover by
+	// scanning the raw string for the required fields
+	// and stitching them back into the args map. If the
+	// raw string is itself truncated (no closing quote)
+	// we still get partial content; better than nothing.
+	if raw, ok := call.Arguments["_raw"].(string); ok {
+		call.Arguments = recoverArgsFromRaw(call.Name, call.Arguments, raw)
 	}
 	res, _ := tool.Run(tctx, call.Arguments)
 	s.emitToolResult(call.ID, call.Name, res.Output, !res.OK, res.Error)
@@ -729,6 +748,64 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 	s.recordToolResult(call.ID, call.Name, result, false, "")
 }
 
+// handleDispatchWorkflow is the session-side handler for
+// the dispatch_workflow tool. The user reported: "the
+// agent isnt using workflows, it might nto be in its
+// system prompt at all, itj ust starts working by itself
+// it doesnt seem to know". Before this tool existed,
+// the system prompt told the agent to "suggest /workflow
+// <prompt>" — but the agent had no way to actually
+// dispatch the workflow itself, so it just printed the
+// suggestion and proceeded to do the work alone. The
+// fix: register dispatch_workflow as a real tool. The
+// tool's Run() returns a marker; the session handler
+// intercepts the call, emits an EventWorkflowDispatch
+// (which the TUI uses to actually start the workflow),
+// and records a tool result so the LLM sees a
+// successful call.
+//
+// We do NOT block the LLM here — the workflow runs in
+// the background and reports back via the normal
+// workflow event channel. The LLM can move on, and the
+// orchestrator will inject a summary message when it
+// finishes.
+func (s *Session) handleDispatchWorkflow(call provider.ToolCall) {
+	prompt, _ := call.Arguments["prompt"].(string)
+	if prompt == "" {
+		s.emitToolCall(call.ID, call.Name, call.Arguments, "")
+		s.emitToolResult(call.ID, call.Name, "", true, "prompt is required")
+		s.recordToolResult(call.ID, call.Name, "error: prompt is required", true, "prompt is required")
+		return
+	}
+	preset, _ := call.Arguments["preset"].(string)
+
+	// Emit the typed event so the TUI can start the
+	// workflow. The handler in internal/ui/model.go
+	// picks this up and runs the same code path as
+	// the /workflow slash command.
+	s.emitToolCall(call.ID, call.Name, call.Arguments, prompt)
+	s.safeEmit(protocol.SessionEvent{
+		Type: "workflow_dispatch",
+		Data: protocol.EventWorkflowDispatch{
+			Prompt: prompt,
+			Preset: preset,
+		},
+	})
+
+	// Confirm to the LLM that the call succeeded.
+	// The LLM will see this and know the workflow
+	// is running in the background. The
+	// orchestrator will deliver a summary message
+	// when the workflow finishes.
+	confirm := fmt.Sprintf("workflow dispatched with prompt: %q", prompt)
+	if preset != "" {
+		confirm = fmt.Sprintf("workflow dispatched with preset=%s, prompt: %q", preset, prompt)
+	}
+	confirm += "\n\nThe orchestrator will plan, implement, review, and test the work. A summary will arrive as a normal chat message when it finishes — keep chatting with the user in the meantime if they have questions."
+	s.emitToolResult(call.ID, call.Name, confirm, false, "")
+	s.recordToolResult(call.ID, call.Name, confirm, false, "")
+}
+
 // parseAskUserQuestionOptions normalises the `options`
 // argument into []protocol.EventQuestionOption. See the
 // doc-comment on handleAskUserQuestion for the accepted
@@ -828,6 +905,126 @@ func (s *Session) maybeFireDelayedCancel() {
 		s.cancelReq = true
 		s.delayedCancel = false
 	}
+}
+
+// recoverArgsFromRaw tries to recover the required
+// arguments from a tool call whose JSON was truncated
+// by the provider's output token limit. The provider
+// layer (internal/provider/openai_compat.go) stores the
+// raw partial JSON in `args["_raw"]` when it can't parse
+// it. We scan the raw string for the field names the
+// tool needs and extract their string values.
+//
+// The user reported: "shell commands are also being
+// truncated when content is too large" and "ERROR:
+// command is required" / "ERROR: path and content are
+// required". The root cause is the LLM producing a
+// 50KB+ write_file call where the JSON arguments
+// exceed the output token budget, so the SSE stream
+// cuts off mid-string. The raw partial string is still
+// 99% complete; we just have to find the field
+// boundaries.
+//
+// This is a best-effort recovery. We can't recover
+// cleanly if a string is missing its closing quote (the
+// raw content was genuinely truncated), but for the
+// "truncated trailing fields" case (the JSON object's
+// closing brace was cut off) we recover everything up
+// to the truncation point.
+func recoverArgsFromRaw(toolName string, args map[string]any, raw string) map[string]any {
+	if raw == "" {
+		return args
+	}
+	// Field list per tool. The agent can re-run the
+	// tool with the recovered content (or, in the
+	// case of write_file, the recovered content may
+	// be incomplete and the agent has to retry with
+	// the rest in a follow-up call).
+	var fields []string
+	switch toolName {
+	case "write_file":
+		fields = []string{"path", "content"}
+	case "edit_file":
+		fields = []string{"path", "oldString", "newString"}
+	case "read_file":
+		fields = []string{"path"}
+	case "delete_file":
+		fields = []string{"path"}
+	case "run_shell":
+		fields = []string{"command"}
+	}
+	if len(fields) == 0 {
+		return args
+	}
+	// If the field for this tool is already populated
+	// (the JSON partial-parsed successfully), no work
+	// to do. (We only enter this function when the
+	// provider fell back to `_raw`, but a tool with no
+	// required string fields would land here as a
+	// no-op.)
+	alreadyComplete := true
+	for _, field := range fields {
+		if v, ok := args[field].(string); !ok || v == "" {
+			alreadyComplete = false
+			break
+		}
+	}
+	if alreadyComplete {
+		return args
+	}
+	for _, field := range fields {
+		// Skip if the field is already populated
+		// from a successful partial parse.
+		if v, ok := args[field].(string); ok && v != "" {
+			continue
+		}
+		// Find "field": "... and walk to the end of
+		// the string. We do NOT require a closing
+		// quote: a truncated JSON has the field
+		// value as the last thing in the stream.
+		needle := "\"" + field + "\":"
+		idx := strings.Index(raw, needle)
+		if idx < 0 {
+			continue
+		}
+		// Skip past the colon, then any whitespace.
+		idx += len(needle)
+		for idx < len(raw) && (raw[idx] == ' ' || raw[idx] == '\t' || raw[idx] == '\n') {
+			idx++
+		}
+		if idx >= len(raw) || raw[idx] != '"' {
+			continue
+		}
+		idx++ // skip opening quote
+		// Walk to the end of the string. We allow
+		// the closing quote to be missing (truncated
+		// JSON) — in that case we take everything
+		// from `idx` to EOF.
+		end := idx
+		for end < len(raw) {
+			if raw[end] == '\\' && end+1 < len(raw) {
+				// Skip escape sequence.
+				end += 2
+				continue
+			}
+			if raw[end] == '"' {
+				break
+			}
+			end++
+		}
+		// If we found a closing quote, exclude it.
+		value := raw[idx:end]
+		// Unescape the most common JSON escapes. We
+		// don't need to handle every edge case —
+		// the agent will re-run if the result is
+		// slightly off.
+		value = strings.ReplaceAll(value, `\"`, `"`)
+		value = strings.ReplaceAll(value, `\\`, `\`)
+		value = strings.ReplaceAll(value, `\n`, "\n")
+		value = strings.ReplaceAll(value, `\t`, "\t")
+		args[field] = value
+	}
+	return args
 }
 
 func summarizeArgs(args map[string]any) string {

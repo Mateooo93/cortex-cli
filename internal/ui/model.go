@@ -3461,7 +3461,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case compactMsg:
 		// /compact (or auto-compact) finished. Show the
-		// before/after stats in the status bar.
+		// before/after stats in the status bar. We also
+		// clear compactInFlight HERE (not inside the
+		// tea.Cmd closure) so the spinner stops
+		// animating only when the result is actually
+		// rendered. The previous version cleared the
+		// flag inside compactCmd, which meant the
+		// spinner stopped before the result message
+		// landed and the user saw "compacting…"
+		// freeze. CodeRabbit flagged this in PR #2.
+		m.compactInFlight = false
+		m.statusMsg.Spinner = -1
 		return m, m.handleCompactMsg(msg)
 
 	case workflowEventMsg:
@@ -4047,10 +4057,34 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var done protocol.EventStreamDone
 		json.Unmarshal(data, &done)
-		sess.inputTokens += done.InputTokens
+		// Context-window counting fix. The streaming API
+		// reports `InputTokens` as the prompt size of the
+		// CURRENT turn (which includes the entire
+		// conversation history). It is NOT the number of
+		// new tokens this turn. Accumulating per-turn
+		// prompt tokens (the previous behaviour) gave
+		// double / triple counting: 10 turns × 1000
+		// tokens each summed to 10000 even though the
+		// actual context was 10000 only on the last
+		// turn. The status bar then showed the context
+		// filling up "abnormally quickly" and triggered
+		// auto-compact way too early.
+		//
+		// Correct model: the most recent non-zero
+		// prompt-size report is the most accurate
+		// representation of the current context. We
+		// accept any report that's larger than the
+		// current (normal growth) AND any report that's
+		// smaller (compaction / context-reset / new
+		// session). We IGNORE 0 (some providers don't
+		// report prompt tokens on every chunk).
+		if done.InputTokens > 0 {
+			sess.inputTokens = done.InputTokens
+		}
+		// Output tokens ARE additive across turns (the
+		// model emits new tokens each turn, never re-reads
+		// old output), so accumulate them.
 		sess.outputTokens += done.OutputTokens
-		sess.cacheCreationTokens += done.CacheCreationTokens
-		sess.cacheReadTokens += done.CacheReadTokens
 		// Finalise the per-turn timer. The accumulator is
 		// reset to 0 for the next turn.
 		sess.FinishTurn()
@@ -4742,6 +4776,19 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 		// looks frozen. handleCompactMsg replaces it
 		// with the final 'done compacting' / 'compacted
 		// 142k → 4k tokens' result.
+		//
+		// In-flight guard: repeated /compact presses
+		// (e.g. the user mashing Enter on the slash
+		// command) used to queue multiple compactions
+		// against the same session state, which could
+		// corrupt the history. CodeRabbit flagged this
+		// in PR #2 — we now check compactInFlight
+		// before starting and surface a "compaction
+		// already running" status if it's set.
+		if m.compactInFlight {
+			cmds = append(cmds, m.emitStatusMsg("compaction already running…", StatusMsgInfo))
+			break
+		}
 		m.compactInFlight = true
 		cmds = append(cmds, m.emitStatusMsg("compacting context…", StatusMsgInfo))
 		cmds = append(cmds, m.compactCmd())
