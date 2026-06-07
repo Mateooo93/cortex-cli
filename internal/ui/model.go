@@ -3000,7 +3000,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.flushSessionBuf(sess)
 				sess.chatMessages = append(sess.chatMessages, renderSystemMessage("Cancelled.", m.styles))
-				return m, nil
+				// Reset the state to WaitingForInput so the
+				// user can submit a follow-up message. The
+				// previous version of this code only stopped
+				// the spinner and sent the cancel, leaving
+				// agentState == StateStreaming — which meant
+				// the submit path was a no-op on the next
+				// Enter press and the user reported "send a
+				// new one, nothing happens". The goroutine
+				// running runTurn will eventually observe
+				// ctx.Err() and emit agent_done, which is a
+				// no-op against the already-WaitingForInput
+				// state.
+				sess.agentState = StateWaitingForInput
+				sess.input.Focus()
+				cmds = append(cmds, m.maybeAutoCompact())
+				return m, tea.Batch(cmds...)
 			}
 			if sess.agentState == StatePlanReview && sess.input.Value() == "" {
 				if sess.reconnecting {
@@ -3694,11 +3709,24 @@ func (m Model) handleEnter(sess *SessionState) (tea.Model, tea.Cmd) {
 			// No client yet — the reconnect goroutine is
 			// still in flight. Surface a status message
 			// instead of silently dropping the user's
-			// message; they reported "loads forever" when
-			// the daemon wasn't ready.
+			// message AND spinning the thinking anim.
+			// The previous version of this code did both:
+			// it set StateWaitingForInput but also called
+			// animCmd.Start(), so the spinner ran forever
+			// even though nothing was actually being
+			// processed. The user reported "Ctrl+T new
+			// session, send prompt, loads forever".
+			//
+			// Fix: restore the text, leave the state at
+			// WaitingForInput, do NOT start the spinner,
+			// and emit a clear status message. The user
+			// presses Enter again once the reconnect
+			// finishes (the session.client is set by the
+			// reconnectSuccessMsg handler).
 			sess.input.SetValue(displayText)
 			sess.agentState = StateWaitingForInput
-			return m, tea.Batch(animCmd, m.emitStatusMsg("Reconnecting to daemon… press Enter again in a moment", StatusMsgWarning))
+			sess.thinkingAnim.Stop()
+			return m, m.emitStatusMsg("Reconnecting to daemon… press Enter again in a moment", StatusMsgWarning)
 		}
 		if firstUser && !strings.HasPrefix(displayText, "/") {
 			return m, tea.Batch(animCmd, generateSessionTitleCmd(sess.persistID, displayText))

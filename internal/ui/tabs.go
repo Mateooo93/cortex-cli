@@ -717,15 +717,15 @@ func renderSettingsWizardView(width, height int, s Styles, dimStyle, selectedSty
 // alertBlink is true when some session needs user attention (shown on Chat tab label).
 func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, alertBlink bool) string {
 	type tabDef struct {
-		key  string // "F1" | "F2" | "F3" | "F4"
 		name string // "Sessions" | "Chat" | "Workflows" | "Settings"
+		key  string // "F1" | "F2" | "F3" | "F4"
 		kind TabKind
 	}
 	defs := []tabDef{
-		{"F1", "Sessions", TabKindSessions},
-		{"F2", "Chat", TabKindChat},
-		{"F3", "Workflows", TabKindWorkflows},
-		{"F4", "Settings", TabKindSettings},
+		{"Sessions", "F1", TabKindSessions},
+		{"Chat", "F2", TabKindChat},
+		{"Workflows", "F3", TabKindWorkflows},
+		{"Settings", "F4", TabKindSettings},
 	}
 
 	var sepStyle lipgloss.Style
@@ -735,17 +735,12 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 		sepStyle = lipgloss.NewStyle().Foreground(s.ColorBlurBorder)
 	}
 
-	// Key style: inverse for inactive tabs so the keybind
-	// is always visible; primary inverse for the active tab
-	// so the F-key pops on the active tab.
-	keyStyleInactive := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("0")).
-		Background(s.ColorWhite).
-		Bold(true)
-	keyStyleActive := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("0")).
-		Background(colorPrimary).
-		Bold(true)
+	// Key style: plain dim text in parentheses after the
+	// tab name. The user asked for "(F1)" without boxes or
+	// inverse colors — just quiet text that says what
+	// key to press.
+	keyStyle := lipgloss.NewStyle().Foreground(colorDim)
+	keyStyleActive := lipgloss.NewStyle().Foreground(s.ColorDimGray)
 
 	var top, mid, bot strings.Builder
 	top.WriteString(" ")
@@ -754,9 +749,10 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 	visPos := 1
 
 	for i, d := range defs {
-		key := d.key
-		rest := " " + d.name + " "
-		full := key + rest
+		// Tab label: " Sessions (F1) " — name first,
+		// keybind in parens after. Pad with a space on
+		// each side so the border line is balanced.
+		full := " " + d.name + " (" + d.key + ") "
 		lw := len(full)
 		topLine := "╭" + strings.Repeat("─", lw) + "╮"
 		var botLine string
@@ -775,10 +771,21 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 		default:
 			nameStyle = s.TabInactiveStyle
 		}
-		ks := keyStyleInactive
+		ks := keyStyle
 		if d.kind == activeTab {
 			ks = keyStyleActive
 		}
+		// Split the label so we can render the name
+		// with the active/inactive/alert style and the
+		// "(F1)" suffix with the dim key style. The
+		// separator (a single space) goes with the
+		// key style so the parens are visually grouped.
+		namePart := d.name
+		keyPart := " (" + d.key + ")"
+		// Reconstruct the full label from the two
+		// styled parts plus the leading and trailing
+		// padding spaces.
+		label := " " + nameStyle.Render(namePart) + ks.Render(keyPart) + " "
 
 		if i > 0 {
 			top.WriteString(" ")
@@ -787,7 +794,7 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 			visPos++
 		}
 		top.WriteString(sepStyle.Render(topLine))
-		mid.WriteString(sepStyle.Render("│") + ks.Render(key) + nameStyle.Render(rest) + sepStyle.Render("│"))
+		mid.WriteString(sepStyle.Render("│") + label + sepStyle.Render("│"))
 		bot.WriteString(sepStyle.Render(botLine))
 		visPos += lw + 2
 	}
