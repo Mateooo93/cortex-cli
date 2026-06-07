@@ -235,13 +235,13 @@ type EditFileTool struct{}
 
 func (t *EditFileTool) Name() string { return "edit_file" }
 func (t *EditFileTool) Description() string {
-	return "Edit a file by replacing an exact string match. Requires allowWrite."
+	return "Edit a file by replacing a small exact string. Put path and oldString before newString in the JSON. Do NOT use this for huge rewrites; use smaller chunks. Requires allowWrite."
 }
 func (t *EditFileTool) Parameters() map[string]Param {
 	return map[string]Param{
-		"path":      {Type: "string", Description: "Path to file", Required: true},
-		"oldString": {Type: "string", Description: "The exact string to replace", Required: true},
-		"newString": {Type: "string", Description: "Replacement string", Required: true},
+		"path":      {Type: "string", Description: "Path to file. IMPORTANT: include this first. Absolute paths must start with /.", Required: true},
+		"oldString": {Type: "string", Description: "Small exact string/block to replace. IMPORTANT: include this before newString. Keep it short and copy from read_file output.", Required: true},
+		"newString": {Type: "string", Description: "Replacement string. Keep reasonably small; for large changes split into multiple edit_file calls.", Required: true},
 	}
 }
 func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
@@ -252,7 +252,7 @@ func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 	oldStr, _ := args["oldString"].(string)
 	newStr, _ := args["newString"].(string)
 	if p == "" || oldStr == "" {
-		return Result{OK: false, Error: "path and oldString are required"}, nil
+		return Result{OK: false, Error: "path and oldString are required. If this came from _raw/truncated JSON, retry with a SMALL edit_file call and put fields in this order: path, oldString, newString. Do not start with newString; large newString first gets truncated before path/oldString arrive."}, nil
 	}
 	full, corrected := resolvePath(ctx.CWD, p)
 	data, err := os.ReadFile(full)
@@ -260,23 +260,100 @@ func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 		return Result{OK: false, Error: err.Error()}, nil
 	}
 	content := string(data)
-	if !strings.Contains(content, oldStr) {
-		return Result{OK: false, Error: "oldString not found in file"}, nil
+	start, end, mode, ok := findReplacementRange(content, oldStr)
+	if !ok {
+		return Result{OK: false, Error: "oldString not found in file. Retry by first calling read_file on the target, then use a smaller exact oldString copied verbatim from the file. If this was a large rewrite, split it into multiple small edit_file calls or write a skeleton then patch sections."}, nil
 	}
-	newContent := strings.Replace(content, oldStr, newStr, 1)
+	newContent := content[:start] + newStr + content[end:]
 	if err := os.WriteFile(full, []byte(newContent), 0o644); err != nil {
 		return Result{OK: false, Error: err.Error()}, nil
 	}
-	output := fmt.Sprintf("Edited %s (replaced %d chars)", full, len(oldStr))
+	output := fmt.Sprintf("Edited %s (replaced %d chars", full, end-start)
+	if mode != "exact" {
+		output += ", match=" + mode
+	}
+	output += ")"
 	if corrected {
 		output += fmt.Sprintf(" (auto-corrected from %q)", p)
 	}
 	return Result{OK: true, Output: output}, nil
 }
 
+// findReplacementRange returns the byte range in
+// content to replace for oldStr. It is exact-first,
+// then applies a few safe fallbacks for common LLM
+// mistakes. Fallbacks are conservative and require a
+// unique match to avoid editing the wrong location.
+func findReplacementRange(content, oldStr string) (start, end int, mode string, ok bool) {
+	if oldStr == "" {
+		return 0, 0, "", false
+	}
+	if idx := strings.Index(content, oldStr); idx >= 0 {
+		return idx, idx + len(oldStr), "exact", true
+	}
+	// Normalize line endings. If this matches, replace
+	// the normalized oldStr length in the original LF
+	// content. This is safe for the common CRLF/LF
+	// mismatch case.
+	normOld := strings.ReplaceAll(oldStr, "\r\n", "\n")
+	normOld = strings.ReplaceAll(normOld, "\r", "\n")
+	if normOld != oldStr {
+		if idx := strings.Index(content, normOld); idx >= 0 {
+			return idx, idx + len(normOld), "line-ending-normalized", true
+		}
+	}
+	trimmed := strings.TrimSpace(normOld)
+	if trimmed != "" && trimmed != normOld {
+		if idx := strings.Index(content, trimmed); idx >= 0 {
+			return idx, idx + len(trimmed), "trimmed", true
+		}
+	}
+	// Indentation-insensitive block match: compare
+	// trimmed lines, require one unique window.
+	oldLinesRaw := strings.Split(trimmed, "\n")
+	var oldLines []string
+	for _, l := range oldLinesRaw {
+		if strings.TrimSpace(l) != "" {
+			oldLines = append(oldLines, strings.TrimSpace(l))
+		}
+	}
+	if len(oldLines) == 0 {
+		return 0, 0, "", false
+	}
+	contentLines := strings.SplitAfter(content, "\n")
+	// Precompute byte offsets for each line.
+	offsets := make([]int, len(contentLines)+1)
+	for i, l := range contentLines {
+		offsets[i+1] = offsets[i] + len(l)
+	}
+	matches := 0
+	matchStart, matchEnd := 0, 0
+	for i := 0; i+len(oldLines) <= len(contentLines); i++ {
+		matched := true
+		for j := range oldLines {
+			if strings.TrimSpace(contentLines[i+j]) != oldLines[j] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			matches++
+			matchStart = offsets[i]
+			matchEnd = offsets[i+len(oldLines)]
+			if matches > 1 {
+				return 0, 0, "", false
+			}
+		}
+	}
+	if matches == 1 {
+		return matchStart, matchEnd, "indentation-insensitive", true
+	}
+	return 0, 0, "", false
+}
+
 type ListDirTool struct{}
 
-func (t *ListDirTool) Name() string { return "list_dir" }
+func (t *ListDirTool) Name() string        { return "list_dir" }
 func (t *ListDirTool) Description() string { return "List files in a directory." }
 func (t *ListDirTool) Parameters() map[string]Param {
 	return map[string]Param{
@@ -470,9 +547,9 @@ func (t *SpawnAgentTool) Description() string {
 }
 func (t *SpawnAgentTool) Parameters() map[string]Param {
 	return map[string]Param{
-		"task":     {Type: "string", Description: "What the sub-agent should do. Be specific — include file paths, function names, and the success criteria.", Required: true},
-		"role":     {Type: "string", Description: "Specialist role for the sub-agent: 'explore' (read-only investigation), 'developer' (writes code), 'tester' (runs tests), 'reviewer' (code review), 'researcher' (docs lookup). Default: 'developer'.", Required: false},
-		"model":    {Type: "string", Description: "Override the model spec (e.g. 'openai:o3'). Default: same as the main agent.", Required: false},
+		"task":  {Type: "string", Description: "What the sub-agent should do. Be specific — include file paths, function names, and the success criteria.", Required: true},
+		"role":  {Type: "string", Description: "Specialist role for the sub-agent: 'explore' (read-only investigation), 'developer' (writes code), 'tester' (runs tests), 'reviewer' (code review), 'researcher' (docs lookup). Default: 'developer'.", Required: false},
+		"model": {Type: "string", Description: "Override the model spec (e.g. 'openai:o3'). Default: same as the main agent.", Required: false},
 	}
 }
 func (t *SpawnAgentTool) Run(ctx Context, args map[string]any) (Result, error) {
@@ -507,8 +584,8 @@ func (t *TaskOutputTool) Description() string {
 }
 func (t *TaskOutputTool) Parameters() map[string]Param {
 	return map[string]Param{
-		"task_id":  {Type: "string", Description: "The sub-agent's task_id from spawn_agent.", Required: true},
-		"wait":     {Type: "boolean", Description: "If true, block until the sub-agent finishes (up to 60s). If false (default), return immediately with current status.", Required: false},
+		"task_id": {Type: "string", Description: "The sub-agent's task_id from spawn_agent.", Required: true},
+		"wait":    {Type: "boolean", Description: "If true, block until the sub-agent finishes (up to 60s). If false (default), return immediately with current status.", Required: false},
 	}
 }
 func (t *TaskOutputTool) Run(ctx Context, args map[string]any) (Result, error) {
@@ -538,10 +615,10 @@ func (t *AskUserQuestionTool) Description() string {
 }
 func (t *AskUserQuestionTool) Parameters() map[string]Param {
 	return map[string]Param{
-		"question":  {Type: "string", Description: "The question to ask the user. Be concise — under 80 chars is best.", Required: true},
-		"options":   {Type: "string", Description: "JSON array of 2-4 option objects, each with 'label' (1-5 words) and optional 'description' (1 short sentence).", Required: true},
-		"header":    {Type: "string", Description: "Optional short header (max 12 chars) shown above the options. Default: 'Question'.", Required: false},
-		"multi":     {Type: "boolean", Description: "If true, the user can select multiple options. Default: false.", Required: false},
+		"question": {Type: "string", Description: "The question to ask the user. Be concise — under 80 chars is best.", Required: true},
+		"options":  {Type: "string", Description: "JSON array of 2-4 option objects, each with 'label' (1-5 words) and optional 'description' (1 short sentence).", Required: true},
+		"header":   {Type: "string", Description: "Optional short header (max 12 chars) shown above the options. Default: 'Question'.", Required: false},
+		"multi":    {Type: "boolean", Description: "If true, the user can select multiple options. Default: false.", Required: false},
 	}
 }
 func (t *AskUserQuestionTool) Run(ctx Context, args map[string]any) (Result, error) {

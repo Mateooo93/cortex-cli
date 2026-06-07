@@ -506,6 +506,17 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 		s.maybeFireDelayedCancel()
 		return
 	}
+	// If the LLM produced a tool call whose JSON was
+	// truncated (common for very large content the model
+	// can't fit in its output token budget) the provider
+	// layer falls back to storing the raw string in
+	// `args["_raw"]`. Recover BEFORE emitting the tool
+	// call event so the UI/activity strip can show a
+	// clean summary (path/oldString/newString) instead
+	// of `_raw="{\"newString\"...` noise.
+	if raw, ok := call.Arguments["_raw"].(string); ok {
+		call.Arguments = recoverArgsFromRaw(call.Name, call.Arguments, raw)
+	}
 	summary := summarizeArgs(call.Arguments)
 	s.emitToolCall(call.ID, call.Name, call.Arguments, summary)
 	tctx := tools.Context{
@@ -513,22 +524,6 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 		AllowShell: s.cfg.Tools.AllowShell,
 		AllowWrite: s.cfg.Tools.AllowWrite,
 		AllowGit:   s.cfg.Tools.AllowGit,
-	}
-	// If the LLM produced a tool call whose JSON was
-	// truncated (common for very large content the model
-	// can't fit in its output token budget) the provider
-	// layer falls back to storing the raw string in
-	// `args["_raw"]`. The tool then sees an empty
-	// `args["path"]` / `args["content"]` and rejects the
-	// call with "path and content are required". That's
-	// a dead end for the user — the agent has to retry
-	// with smaller content. We try to recover by
-	// scanning the raw string for the required fields
-	// and stitching them back into the args map. If the
-	// raw string is itself truncated (no closing quote)
-	// we still get partial content; better than nothing.
-	if raw, ok := call.Arguments["_raw"].(string); ok {
-		call.Arguments = recoverArgsFromRaw(call.Name, call.Arguments, raw)
 	}
 	res, _ := tool.Run(tctx, call.Arguments)
 	s.emitToolResult(call.ID, call.Name, res.Output, !res.OK, res.Error)
@@ -1044,7 +1039,19 @@ func summarizeArgs(args map[string]any) string {
 	}
 	var keys []string
 	for k := range args {
+		// _raw can be tens of KB of malformed JSON
+		// and makes the chat/activity strip unreadable
+		// (e.g. edit_file _raw="{\"newString\"...").
+		// It's still used internally by
+		// recoverArgsFromRaw(), but never belongs in a
+		// human-facing summary.
+		if k == "_raw" {
+			continue
+		}
 		keys = append(keys, k)
+	}
+	if len(keys) == 0 {
+		return "malformed/truncated tool arguments — retrying with smaller ordered fields"
 	}
 	// Stable order: sort
 	for i := 0; i < len(keys); i++ {

@@ -27,10 +27,16 @@ Tool / file editing rules:
 - Use tools instead of narrating. If the user asked you
   to edit/build/fix, read the relevant files and make
   the changes.
-- For large writes, DO NOT attempt one huge write_file.
-  Split file creation/rewrites into smaller chunks
-  (roughly 2-5KB per write/edit), or create a concise
-  skeleton first and then patch sections with edit_file.
+- For large writes, DO NOT attempt one huge write_file
+  or one huge edit_file. Split file creation/rewrites
+  into smaller chunks (roughly 2-5KB per write/edit),
+  or create a concise skeleton first and then patch
+  sections with edit_file.
+- For edit_file JSON, ALWAYS put fields in this order:
+  path, oldString, newString. Never start with
+  newString. If newString is large and appears first,
+  providers can truncate the JSON before path/oldString
+  arrive, causing the edit to fail.
 - Always use correct paths:
   - Absolute paths must start with / (example:
     /home/ubuntu/project/file.ts).
