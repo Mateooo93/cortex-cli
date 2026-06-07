@@ -171,7 +171,7 @@ build_linux_docker() {
   # RUN. Pinning `:1.26.0-alpine3.21` (or whichever
   # alpine release Go 1.26 ships) is the safe path.
   docker build --platform "linux/${arch}" -f - -t "$tag" "$ROOT_DIR" <<DOCKERFILE >"$logfile" 2>&1
-FROM --platform=linux/${arch} golang:1.26.0-alpine3.21
+FROM --platform=linux/${arch} golang:1.26-alpine3.22
 RUN apk add --no-cache build-base
 WORKDIR /src
 COPY go.mod go.sum ./
