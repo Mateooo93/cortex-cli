@@ -104,14 +104,14 @@ jobs:
           CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
           OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
-          OPENCODE_MODEL: nvidia/nemotron-3-ultra-free
         run: |
           ISSUE_NUM=${{ steps.get-issue.outputs.issue_number }}
           # Create a branch for the fix
           git config user.name "opencode-bot"
           git config user.email "opencode-bot@users.noreply.github.com"
           git checkout -b auto-fix/issue-$ISSUE_NUM
-          opencode run "Fix issue #$ISSUE_NUM from the GitHub repository. Read the issue body, understand the problem, implement the fix in the code, and commit the changes. Do NOT create a PR - just commit the changes to the current branch."
+          # Try with free model explicitly
+          opencode --model nvidia/nemotron-3-ultra-free run "Fix issue #$ISSUE_NUM from the GitHub repository. Read the issue body, understand the problem, implement the fix in the code, and commit the changes. Do NOT create a PR - just commit the changes to the current branch."
 
       - name: Push branch
         run: |
