@@ -573,11 +573,6 @@ func Load() (*Config, error) {
 	// true, which silently turned streaming / showUsage /
 	// autoCompact OFF for users who had a config from before
 	// those settings existed. We detect the absence by
-
-
-	// checking the raw YAML for the key.
-	if !bytes.Contains(data, []byte("\nstreaming:")) && !bytes.Contains(data, []byte("streaming:")) {
-
 	// checking the raw YAML for the key. If the user has
 	// explicitly set the field (any value, including false),
 	// we respect their choice.
@@ -591,23 +586,6 @@ func Load() (*Config, error) {
 	if !hasField("showUsage") {
 		cfg.ShowUsage = true
 	}
-
-	if !bytes.Contains(data, []byte("\nautoCompact:")) && !bytes.Contains(data, []byte("autoCompact:")) {
-
-	// checking the raw YAML for the key. If the user has
-	// explicitly set the field (any value, including false),
-	// we respect their choice.
-	hasField := func(name string) bool {
-		return bytes.Contains(data, []byte("\n"+name+":")) ||
-			bytes.HasPrefix(data, []byte(name+":"))
-	}
-	if !hasField("streaming") {
-		cfg.Streaming = true
-	}
-	if !hasField("showUsage") {
-		cfg.ShowUsage = true
-	}
-
 	if !hasField("autoCompact") {
 		cfg.AutoCompact = true
 	}
