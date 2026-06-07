@@ -278,14 +278,21 @@ GH_NOTES="## What's Changed
 
 ${CHANGELOG}"
 echo "==> Creating GitHub release $VERSION..."
+# Build the list of files to upload. The
+# `checksums.txt.asc` (GPG signature) only exists if
+# we didn't skip GPG; if it doesn't exist (CI runs),
+# `gh` errors with "no matches found for ...". Filter
+# it out of the upload list when absent.
+UPLOAD_FILES=("${TARBALLS[@]}" "$DIST_DIR/checksums.txt")
+if [[ -f "$DIST_DIR/checksums.txt.asc" ]]; then
+  UPLOAD_FILES+=("$DIST_DIR/checksums.txt.asc")
+fi
 gh release create "$VERSION" \
   --repo "$REPO" \
   --title "$VERSION" \
   --target main \
   --notes "$GH_NOTES" \
-  "${TARBALLS[@]}" \
-  "$DIST_DIR/checksums.txt" \
-  "$DIST_DIR/checksums.txt.asc"
+  "${UPLOAD_FILES[@]}"
 
 RELEASE_URL="https://github.com/${REPO}/releases/tag/${VERSION}"
 echo ""
