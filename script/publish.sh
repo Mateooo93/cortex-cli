@@ -293,6 +293,39 @@ fi
 echo "==> Generating checksums.txt..."
 (cd "$DIST_DIR" && shasum -a 256 cortex-*.tar.gz > checksums.txt)
 
+# Also generate SHA256SUMS (uppercase, no extension) so
+# the in-app /update updater can find it. The updater
+# code (internal/updater/updater.go findAsset() call)
+# hard-codes the name "SHA256SUMS" — see the line
+# `sumsAsset, err := findAsset(rel, "SHA256SUMS")` —
+# so we need to publish a release asset with exactly
+# that name. The user reported "updater: release
+# v0.2.22 has no SHA256SUMS asset; refusing to
+# install" because the release only had
+# `checksums.txt` (lowercase, with extension).
+#
+# SHA256SUMS covers EVERY asset (tarballs + bare
+# binaries) so the updater can verify any of them.
+# We use a temp file in the standard
+# `shasum -a 256` / `sha256sum` format:
+#     <hex>  <filename>
+echo "==> Generating SHA256SUMS for the in-app updater..."
+# Glob patterns must be expanded in $DIST_DIR. We
+# enumerate each known platform explicitly to avoid
+# `cortex-*.*` matching the tarballs twice (and to
+# keep the order stable across `shasum` versions).
+(cd "$DIST_DIR" && shasum -a 256 \
+    cortex-darwin-arm64 \
+    cortex-darwin-arm64.tar.gz \
+    cortex-linux-amd64 \
+    cortex-linux-amd64.tar.gz \
+    cortex-linux-arm64 \
+    cortex-linux-arm64.tar.gz \
+    cortex-windows-amd64.exe \
+    cortex-windows-amd64.tar.gz \
+    cortex-windows-arm64.exe \
+    cortex-windows-arm64.tar.gz > SHA256SUMS)
+
 echo "==> GPG-signing checksums.txt..."
 if [[ -n "${SKIP_GPG:-}" ]]; then
   echo "  (--skip-gpg was passed; skipping signature for CI run)"
@@ -313,7 +346,7 @@ echo "==> Creating GitHub release $VERSION..."
 # we didn't skip GPG; if it doesn't exist (CI runs),
 # `gh` errors with "no matches found for ...". Filter
 # it out of the upload list when absent.
-UPLOAD_FILES=("${TARBALLS[@]}" "${BARES[@]}" "$DIST_DIR/checksums.txt")
+UPLOAD_FILES=("${TARBALLS[@]}" "${BARES[@]}" "$DIST_DIR/checksums.txt" "$DIST_DIR/SHA256SUMS")
 if [[ -f "$DIST_DIR/checksums.txt.asc" ]]; then
   UPLOAD_FILES+=("$DIST_DIR/checksums.txt.asc")
 fi
