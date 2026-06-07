@@ -365,6 +365,14 @@ type Model struct {
 	// updates…" string and the user reported "/update
 	// doesn't do the animation".
 	updateProgressFrame int
+	// updateOverlay drives the big "Updating cortex"
+	// modal that replaces the previous status-bar-only
+	// progress. The user reported: "the /update animation
+	// should show a big pop up with a cool animation! and
+	// then the cli should restart once its ready and the
+	// tui has been updated". See update_overlay.go for
+	// the rendering and phase machine.
+	updateOverlay updateOverlayState
 	// codexAuthPending is true while the codex OAuth flow
 	// is in flight. The View() shows a full-screen
 	// "waiting for auth" overlay with the authorize URL
@@ -1293,10 +1301,25 @@ func (m *Model) startOAuthLoginCmd(providerName string) tea.Cmd {
 // The progress callback writes a per-step message into
 // m.updateProgress (a guarded atomic.Value) so the status
 // bar can render a live spinner while the update runs.
+// The user reported: "the /update animation should show a
+// big pop up with a cool animation!" — so we now ALSO
+// open the big centered updateOverlay modal. The status
+// bar message is suppressed while the overlay is open
+// (the modal IS the message).
 func (m *Model) runSelfUpdateCmd() tea.Cmd {
 	m.updateProgress.Store("Checking for updates\u2026")
+	// Open the big overlay. It will tick itself via
+	// selfUpdateProgressTick and animate the
+	// loadMorphFrames braille matrix.
+	m.updateOverlay = updateOverlayState{
+		active:    true,
+		step:      "Checking for updates\u2026",
+		stepIdx:   0,
+		frame:     0,
+		startedAt: time.Now(),
+		phase:     "running",
+	}
 	cmds := []tea.Cmd{
-		m.emitStatusMsg("Checking for updates\u2026", StatusMsgInfo),
 		func() tea.Msg {
 			res := updater.RunWithProgress(context.Background(), func(step string) {
 				m.updateProgress.Store(step)
@@ -1334,6 +1357,25 @@ type selfUpdateProgressMsg struct{}
 type selfUpdateFinishedMsg struct {
 	result updater.Result
 }
+
+// updateOverlayStartRestartMsg flips the overlay into the
+// "Restarting" phase with a 3-second countdown. Fired by a
+// tea.Tick in the selfUpdateFinishedMsg handler above.
+type updateOverlayStartRestartMsg struct{}
+
+// updateOverlayTickMsg is a 1Hz tick during the "restarting"
+// phase. The handler decrements restartIn and fires
+// updateOverlayExecMsg when it hits 0.
+type updateOverlayTickMsg struct{}
+
+// updateOverlayExecMsg tells the TUI to re-exec itself.
+// This is the message that actually replaces the running
+// process with the freshly downloaded binary.
+type updateOverlayExecMsg struct{}
+
+// updateOverlayDismissMsg is sent ~2s after an "up-to-date"
+// result to close the overlay.
+type updateOverlayDismissMsg struct{}
 
 // applyModelPickerSelection routes a spec chosen from the /model
 // picker to the right action. OAuth providers (codex, claude-sub,
@@ -1952,6 +1994,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// / codexLoginFailedMsg handlers.
 		if m.codexAuthPending && (msg.String() == "esc" || msg.String() == "Esc") {
 			m.codexAuthPending = false
+			return m, nil
+		}
+
+		// --- "Updating cortex" overlay ---
+		// Esc / Enter dismisses the overlay ONLY in the
+		// "error" phase (the user is stuck and wants to
+		// see the chat again). For the running / done /
+		// restarting / up-to-date phases we swallow all
+		// input — the user explicitly asked for the
+		// overlay to be in charge.
+		if m.updateOverlay.active {
+			if m.updateOverlay.phase == "error" {
+				if msg.String() == "esc" || msg.String() == "Esc" ||
+					msg.String() == "enter" || msg.String() == "Enter" {
+					m.updateOverlay.active = false
+					return m, nil
+				}
+			}
+			// While running/done/restarting, drop all
+			// input. The user asked for the popup to
+			// take over.
 			return m, nil
 		}
 		// --- Global quit confirm overlay ---
@@ -3396,15 +3459,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case selfUpdateFinishedMsg:
-		// Surface the result in the status bar so the user
-		// gets explicit feedback regardless of outcome.
+		// Surface the result. The user reported: "the
+		// /update animation should show a big pop up with
+		// a cool animation! and then the cli should
+		// restart once its ready and the tui has been
+		// updated". The new flow:
+		//   - On success: flip overlay to "done" briefly,
+		//     then "restarting" with a 3-second countdown,
+		//     then re-exec the new binary via
+		//     updateOverlayExec.
+		//   - On up-to-date: show a "✓ Already up to
+		//     date" overlay for ~2s, then auto-dismiss.
+		//   - On error: show the error in the overlay and
+		//     wait for Esc / Enter to dismiss.
 		m.updateProgress.Store("")
 		m.statusMsg.Spinner = -1 // clear the in-progress spinner
 		switch msg.result.Kind {
 		case "up-to-date":
-			return m, m.emitStatusMsg("Already on the latest version ("+msg.result.NewVersion+").", StatusMsgInfo)
+			m.updateOverlay.phase = "up-to-date"
+			m.updateOverlay.resultMessage = fmt.Sprintf("You're already running %s.", msg.result.NewVersion)
+			// Auto-dismiss after 2 seconds.
+			return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+				return updateOverlayDismissMsg{}
+			})
 		case "updated":
-			return m, m.emitStatusMsg(msg.result.Message+". Restart cortex-cli to use the new version.", StatusMsgInfo)
+			m.updateOverlay.phase = "done"
+			m.updateOverlay.resultMessage = msg.result.Message
+			// After a brief "All done!" moment, flip to
+			// "restarting" and start the 3s countdown.
+			return m, tea.Tick(700*time.Millisecond, func(time.Time) tea.Msg {
+				return updateOverlayStartRestartMsg{}
+			})
 		default:
 			errMsg := "Update failed"
 			if msg.result.Error != nil {
@@ -3412,7 +3497,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if msg.result.Message != "" {
 				errMsg = msg.result.Message
 			}
-			return m, m.emitStatusMsg(errMsg, StatusMsgError)
+			m.updateOverlay.phase = "error"
+			m.updateOverlay.resultMessage = errMsg
+			return m, nil
 		}
 
 	case selfUpdateProgressMsg:
@@ -3437,14 +3524,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// alive until selfUpdateFinishedMsg fires.
 		m.updateProgressFrame++
 		if step, ok := m.updateProgress.Load().(string); ok && step != "" {
-			m.statusMsg.Text = step
-			m.statusMsg.Kind = StatusMsgInfo
-			m.statusMsg.Spinner = m.updateProgressFrame % 8
-			m.statusMsg.gen++ // bump so the auto-clear timer
-			// restarts for each step (otherwise the
-			// 3-second auto-clear from emitStatusMsg could
-			// wipe the message mid-update).
+			// Drive the big overlay if it's open. The
+			// overlay is the new primary surface; the
+			// status bar update is a legacy fallback for
+			// the (rare) case where the overlay isn't
+			// active (e.g. test harnesses that run the
+			// updater without opening the modal).
+			if m.updateOverlay.active {
+				m.updateOverlay.step = step
+				m.updateOverlay.frame++
+				if idx := mapUpdateStep(step); idx >= 0 {
+					m.updateOverlay.stepIdx = idx
+				}
+			} else {
+				m.statusMsg.Text = step
+				m.statusMsg.Kind = StatusMsgInfo
+				m.statusMsg.Spinner = m.updateProgressFrame % 8
+				m.statusMsg.gen++ // bump so the auto-clear timer
+				// restarts for each step (otherwise the
+				// 3-second auto-clear from emitStatusMsg could
+				// wipe the message mid-update).
+			}
+		} else if m.updateOverlay.active {
+			// No step text but overlay is open — still
+			// advance the frame for the braille morph.
+			m.updateOverlay.frame++
 		}
+		// The "restarting" phase countdown is driven by
+		// dedicated 1Hz updateOverlayTickMsg messages
+		// (see the selfUpdateFinishedMsg "updated" branch
+		// above), so this 120ms tick doesn't need to
+		// decrement restartIn — it just keeps the
+		// animation frames cycling.
 		return m, selfUpdateProgressTick()
 
 	case animStepMsg:
@@ -3467,6 +3578,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tabAlertActive = false
 		m.tabAlertBlinkOn = false
 		m.tabAlertBlinkGen++
+		return m, nil
+
+	case updateOverlayStartRestartMsg:
+		// Flip from "done" to "restarting" and arm the
+		// 3-second countdown. The user wanted "the cli
+		// should restart once its ready".
+		if !m.updateOverlay.active {
+			return m, nil
+		}
+		m.updateOverlay.phase = "restarting"
+		m.updateOverlay.restartIn = 3
+		m.updateOverlay.startedAt = time.Now() // reset for the countdown sub-phase
+		return m, tea.Tick(1*time.Second, func(time.Time) tea.Msg {
+			return updateOverlayTickMsg{}
+		})
+
+	case updateOverlayTickMsg:
+		// 1Hz countdown during the "restarting" phase.
+		if !m.updateOverlay.active || m.updateOverlay.phase != "restarting" {
+			return m, nil
+		}
+		m.updateOverlay.restartIn--
+		if m.updateOverlay.restartIn <= 0 {
+			return m, m.execSelfCmd()
+		}
+		return m, tea.Tick(1*time.Second, func(time.Time) tea.Msg {
+			return updateOverlayTickMsg{}
+		})
+
+	case updateOverlayExecMsg:
+		// Final step: actually re-exec the binary. This
+		// is the message the user wanted — "the cli
+		// should restart once its ready and the tui has
+		// been updated".
+		return m, m.execSelfCmd()
+
+	case updateOverlayDismissMsg:
+		// Auto-dismiss for the "up-to-date" case.
+		if m.updateOverlay.active && m.updateOverlay.phase == "up-to-date" {
+			m.updateOverlay.active = false
+		}
 		return m, nil
 	}
 
@@ -4178,6 +4330,20 @@ func (m Model) View() tea.View {
 	// continues in the background.
 	if m.codexAuthPending {
 		v := tea.NewView(m.renderCodexAuthOverlay())
+		v.AltScreen = true
+		return v
+	}
+
+	// Big "Updating cortex" overlay. The user wanted a
+	// big popup with a cool animation that takes over the
+	// TUI while the self-update runs. We render it on
+	// top of the main view so the user can still see
+	// the chat behind it (semi-transparent feel from
+	// the centered modal). When the update finishes
+	// successfully we re-exec the binary so the user
+	// comes back to a fresh TUI.
+	if m.updateOverlay.active {
+		v := tea.NewView(m.renderUpdateOverlay())
 		v.AltScreen = true
 		return v
 	}
