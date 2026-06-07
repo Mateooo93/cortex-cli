@@ -97,10 +97,18 @@ func TestRenderStatusBarSlimDefault(t *testing.T) {
 	}
 }
 
-// TestRenderStatusBarTwoLinesWhenMsgActive verifies the footer
-// grows to 2 lines when a transient message is active so the
-// user can see the message without losing the readouts.
-func TestRenderStatusBarTwoLinesWhenMsgActive(t *testing.T) {
+// TestRenderStatusBarCollapsesToOneLineWhenMsgActive pins
+// the user-reported bug fix: the status bar used to grow
+// to 2 lines when a transient message was active, which
+// overlapped the bottom row of the chat viewport and
+// made the bottom of the conversation appear to
+// "disappear". The fix collapses the status bar to a
+// single line (the message REPLACES the slim footer)
+// so the layout never overflows its reserved 1 row.
+// The user-reported bug: "when i scroll up the bottom
+// of the chat starts disappearing and at some point
+// half of the conversation section is invisible".
+func TestRenderStatusBarCollapsesToOneLineWhenMsgActive(t *testing.T) {
 	s := NewStyles(true)
 	info := StatusBarInfo{
 		ModelName:   "GPT-5.5",
@@ -108,12 +116,33 @@ func TestRenderStatusBarTwoLinesWhenMsgActive(t *testing.T) {
 		ContextMax:  200_000,
 	}
 	bar := renderStatusBar(120, true, false, StatusMessage{Text: "out of API credits", Kind: StatusMsgError}, s, info)
-	lines := strings.Split(bar, "\n")
-	if len(lines) < 2 {
-		t.Fatalf("expected status bar to expand to 2+ lines when msg active, got %d: %q", len(lines), bar)
+	// Status bar must be EXACTLY 1 line tall when a
+	// message is active — never 2 — so the layout
+	// (which reserves 1 row for the status bar) never
+	// overflows into the chat viewport.
+	lines := strings.Split(strings.TrimRight(bar, "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected status bar to be exactly 1 line when msg active (was 2, overlapping chat), got %d: %q", len(lines), bar)
 	}
 	if !strings.Contains(bar, "out of API credits") {
 		t.Errorf("expected status bar to include the error message, got %q", bar)
+	}
+}
+
+// TestRenderStatusBarSpinnerOneLine pins the same
+// behaviour for the spinner case: the /update flow
+// runs a braille spinner next to the message. The
+// status bar must still be exactly 1 line tall so
+// the spinner doesn't push into the chat viewport.
+func TestRenderStatusBarSpinnerOneLine(t *testing.T) {
+	s := NewStyles(true)
+	bar := renderStatusBar(120, true, false, StatusMessage{Text: "Downloading…", Kind: StatusMsgInfo, Spinner: 3}, s, StatusBarInfo{})
+	lines := strings.Split(strings.TrimRight(bar, "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected 1-line status bar with spinner, got %d: %q", len(lines), bar)
+	}
+	if !strings.Contains(bar, "Downloading…") {
+		t.Errorf("expected message in bar, got %q", bar)
 	}
 }
 

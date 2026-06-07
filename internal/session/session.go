@@ -147,9 +147,12 @@ func (s *Session) Reset() {
 	s.mu.Lock()
 	s.history = nil
 	s.mu.Unlock()
-	systemMsg := s.cfg.SystemPrompt
+	systemMsg := DefaultSystemPrompt()
 	if systemMsg != "" {
 		systemMsg += "\n\n"
+	}
+	if s.cfg.SystemPrompt != "" {
+		systemMsg += s.cfg.SystemPrompt + "\n\n"
 	}
 	systemMsg += s.tools.ToSystemPrompt()
 	// We don't push to history directly; the next Send will rebuild.
@@ -176,9 +179,12 @@ func (s *Session) SetActiveModel(name string) error {
 // The history is rebuilt with a system message derived from the
 // current config so the next turn sees the right tools/prompt.
 func (s *Session) RestoreHistory(history []provider.Message) {
-	systemMsg := s.cfg.SystemPrompt
+	systemMsg := DefaultSystemPrompt()
 	if systemMsg != "" {
 		systemMsg += "\n\n"
+	}
+	if s.cfg.SystemPrompt != "" {
+		systemMsg += s.cfg.SystemPrompt + "\n\n"
 	}
 	systemMsg += s.tools.ToSystemPrompt()
 	s.system(systemMsg)

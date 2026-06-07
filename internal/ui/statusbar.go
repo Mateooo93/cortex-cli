@@ -162,12 +162,22 @@ func renderStatusBar(
 		strings.Repeat(" ", rightPad) +
 		rightSeg
 
-	// If a transient status message is active, render the
-	// status line above the slim footer (so the user sees
-	// "Saving API key…" or "OAuth flow failed" without losing
-	// the connection/model readouts). When there's no
-	// message, the status bar collapses to a single line so
-	// the chat viewport gets the extra row.
+	// If a transient status message is active, the
+	// status bar collapses to JUST the message line
+	// (1 row, not 2). The old behaviour rendered
+	// message + slim footer in two lines, which
+	// overlapped the bottom row of the chat viewport
+	// because the layout only reserves 1 row for the
+	// status bar. The user reported: "when i scroll
+	// up the bottom of the chat starts disappearing
+	// and at some point half of the conversation
+	// section is invisible" — the bottom row was
+	// being COVERED by the transient message line.
+	// The fix: drop the slim footer while a message
+	// is active and only show the message. The
+	// connection / model readouts are still visible
+	// in the right panel (Ctrl+B) for the duration
+	// of the message.
 	if msg.Text != "" {
 		var msgStyle lipgloss.Style
 		var prefix string
@@ -186,21 +196,22 @@ func renderStatusBar(
 			// dim+italic style made the message
 			// almost invisible.
 			msgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
-			// When the message has a spinner frame
-			// attached, render a braille spinner in
-			// BRIGHT CYAN. This animates because the
-			// StatusMessage is rewritten every 200ms
-			// by selfUpdateProgressMsg with a new
-			// frame index.
-			if msg.Spinner >= 0 {
-				frames := []string{"\u280b", "\u2819", "\u2838", "\u2834", "\u2826", "\u2827", "\u2807", "\u280f"}
-				spinnerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
-				return s.StatusBarStyle.Width(width).Render(line) + "\n" + lipgloss.NewStyle().Width(width).Render(spinnerStyle.Render(" "+frames[msg.Spinner%len(frames)]+" ")+msgStyle.Render(msg.Text))
-			}
 			prefix = " ℹ "
 		}
-		topLine := lipgloss.NewStyle().Width(width).Render(msgStyle.Render(prefix + msg.Text))
-		return s.StatusBarStyle.Width(width).Render(line) + "\n" + topLine
+		// If a spinner is attached, render a braille
+		// spinner in BRIGHT CYAN next to the message.
+		// The status bar is now ALWAYS 1 row tall,
+		// even with a spinner — no more overlap with
+		// the chat viewport.
+		if msg.Spinner >= 0 {
+			frames := []string{"\u280b", "\u2819", "\u2838", "\u2834", "\u2826", "\u2827", "\u2807", "\u280f"}
+			spinnerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
+			spinner := spinnerStyle.Render(" "+frames[msg.Spinner%len(frames)]+" ")
+			content := lipgloss.NewStyle().Width(width).Render(spinner + msgStyle.Render(msg.Text))
+			return content
+		}
+		content := lipgloss.NewStyle().Width(width).Render(msgStyle.Render(prefix + msg.Text))
+		return content
 	}
 	_ = labelStyle // silence unused in some builds
 	return s.StatusBarStyle.Width(width).Render(line)
