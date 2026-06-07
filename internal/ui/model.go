@@ -4598,6 +4598,33 @@ func (m Model) View() tea.View {
 
 		chatLines := allLines[startLogical:endLogical]
 
+		// Pad chatLines so the visible content stays
+		// anchored at the BOTTOM of the chat viewport
+		// rather than the top. Without this, scrolling
+		// up leaves empty space at the bottom of the
+		// chat box (lipgloss.Height pads at the bottom
+		// by default), so the conversation appears to
+		// "shrink" upward and the bottom of the
+		// viewport goes blank. The user reported:
+		// "when i scroll up the bottom of the chat
+		// starts disappearing and at some point half
+		// of the conversation section is invisible".
+		// By prepending blank visual rows to
+		// chatLines, we push the content down to the
+		// bottom of the box where it belongs.
+		//
+		// We measure the deficit in VISUAL rows (since
+		// a single line can wrap to N rows), then pad
+		// with that many blank lines.
+		actualVisRows := visualRowStart[endLogical] - visualRowStart[startLogical]
+		if padCount := contentHeight - actualVisRows; padCount > 0 {
+			padLines := make([]string, padCount)
+			for i := range padLines {
+				padLines[i] = ""
+			}
+			chatLines = append(padLines, chatLines...)
+		}
+
 		if sess != nil && sess.chatScrollOffset > 0 && sess.client != nil {
 			for _, sep := range turnSeparatorInfos(sess.chatMessages, m.styles, m.mdRenderer.width, sess.showThinking) {
 				if sep.LineIdx >= startLogical && sep.LineIdx < endLogical {

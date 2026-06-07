@@ -118,6 +118,17 @@ stage_platform() {
   cp "$BIN_DIR/cortex-${platform}${src_ext}"  "$stage_dir/cortex"
   tar -czf "$DIST_DIR/cortex-${platform}.tar.gz" -C "$DIST_DIR" "cortex-${platform}"
   rm -rf "$stage_dir"
+  # Also stage a bare binary at the platform name so
+  # the "latest/download/<asset>" URL returns a
+  # working executable. The user reported
+  # `curl -L -o cortex .../cortex-linux-amd64` was
+  # getting 9 bytes (GitHub's "Not Found" HTML page)
+  # because we only uploaded tarballs. With the bare
+  # file in place, that URL is now valid for both
+  # `curl` end-users AND the in-app /update updater
+  # (which uses AssetName() = "cortex-<platform>"
+  # without the .tar.gz suffix).
+  cp "$BIN_DIR/cortex-${platform}${src_ext}" "$DIST_DIR/cortex-${platform}${src_ext}"
 }
 stage_platform darwin-arm64
 stage_platform linux-amd64
