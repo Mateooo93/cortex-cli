@@ -56,11 +56,13 @@ jobs:
           restore-keys: |
             opencode-${{ runner.os }}-
 
+      - name: Add opencode to PATH
+        run: echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+
       - name: Install opencode (if not cached)
         if: steps.cache-opencode.outputs.cache-hit != 'true'
         run: |
           curl -fsSL https://opencode.ai/install | bash
-          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
 
       - name: Verify opencode
         run: opencode --version
