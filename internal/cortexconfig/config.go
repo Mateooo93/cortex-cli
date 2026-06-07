@@ -621,16 +621,81 @@ func Load() (*Config, error) {
 }
 
 // Save writes the config to disk in YAML form.
+//
+// IMPORTANT: Save uses a deep-merge strategy instead of
+// yaml.Marshal. yaml.Marshal would only serialize fields
+// the Go struct knows about, silently dropping anything
+// else in the file (custom provider fields the user added
+// by hand, comments, alternative formatting). The merge
+// strategy reads the existing file as a generic
+// map[string]any, then overwrites only the keys the Go
+// struct populates, leaving everything else untouched.
+//
+// The user reported: "i lose my whole provider config when
+// updating". The old Save would call yaml.Marshal which
+// serialized the in-memory Config struct back to disk — if
+// Load() had applied any defaults via hasField() (e.g. the
+// hasField("streaming") re-applies cfg.Streaming = true
+// when the field is absent from YAML), the Save would
+// then write that re-applied value to disk, losing the
+// user's original file. Or if a user had a custom field
+// like `models.anthropic.customHeader: foo`, the Save
+// would drop `customHeader` from disk because the
+// ModelConfig struct doesn't have a `CustomHeader` field.
+//
+// The merge keeps the on-disk file as the source of truth
+// for anything the struct doesn't know about.
 func Save(cfg *Config) error {
 	dir := Dir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(cfg)
+	p := ConfigPath()
+	// Read the existing file as a generic map so we can
+	// preserve unknown keys.
+	var existing map[string]any
+	if data, err := os.ReadFile(p); err == nil {
+		_ = yaml.Unmarshal(data, &existing)
+	}
+	// Marshal the new struct.
+	newData, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(ConfigPath(), data, 0o644)
+	var newMap map[string]any
+	if err := yaml.Unmarshal(newData, &newMap); err != nil {
+		return err
+	}
+	// Deep-merge: newMap overrides existing, but any keys
+	// in existing that aren't in newMap are kept.
+	merged := deepMergeMap(existing, newMap)
+	out, err := yaml.Marshal(merged)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, out, 0o644)
+}
+
+// deepMergeMap returns a new map containing all keys from
+// base, with values from override replacing or merging into
+// the base values. Nested maps are merged recursively.
+// Scalars, slices, and nil values in override fully replace
+// the base value.
+func deepMergeMap(base, override map[string]any) map[string]any {
+	out := make(map[string]any, len(base))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range override {
+		if baseMap, ok := base[k].(map[string]any); ok {
+			if overrideMap, ok := v.(map[string]any); ok {
+				out[k] = deepMergeMap(baseMap, overrideMap)
+				continue
+			}
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // GetModel returns the model config for a name, falling back to defaultModel.

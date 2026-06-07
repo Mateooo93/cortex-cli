@@ -179,21 +179,25 @@ func renderStatusBar(
 			msgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 			prefix = " ✖ "
 		default: // StatusMsgInfo
-			msgStyle = lipgloss.NewStyle().Foreground(s.ColorDimGray).Italic(true)
+			// Brighter color + bold so the user
+			// actually sees the update progress. The
+			// user reported "there should also be an
+			// animation when i update" — the old
+			// dim+italic style made the message
+			// almost invisible.
+			msgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
 			// When the message has a spinner frame
-			// attached, render a braille spinner instead
-			// of the static "ℹ" prefix. This animates
-			// because the StatusMessage is rewritten
-			// every 200ms by selfUpdateProgressMsg with
-			// a new frame index. The user reported
-			// "/update doesn't do the animation" — this
-			// is the fix.
+			// attached, render a braille spinner in
+			// BRIGHT CYAN. This animates because the
+			// StatusMessage is rewritten every 200ms
+			// by selfUpdateProgressMsg with a new
+			// frame index.
 			if msg.Spinner >= 0 {
 				frames := []string{"\u280b", "\u2819", "\u2838", "\u2834", "\u2826", "\u2827", "\u2807", "\u280f"}
-				prefix = " " + frames[msg.Spinner%len(frames)] + " "
-			} else {
-				prefix = " ℹ "
+				spinnerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
+				return s.StatusBarStyle.Width(width).Render(line) + "\n" + lipgloss.NewStyle().Width(width).Render(spinnerStyle.Render(" "+frames[msg.Spinner%len(frames)]+" ")+msgStyle.Render(msg.Text))
 			}
+			prefix = " ℹ "
 		}
 		topLine := lipgloss.NewStyle().Width(width).Render(msgStyle.Render(prefix + msg.Text))
 		return s.StatusBarStyle.Width(width).Render(line) + "\n" + topLine

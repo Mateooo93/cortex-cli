@@ -1308,10 +1308,14 @@ func (m *Model) runSelfUpdateCmd() tea.Cmd {
 }
 
 // selfUpdateProgressTick re-renders the progress message
-// every 200ms so the spinner / step name updates while
-// the updater is doing network I/O.
+// every 120ms so the spinner / step name updates while
+// the updater is doing network I/O. The user reported
+// "there should also be an animation when i update" —
+// the old 200ms tick felt sluggish and was easy to miss
+// in the dim status bar. 120ms is the standard "smooth
+// spinner" interval (~8 frames per second).
 func selfUpdateProgressTick() tea.Cmd {
-	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg {
 		return selfUpdateProgressMsg{}
 	})
 }
