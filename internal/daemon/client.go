@@ -259,6 +259,16 @@ func (c *SessionClient) SendCancelAfterEdit() {
 	}
 }
 
+// SendSteer injects a mid-turn redirect message (Pi-style steering).
+// If a turn is active it will be processed after the current tool batch
+// (pair with SendCancelAfterEdit for "finish this edit then do X").
+// See Session.Steer.
+func (c *SessionClient) SendSteer(text string) {
+	if c.sess != nil {
+		c.sess.Steer(text)
+	}
+}
+
 // SendClose shuts the session.
 func (c *SessionClient) SendClose() {
 	c.mu.Lock()

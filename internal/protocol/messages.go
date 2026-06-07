@@ -65,6 +65,9 @@ type ToolResultMsg struct {
 	Name    string
 	Output  string
 	IsError bool
+	// Details is optional structured data (e.g. {"diff": "...", "patch": "..."})
+	// for rich UI rendering. Not sent to the LLM.
+	Details map[string]any
 }
 
 // ConfirmRequestMsg asks the user to approve a tool execution.

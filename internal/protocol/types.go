@@ -189,7 +189,10 @@ type EventToolResult struct {
 	Name    string `json:"name"`
 	Output  string `json:"output"`
 	IsError bool   `json:"is_error"`
-	Detail  string `json:"detail,omitempty"` // optional rich detail (e.g. edit diff)
+	Detail  string `json:"detail,omitempty"` // optional rich detail (e.g. edit diff) - populated from Details["diff"] when present (Pi-style)
+	// Details carries full structured sidecar (diff, patch, etc). UI layers
+	// can use this for advanced rendering.
+	Details map[string]any `json:"details,omitempty"`
 }
 
 // EventConfirmRequest asks the user to approve a tool execution.

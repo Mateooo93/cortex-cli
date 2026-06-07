@@ -52,6 +52,11 @@ type Result struct {
 	OK     bool
 	Output string
 	Error  string
+	// Details holds structured sidecar data for the UI (e.g. diffs,
+	// patches, structured info). This is *not* sent to the LLM in the
+	// tool result content — only Output/Error are. Ported/adapted from
+	// Pi agent mechanics for rich edit and tool feedback.
+	Details map[string]any
 }
 
 // Registry holds the available tools.
@@ -329,7 +334,16 @@ func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 		if corrected {
 			output += fmt.Sprintf(" (auto-corrected from %q)", p)
 		}
-		return Result{OK: true, Output: output}
+
+		// Pi-style rich details: provide diff + unified patch for UI
+		// rendering and for SDK consumers. Diff is human-oriented;
+		// patch is standard unified diff.
+		details := map[string]any{}
+		if diff, patch := computeEditDiffAndPatch(content, newContent, full); diff != "" || patch != "" {
+			details["diff"] = diff
+			details["patch"] = patch
+		}
+		return Result{OK: true, Output: output, Details: details}
 	})
 	return res, nil
 }
@@ -485,6 +499,113 @@ func findReplacementRange(content, oldStr string) (start, end int, mode string, 
 		return matchStart, matchEnd, "indentation-insensitive", true
 	}
 	return 0, 0, "", false
+}
+
+// computeEditDiffAndPatch produces a human diff and a standard unified patch
+// for the edit result details (Pi-style). Keeps it self-contained without
+// extra deps. Only includes changed hunks with small context.
+func computeEditDiffAndPatch(oldContent, newContent, path string) (string, string) {
+	if oldContent == newContent {
+		return "", ""
+	}
+	oldLines := strings.Split(oldContent, "\n")
+	newLines := strings.Split(newContent, "\n")
+
+	// Simple Myers-ish but actually a greedy LCS for small files is overkill;
+	// use line-by-line walk with run-length for changed regions. Good enough
+	// for agent edit feedback and matches the spirit of Pi details.
+	var diffLines []string
+	var patchLines []string
+	patchLines = append(patchLines, fmt.Sprintf("--- a/%s", path))
+	patchLines = append(patchLines, fmt.Sprintf("+++ b/%s", path))
+
+	i, j := 0, 0
+	for i < len(oldLines) || j < len(newLines) {
+		if i < len(oldLines) && j < len(newLines) && oldLines[i] == newLines[j] {
+			i++
+			j++
+			continue
+		}
+		// Start of a change hunk. Collect a small window.
+		startI := i
+		startJ := j
+		// context before (1 line if possible)
+		ctxBefore := 0
+		if i > 0 {
+			ctxBefore = 1
+		}
+		// advance to collect the differing region
+		for i < len(oldLines) && j < len(newLines) && oldLines[i] != newLines[j] {
+			i++
+			j++
+		}
+		// Also consume runs of deletes or inserts
+		for i < len(oldLines) && (j >= len(newLines) || oldLines[i] != newLines[j]) {
+			i++
+		}
+		for j < len(newLines) && (i >= len(oldLines) || oldLines[i] != newLines[j]) {
+			j++
+		}
+		// context after
+		ctxAfter := 0
+		if i < len(oldLines) {
+			ctxAfter = 1
+		}
+
+		// Emit hunk header (approximate; 0-based converted)
+		hunkStartOld := startI - ctxBefore
+		if hunkStartOld < 0 {
+			hunkStartOld = 0
+		}
+		hunkStartNew := startJ - ctxBefore
+		if hunkStartNew < 0 {
+			hunkStartNew = 0
+		}
+		oldCount := (i - startI) + ctxBefore + ctxAfter
+		newCount := (j - startJ) + ctxBefore + ctxAfter
+		if oldCount < 0 {
+			oldCount = 0
+		}
+		if newCount < 0 {
+			newCount = 0
+		}
+		patchLines = append(patchLines, fmt.Sprintf("@@ -%d,%d +%d,%d @@", hunkStartOld+1, oldCount, hunkStartNew+1, newCount))
+
+		// context before
+		for k := 0; k < ctxBefore && (startI-ctxBefore+k) >= 0; k++ {
+			ln := oldLines[startI-ctxBefore+k]
+			diffLines = append(diffLines, " "+ln)
+			patchLines = append(patchLines, " "+ln)
+		}
+		// removed
+		for k := startI; k < i; k++ {
+			ln := oldLines[k]
+			diffLines = append(diffLines, "-"+ln)
+			patchLines = append(patchLines, "-"+ln)
+		}
+		// added
+		for k := startJ; k < j; k++ {
+			ln := newLines[k]
+			diffLines = append(diffLines, "+"+ln)
+			patchLines = append(patchLines, "+"+ln)
+		}
+		// context after
+		for k := 0; k < ctxAfter && i+k < len(oldLines); k++ {
+			ln := oldLines[i+k]
+			diffLines = append(diffLines, " "+ln)
+			patchLines = append(patchLines, " "+ln)
+		}
+	}
+
+	diffStr := strings.Join(diffLines, "\n")
+	if len(diffLines) > 0 {
+		diffStr += "\n"
+	}
+	patchStr := strings.Join(patchLines, "\n")
+	if len(patchLines) > 0 {
+		patchStr += "\n"
+	}
+	return diffStr, patchStr
 }
 
 type ListDirTool struct{}

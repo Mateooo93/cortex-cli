@@ -71,6 +71,12 @@ type Session struct {
 	// the new instruction, instead of leaving a half-applied
 	// change on disk.
 	delayedCancel bool
+
+	// pendingSteer holds a user instruction injected via Steer()
+	// while a turn (and possibly tool calls) are in flight. It is
+	// injected as a follow-up user message after the current tool
+	// batch completes (Pi-style steering / mid-turn redirect).
+	pendingSteer string
 }
 
 // Config is the input for New().
@@ -239,6 +245,25 @@ func (s *Session) SendUserAnswerBatch(answers map[string]string) {
 	}
 }
 
+// Steer queues or injects a user instruction that should take effect
+// after the current in-flight tool batch (if any) finishes. This is the
+// "steering" mechanic from Pi: the agent can be redirected without
+// leaving half-done edits on disk (pair with SendCancelAfterEdit or
+// rely on the post-tool check). If no turn is active it behaves like Send.
+func (s *Session) Steer(text string) {
+	s.mu.Lock()
+	if s.cancel != nil && !s.cancelReq {
+		// Turn is live; remember the steer text. The loop will
+		// pick it up after the current tool batch (or on next iter).
+		s.pendingSteer = text
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+	// No active turn: just Send normally.
+	s.Send(text, nil)
+}
+
 // SendCancel asks the running turn to stop. Safe to call when no turn
 // is in flight (it's a no-op).
 func (s *Session) SendCancel() {
@@ -325,6 +350,7 @@ func (s *Session) runTurn(parent context.Context, text string, attachments []pro
 	s.cancel = cancel
 	s.cancelReq = false
 	s.delayedCancel = false
+	s.pendingSteer = ""
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -406,6 +432,21 @@ func (s *Session) runTurn(parent context.Context, text string, attachments []pro
 			}
 			s.executeToolCall(ctx, call)
 		}
+
+		// Pi-style steering: if a Steer() arrived during the tool
+		// batch, inject it now as the next user message before the
+		// follow-up LLM call. This lets the user redirect the agent
+		// after the current edits/tools without aborting them.
+		s.mu.Lock()
+		if s.pendingSteer != "" {
+			steerText := s.pendingSteer
+			s.pendingSteer = ""
+			s.history = append(s.history, provider.Message{Role: "user", Content: steerText})
+			s.mu.Unlock()
+			// continue the outer loop to call provider with the steered instruction
+			continue
+		}
+		s.mu.Unlock()
 	}
 }
 
@@ -496,7 +537,7 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 	tool, ok := s.tools.Get(call.Name)
 	if !ok {
 		s.emitToolCall(call.ID, call.Name, call.Arguments, "")
-		s.emitToolResult(call.ID, call.Name, "", true, "unknown tool")
+		s.emitToolResult(call.ID, call.Name, "", true, "unknown tool", nil)
 		s.mu.Lock()
 		s.history = append(s.history, provider.Message{
 			Role: "tool", Content: fmt.Sprintf("[tool %s] error: unknown tool", call.Name),
@@ -526,7 +567,7 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 		AllowGit:   s.cfg.Tools.AllowGit,
 	}
 	res, _ := tool.Run(tctx, call.Arguments)
-	s.emitToolResult(call.ID, call.Name, res.Output, !res.OK, res.Error)
+	s.emitToolResult(call.ID, call.Name, res.Output, !res.OK, res.Error, res.Details)
 	formatted := res.Output
 	if !res.OK {
 		formatted = fmt.Sprintf("[tool %s] error: %s\n%s", call.Name, res.Error, res.Output)
@@ -558,7 +599,7 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) {
 	switch v := call.Arguments["todos"].(type) {
 	case string:
 		if err := json.Unmarshal([]byte(v), &parsed); err != nil {
-			s.emitToolResult(call.ID, call.Name, "", true, "todos: invalid JSON: "+err.Error())
+			s.emitToolResult(call.ID, call.Name, "", true, "todos: invalid JSON: "+err.Error(), nil)
 			s.recordToolResult(call.ID, call.Name, "", true, "todos: invalid JSON: "+err.Error())
 			return
 		}
@@ -569,12 +610,12 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) {
 			}
 		}
 	default:
-		s.emitToolResult(call.ID, call.Name, "", true, "todos: unsupported type")
+		s.emitToolResult(call.ID, call.Name, "", true, "todos: unsupported type", nil)
 		s.recordToolResult(call.ID, call.Name, "", true, "todos: unsupported type")
 		return
 	}
 	if len(parsed) == 0 {
-		s.emitToolResult(call.ID, call.Name, "", true, "todos: empty list")
+		s.emitToolResult(call.ID, call.Name, "", true, "todos: empty list", nil)
 		s.recordToolResult(call.ID, call.Name, "", true, "todos: empty list")
 		return
 	}
@@ -601,7 +642,7 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) {
 		Data: protocol.EventTodoListUpdated{Todos: items},
 	})
 	out := fmt.Sprintf("updated %d todo(s)", len(items))
-	s.emitToolResult(call.ID, call.Name, out, false, "")
+	s.emitToolResult(call.ID, call.Name, out, false, "", nil)
 	s.recordToolResult(call.ID, call.Name, out, false, "")
 }
 
@@ -642,13 +683,13 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 
 	question, _ := call.Arguments["question"].(string)
 	if question == "" {
-		s.emitToolResult(call.ID, call.Name, "", true, "question is required")
+		s.emitToolResult(call.ID, call.Name, "", true, "question is required", nil)
 		s.recordToolResult(call.ID, call.Name, "", true, "question is required")
 		return
 	}
 	opts := parseAskUserQuestionOptions(call.Arguments["options"])
 	if len(opts) < 2 {
-		s.emitToolResult(call.ID, call.Name, "", true, "options: need at least 2 options")
+		s.emitToolResult(call.ID, call.Name, "", true, "options: need at least 2 options", nil)
 		s.recordToolResult(call.ID, call.Name, "", true, "options: need at least 2 options")
 		return
 	}
@@ -683,7 +724,7 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 		// TUI not listening — degrade to a synchronous
 		// answer of "skip" so the LLM can keep going.
 		out := "skipped (TUI unavailable)"
-		s.emitToolResult(call.ID, call.Name, out, false, "")
+		s.emitToolResult(call.ID, call.Name, out, false, "", nil)
 		s.recordToolResult(call.ID, call.Name, out, false, "")
 		return
 	}
@@ -704,7 +745,7 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 	case <-s.done:
 		// Session was closed while we were waiting.
 		out := "skipped (session closed)"
-		s.emitToolResult(call.ID, call.Name, out, false, "")
+		s.emitToolResult(call.ID, call.Name, out, false, "", nil)
 		s.recordToolResult(call.ID, call.Name, out, false, "")
 		return
 	}
@@ -741,7 +782,7 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 			result = ua.answer
 		}
 	}
-	s.emitToolResult(call.ID, call.Name, result, false, "")
+	s.emitToolResult(call.ID, call.Name, result, false, "", nil)
 	// Record the tool result in history so the LLM
 	// sees the answer on the next turn. The generic
 	// executeToolCall path does this itself, but the
@@ -779,7 +820,7 @@ func (s *Session) handleDispatchWorkflow(call provider.ToolCall) {
 	prompt, _ := call.Arguments["prompt"].(string)
 	if prompt == "" {
 		s.emitToolCall(call.ID, call.Name, call.Arguments, "")
-		s.emitToolResult(call.ID, call.Name, "", true, "prompt is required")
+		s.emitToolResult(call.ID, call.Name, "", true, "prompt is required", nil)
 		s.recordToolResult(call.ID, call.Name, "error: prompt is required", true, "prompt is required")
 		return
 	}
@@ -808,7 +849,7 @@ func (s *Session) handleDispatchWorkflow(call provider.ToolCall) {
 		confirm = fmt.Sprintf("workflow dispatched with preset=%s, prompt: %q", preset, prompt)
 	}
 	confirm += "\n\nThe orchestrator will plan, implement, review, and test the work. A summary will arrive as a normal chat message when it finishes — keep chatting with the user in the meantime if they have questions."
-	s.emitToolResult(call.ID, call.Name, confirm, false, "")
+	s.emitToolResult(call.ID, call.Name, confirm, false, "", nil)
 	s.recordToolResult(call.ID, call.Name, confirm, false, "")
 }
 
@@ -1246,9 +1287,15 @@ func (s *Session) emitToolCall(id, name string, args map[string]any, summary str
 	})
 }
 
-func (s *Session) emitToolResult(id, name, output string, isErr bool, errMsg string) {
+func (s *Session) emitToolResult(id, name, output string, isErr bool, errMsg string, details map[string]any) {
 	if isErr {
 		output = errMsg
+	}
+	detail := ""
+	if details != nil {
+		if d, ok := details["diff"].(string); ok && d != "" {
+			detail = d
+		}
 	}
 	s.safeEmit(protocol.SessionEvent{
 		Type: "tool_result",
@@ -1257,6 +1304,8 @@ func (s *Session) emitToolResult(id, name, output string, isErr bool, errMsg str
 			Name:    name,
 			Output:  output,
 			IsError: isErr,
+			Detail:  detail,
+			Details: details,
 		},
 	})
 }
