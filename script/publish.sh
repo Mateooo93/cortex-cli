@@ -2,13 +2,16 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 <version> --repo <owner/repo> [--force] [--changelog <path>] [--yes]"
+  echo "Usage: $0 <version> --repo <owner/repo> [--force] [--changelog <path>] [--yes] [--skip-gpg]"
   echo "  e.g. $0 v0.1.0 --repo Mateooo93/cortex-cli"
   echo ""
   echo "  --force              Delete existing release before creating a new one"
   echo "  --changelog <path>   Use contents of this file as the changelog"
   echo "                       (skips git-log derivation; confirmation prompt still shown)"
   echo "  --yes                Skip the confirmation prompt (for CI/automated runs)"
+  echo "  --skip-gpg           Skip GPG-signing the checksums file (CI runners don't"
+  echo "                       have a default signing key; local runs should keep the"
+  echo "                       default GPG-sign flow for authenticity)"
   exit 1
 }
 
@@ -33,6 +36,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --yes)
       YES=1
+      shift
+      ;;
+    --skip-gpg)
+      SKIP_GPG=1
       shift
       ;;
     -h|--help)
@@ -257,10 +264,14 @@ echo "==> Generating checksums.txt..."
 (cd "$DIST_DIR" && shasum -a 256 cortex-*.tar.gz > checksums.txt)
 
 echo "==> GPG-signing checksums.txt..."
-echo "→  TOUCH your YubiKey when it blinks (PIN prompt will appear first if not cached)"
-gpg --armor --detach-sign --yes \
-  --output "$DIST_DIR/checksums.txt.asc" \
-  "$DIST_DIR/checksums.txt"
+if [[ -n "${SKIP_GPG:-}" ]]; then
+  echo "  (--skip-gpg was passed; skipping signature for CI run)"
+else
+  echo "→  TOUCH your YubiKey when it blinks (PIN prompt will appear first if not cached)"
+  gpg --armor --detach-sign --yes \
+    --output "$DIST_DIR/checksums.txt.asc" \
+    "$DIST_DIR/checksums.txt"
+fi
 
 # Create release and upload tarballs + checksums + signature.
 GH_NOTES="## What's Changed

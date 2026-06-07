@@ -139,7 +139,8 @@ jobs:
             --repo "${{ github.repository }}" \
             --changelog "$CHANGELOG_FILE" \
             --force \
-            --yes
+            --yes \
+            --skip-gpg
 
       - name: Update Homebrew tap
         if: env.HOMEBREW_TAP_TOKEN != ''
