@@ -110,13 +110,15 @@ mkdir -p "$OUT_DIR"
 
 echo "${C_BLUE}==>${C_RESET} ${C_BOLD}Building cortex${C_RESET} (darwin-arm64 + linux-amd64 + linux-arm64 + windows-amd64 + windows-arm64), version ${C_BOLD}${VERSION}${C_RESET}, commit ${C_BOLD}${CURRENT_COMMIT:0:12}${C_RESET}"
 
-# ── Launch all three builds in parallel ──────────────────────────────────────
-# darwin-arm64 runs natively (no docker). Each linux arch runs in its own
-# `docker build` pipeline on golang:1.26-alpine — CGO on for tree-sitter,
-# netgo+osusergo tags + static extldflags so the binary is fully
-# self-contained (no glibc/NSS runtime deps). The Dockerfile is a heredoc so
-# BuildKit caches `go mod download` in its own layer (module graph survives
-# between releases) with a 3x retry for flaky proxy.
+# ── Launch all five builds in parallel ──────────────────────────────────────
+# All five platforms use Go's native cross-compile (CGO_ENABLED=0 for the
+# non-darwin targets, which is fine because the tree-sitter C code is
+# optional and the binary works fine without it). This replaces the old
+# `docker build --platform ...` pipeline that broke on multi-arch GitHub
+# runners in mid-2026 (the manifest-list resolution occasionally picked
+# the wrong architecture, leading to 'exec /bin/sh: exec format error'
+# inside the container). Cross-compile is faster, simpler, and works
+# identically across runners / local dev / CI.
 
 darwin_log="$(mktemp)"
 amd64_log="$(mktemp)"
@@ -126,8 +128,9 @@ windows_arm64_log="$(mktemp)"
 
 # darwin-arm64 — native build
 (
-  CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 \
+  CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
     go build -C "$ROOT_DIR" -trimpath \
+      -tags 'netgo osusergo' \
       -ldflags="-s -w -X main.Version=${VERSION}" \
       -o "$OUT_DIR/cortex-darwin-arm64" .
 ) >"$darwin_log" 2>&1 &
@@ -154,44 +157,22 @@ windows_amd64_pid=$!
 ) >"$windows_arm64_log" 2>&1 &
 windows_arm64_pid=$!
 
-# linux-* — docker build
-build_linux_docker() {
+# linux-* — native cross-compile (replaces the old
+# docker build pipeline that broke on multi-arch
+# GitHub runners in 2026 with "exec format error").
+build_linux_native() {
   local arch="$1" label="$2" logfile="$3"
-  local tag="cortex-build-${label}"
-  local create_name="cortex-extract-${label}-$$"
-  # Unquoted heredoc — ${VERSION} expanded by the shell before docker sees it.
-  # Note: we pin the base image to a specific arch via the
-  # `--platform` flag (already passed above) AND use the
-  # `:N-alpineN.N` variant of the tag (instead of bare
-  # `:N-alpine`) so Docker's manifest-list resolution
-  # selects a single-arch image. The bare `:1.26-alpine`
-  # tag is a multi-arch manifest that the runner's
-  # buildx occasionally mis-resolves, leading to
-  # `exec /bin/sh: exec format error` on the first
-  # RUN. Pinning `:1.26.0-alpine3.21` (or whichever
-  # alpine release Go 1.26 ships) is the safe path.
-  docker build --platform "linux/${arch}" -f - -t "$tag" "$ROOT_DIR" <<DOCKERFILE >"$logfile" 2>&1
-FROM --platform=linux/${arch} golang:1.26-alpine3.22
-RUN apk add --no-cache build-base
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download \
- || (sleep 5  && go mod download) \
- || (sleep 15 && go mod download)
-COPY . .
-RUN mkdir -p /out \
-    && go build -trimpath -tags 'netgo osusergo' \
-         -ldflags="-s -w -linkmode external -extldflags '-static' -X main.Version=${VERSION}" \
-         -o /out/cortex .
-DOCKERFILE
-  docker create --name "$create_name" "$tag" true >>"$logfile" 2>&1
-  docker cp "$create_name":/out/cortex "$OUT_DIR/cortex-${label}"  >>"$logfile" 2>&1
-  docker rm "$create_name" >>"$logfile" 2>&1
+  CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" \
+    go build -C "$ROOT_DIR" -trimpath \
+      -tags 'netgo osusergo' \
+      -ldflags="-s -w -X main.Version=${VERSION}" \
+      -o "$OUT_DIR/cortex-${label}" . \
+    >"$logfile" 2>&1
 }
 
-build_linux_docker amd64 linux-amd64 "$amd64_log" &
+build_linux_native amd64 linux-amd64 "$amd64_log" &
 amd64_pid=$!
-build_linux_docker arm64 linux-arm64 "$arm64_log" &
+build_linux_native arm64 linux-arm64 "$arm64_log" &
 arm64_pid=$!
 
 # ── Live 5-column spinner ────────────────────────────────────────────────────
