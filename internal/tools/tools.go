@@ -427,6 +427,7 @@ func defaultTools() []Tool {
 		&TaskOutputTool{},
 		&AskUserQuestionTool{},
 		&TodoWriteTool{},
+		&DispatchWorkflowTool{},
 	}
 }
 
@@ -566,6 +567,65 @@ func (t *TodoWriteTool) Run(ctx Context, args map[string]any) (Result, error) {
 	return Result{
 		OK:     true,
 		Output: fmt.Sprintf("todo list updated: %s", todos),
+	}, nil
+}
+
+// DispatchWorkflowTool is the agent-facing way to start a
+// multi-agent workflow. The user reported: "the agent
+// isnt using workflows, it might nto be in its system
+// prompt at all, itj ust starts working by itself it
+// doesnt seem to know". Before this tool existed, the
+// system prompt told the agent to "suggest /workflow
+// <prompt> in your reply" — but the agent had no way to
+// dispatch the workflow itself, so it just printed the
+// suggestion and proceeded to do the work alone. The
+// fix: register dispatch_workflow as a real tool the
+// agent can call. The tool returns a marker that the
+// session uses to emit an EventWorkflowDispatch, which
+// the TUI picks up and runs through the same code path
+// as the /workflow slash command.
+//
+// Use this for multi-component tasks (full apps,
+// multi-page sites, refactors touching 5+ files,
+// features with backend + frontend + tests). The
+// orchestrator delegates planning, implementation,
+// review, and testing to specialised agents and
+// reports back to the chat when each step finishes.
+// For simple, single-agent tasks keep going solo —
+// dispatching a workflow for a 1-file edit is overkill.
+type DispatchWorkflowTool struct{}
+
+func (t *DispatchWorkflowTool) Name() string { return "dispatch_workflow" }
+func (t *DispatchWorkflowTool) Description() string {
+	return "Dispatch a multi-agent workflow to handle a multi-component task (full apps, multi-page sites, features with backend+frontend+tests, refactors touching 5+ files). " +
+		"The orchestrator delegates planning, implementation, review, and testing to specialised agents and reports back when each step finishes. " +
+		"Use this for substantial work — a single bug fix or 1-file edit does NOT need a workflow. " +
+		"Returns a confirmation message; the workflow runs in the background. You should tell the user 'Dispatched as a workflow — I'll report back when the orchestrator finishes' and then WAIT for the orchestrator to deliver the result."
+}
+func (t *DispatchWorkflowTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"prompt": {Type: "string", Description: "The full task description: what to build, success criteria, any constraints. Be specific — this is the goal the orchestrator plans against.", Required: true},
+		"preset": {Type: "string", Description: "Optional workflow preset: 'code' (default, full pipeline), 'research' (explore only), 'test' (test-only), 'review' (review only), 'docs' (docs only).", Required: false},
+	}
+}
+func (t *DispatchWorkflowTool) Run(ctx Context, args map[string]any) (Result, error) {
+	prompt, _ := args["prompt"].(string)
+	if prompt == "" {
+		return Result{OK: false, Error: "prompt is required"}, nil
+	}
+	preset, _ := args["preset"].(string)
+	// Return a marker the session can detect. The
+	// session will then emit an EventWorkflowDispatch
+	// so the TUI can actually start the workflow.
+	// We return OK:true so the LLM sees a successful
+	// call and proceeds to inform the user.
+	out := fmt.Sprintf("workflow dispatched: %q", prompt)
+	if preset != "" {
+		out = fmt.Sprintf("workflow dispatched (preset=%s): %q", preset, prompt)
+	}
+	return Result{
+		OK:     true,
+		Output: out,
 	}, nil
 }
 

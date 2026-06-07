@@ -4144,6 +4144,34 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 			}
 		}
 
+	case "event.workflow_dispatch":
+		// The agent called the dispatch_workflow tool.
+		// The user reported: "the agent isnt using
+		// workflows, it might nto be in its system
+		// prompt at all, itj ust starts working by
+		// itself it doesnt seem to know". The fix:
+		// when we see this event, run the same code
+		// path as the /workflow <prompt> slash
+		// command. The agent no longer has to
+		// instruct the user to type /workflow
+		// manually — the workflow starts as soon as
+		// the LLM makes the tool call.
+		data := marshalData(event.Data)
+		var wd protocol.EventWorkflowDispatch
+		json.Unmarshal(data, &wd)
+		// Run the same handler the /workflow slash
+		// command runs, passing the prompt from the
+		// event. We pass the preset name as a
+		// leading tag (e.g. "preset=code build a
+		// todo CLI") so the handler can route to
+		// the right preset without a UI for
+		// picking.
+		arg := wd.Prompt
+		if wd.Preset != "" {
+			arg = "preset=" + wd.Preset + " " + wd.Prompt
+		}
+		cmds = append(cmds, m.handleCommandAction("open_workflow_picker", sess, arg)...)
+
 	case "event.plan_proposed":
 		data := marshalData(event.Data)
 		var pp protocol.EventPlanProposed
@@ -4730,7 +4758,23 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 		// common use case; the orchestrator picks the
 		// right agent for each step based on the goal
 		// anyway.
+		//
+		// The agent can also dispatch workflows via
+		// the `dispatch_workflow` tool, which passes
+		// an optional `preset=X` prefix (e.g.
+		// "preset=research build a competitive
+		// analysis report"). When the prefix is
+		// present we use the named preset; otherwise
+		// we default to "code".
 		prompt := arg
+		presetName := "code"
+		if strings.HasPrefix(prompt, "preset=") {
+			sp := strings.SplitN(prompt, " ", 2)
+			if len(sp) == 2 {
+				presetName = strings.TrimPrefix(sp[0], "preset=")
+				prompt = sp[1]
+			}
+		}
 		if prompt == "" {
 			cmds = append(cmds, m.emitStatusMsg(
 				"Usage: /workflow <prompt>  (e.g. /workflow build a CLI todo app in Go)",
@@ -4760,12 +4804,26 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 				m.workflowSummaryToChat(snap)
 			},
 		})
-		// Default preset is "code" (planner+developer+reviewer+tester+researcher).
+		// Preset: the agent's dispatch_workflow call
+		// can pass `preset=X` to pick a non-default
+		// preset (e.g. "research", "test", "review",
+		// "docs"). The /workflow slash command
+		// defaults to "code".
 		var preset *workflow.Preset
 		for i := range workflow.BuiltinPresets {
-			if workflow.BuiltinPresets[i].Name == "code" {
+			if workflow.BuiltinPresets[i].Name == presetName {
 				preset = &workflow.BuiltinPresets[i]
 				break
+			}
+		}
+		if preset == nil {
+			// Fallback to "code" if the requested
+			// preset doesn't exist (LLM typo etc.).
+			for i := range workflow.BuiltinPresets {
+				if workflow.BuiltinPresets[i].Name == "code" {
+					preset = &workflow.BuiltinPresets[i]
+					break
+				}
 			}
 		}
 		if preset == nil {

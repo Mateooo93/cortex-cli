@@ -75,3 +75,52 @@ func TestHandleCommandAction_WorkflowWithoutPrompt_EmitsError(t *testing.T) {
 		t.Errorf("empty /workflow should not start a workflow, got %d", len(sess.workflowEngine.Workflows()))
 	}
 }
+
+// TestHandleCommandAction_WorkflowWithPresetPrefix verifies
+// the `preset=X ...` prefix parsed by the workflow
+// dispatch handler. The agent can call
+// dispatch_workflow with a preset (e.g. "research",
+// "test", "review", "docs") and the TUI should route to
+// the matching BuiltinPreset instead of the default
+// "code" preset.
+func TestHandleCommandAction_WorkflowWithPresetPrefix(t *testing.T) {
+	cfg := &cortexconfig.Config{}
+	cfg.EnsureProviderPresets()
+	m := NewModel(&config.Config{}, cfg, nil, true, "", true, true)
+	sess := m.currentSession()
+
+	cmds := m.handleCommandAction("open_workflow_picker", sess, "preset=research compare postgres vs sqlite")
+	_ = cmds
+
+	if len(sess.workflowEngine.Workflows()) != 1 {
+		t.Fatalf("after /workflow preset=research, expected 1 workflow, got %d", len(sess.workflowEngine.Workflows()))
+	}
+
+	// The workflow should be the "research" preset,
+	// not "code". We don't introspect the preset
+	// directly (no getter on the engine), but we
+	// can verify the active workflow is set, which
+	// means the start succeeded.
+	if sess.activeWorkflow == "" {
+		t.Error("expected activeWorkflow to be set after /workflow preset=research")
+	}
+}
+
+// TestHandleCommandAction_WorkflowWithInvalidPresetFallsBack
+// verifies that an invalid preset name falls back to the
+// "code" preset rather than failing the workflow start
+// entirely. The user might typo "reseearch" — the
+// orchestrator should still run with the default pipeline.
+func TestHandleCommandAction_WorkflowWithInvalidPresetFallsBack(t *testing.T) {
+	cfg := &cortexconfig.Config{}
+	cfg.EnsureProviderPresets()
+	m := NewModel(&config.Config{}, cfg, nil, true, "", true, true)
+	sess := m.currentSession()
+
+	cmds := m.handleCommandAction("open_workflow_picker", sess, "preset=typo-typo build something")
+	_ = cmds
+
+	if len(sess.workflowEngine.Workflows()) != 1 {
+		t.Fatalf("after /workflow preset=typo-typo, expected fallback to 'code' preset, got %d workflows", len(sess.workflowEngine.Workflows()))
+	}
+}

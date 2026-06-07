@@ -470,3 +470,111 @@ func TestParseAskUserQuestionOptions_TableDriven(t *testing.T) {
 		})
 	}
 }
+
+// TestHandleDispatchWorkflow_EmitsEvent verifies the
+// session emits an EventWorkflowDispatch when the LLM
+// calls dispatch_workflow. The user reported: "the
+// agent isnt using workflows" — so the test pins the
+// session-side behavior that converts the tool call
+// into the typed event the TUI consumes.
+func TestHandleDispatchWorkflow_EmitsEvent(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cfg := cortexconfig.Default()
+	sess, err := New(Config{CortexCfg: cfg, ActiveModel: "cortex"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer sess.SendClose()
+
+	// Drain the events channel in the background so
+	// the buffered channel doesn't fill up and block
+	// the handler.
+	done := make(chan struct{})
+	collected := []protocol.SessionEvent{}
+	go func() {
+		defer close(done)
+		for ev := range sess.Events() {
+			collected = append(collected, ev)
+			if len(collected) >= 3 { // tool_call + workflow_dispatch + tool_result
+				return
+			}
+		}
+	}()
+
+	sess.handleDispatchWorkflow(provider.ToolCall{
+		ID:        "call-1",
+		Name:      "dispatch_workflow",
+		Arguments: map[string]any{"prompt": "build me a todo app"},
+	})
+
+	// Wait for events to be collected.
+	<-done
+
+	// Verify the workflow_dispatch event was emitted.
+	var foundDispatch bool
+	for _, ev := range collected {
+		if ev.Type == "workflow_dispatch" {
+			foundDispatch = true
+			data, ok := ev.Data.(protocol.EventWorkflowDispatch)
+			if !ok {
+				t.Errorf("workflow_dispatch event has wrong data type: %T", ev.Data)
+				continue
+			}
+			if data.Prompt != "build me a todo app" {
+				t.Errorf("dispatch prompt = %q, want 'build me a todo app'", data.Prompt)
+			}
+		}
+	}
+	if !foundDispatch {
+		t.Errorf("expected a 'workflow_dispatch' event in collected events: %+v", collected)
+	}
+}
+
+// TestHandleDispatchWorkflow_RejectsEmptyPrompt verifies
+// the session fails loudly on an empty prompt (rather
+// than silently dispatching a no-op workflow).
+func TestHandleDispatchWorkflow_RejectsEmptyPrompt(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cfg := cortexconfig.Default()
+	sess, err := New(Config{CortexCfg: cfg, ActiveModel: "cortex"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer sess.SendClose()
+
+	// Drain the events channel so the test doesn't
+	// block on the buffered channel filling up.
+	done := make(chan struct{})
+	collected := []protocol.SessionEvent{}
+	go func() {
+		defer close(done)
+		for ev := range sess.Events() {
+			collected = append(collected, ev)
+			if len(collected) >= 2 { // tool_call + tool_result(error)
+				return
+			}
+		}
+	}()
+
+	sess.handleDispatchWorkflow(provider.ToolCall{
+		ID:        "call-1",
+		Name:      "dispatch_workflow",
+		Arguments: map[string]any{"prompt": ""},
+	})
+	<-done
+
+	// Verify NO workflow_dispatch event was emitted.
+	for _, ev := range collected {
+		if ev.Type == "workflow_dispatch" {
+			t.Error("expected NO workflow_dispatch event for empty prompt, but got one")
+		}
+	}
+}
