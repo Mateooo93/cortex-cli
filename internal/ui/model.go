@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -2965,6 +2966,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "f1":
 			m.activeTab = TabKindSessions
+			// Reset the sessions-tab cursor to the top
+			// (index 0 = newest) every time the user
+			// enters the tab. The user reported: "the
+			// selector arrow starts at the bottom and not
+			// at the top it should be at the highest
+			// session". Previously the cursor followed
+			// the currently-active workspace session,
+			// which on a fresh launch is the most
+			// recent — and that landed at the BOTTOM of
+			// the new sorted list. We reset to 0
+			// (highest) on tab entry; syncSessionsSelected
+			// below highlights the active session's row
+			// if it's still in view, but the row index
+			// is now stable and predictable.
+			m.sessionsSelected = 0
 			m.syncSessionsSelected()
 			cmds = append(cmds, m.sessionsInput.Focus())
 			return m, tea.Batch(cmds...)
@@ -4957,8 +4973,18 @@ func (m *Model) doCloseSession(sessionIdx int) (Model, tea.Cmd) {
 		reconnectCmd = attemptReconnect(m.socketPath, m.cwd, m.cfg.ConfigDir, activeModel, m.authToken, false, m.enableAutomaticWritePermission, m.enableAutomaticDirectoryAccess, newSess.daemonSessionID)
 	}
 
-	if n := m.sessionsVisibleCount(); n > 0 && m.sessionsSelected >= n {
-		m.sessionsSelected = n - 1
+	// Clamp the sessions tab cursor to a valid row after
+	// a close. The user reported: "the selector arrow
+	// starts at the bottom and not at the top". After a
+	// session is closed, the previous "n-1" clamp left
+	// the cursor at the bottom of the visible list. The
+	// fix: keep the cursor where it was if still in range,
+	// otherwise move it to the top (index 0 = newest, per
+	// the new sort order).
+	if n := m.sessionsVisibleCount(); n > 0 {
+		if m.sessionsSelected >= n {
+			m.sessionsSelected = 0
+		}
 	}
 
 	m.activeTab = TabKindSessions
@@ -4994,7 +5020,17 @@ func (m *Model) rerenderSessionMessages() {
 	}
 }
 
-// visibleSessionIndices returns the indices of sessions that match the current filter.
+// visibleSessionIndices returns the indices of sessions that match the
+// current filter, sorted by creation time (newest first) to match the
+// order used by renderSessionsView. The user reported: "sort sessions
+// by date from newest (top) to oldest (bottom)" and "for the session
+// selection the selector arrow starts at the bottom and not at the top
+// it should be at the highest session". The selector arrow follows
+// sessionsSelected, which is an index into the visible list. If the
+// visible list was in creation order (oldest first), sessionsSelected=0
+// would land on the oldest session at the bottom of the new sorted
+// display. Sorting the visible indices here too means
+// sessionsSelected=0 always points to the newest session at the top.
 func (m *Model) visibleSessionIndices() []int {
 	const colSession = 10
 	const colMessage = 52
@@ -5032,6 +5068,11 @@ func (m *Model) visibleSessionIndices() []int {
 			indices = append(indices, i)
 		}
 	}
+	// Sort by createdAt descending so index 0 = newest.
+	// (See docstring above.)
+	sort.SliceStable(indices, func(i, j int) bool {
+		return m.sessions[indices[i]].createdAt.After(m.sessions[indices[j]].createdAt)
+	})
 	return indices
 }
 

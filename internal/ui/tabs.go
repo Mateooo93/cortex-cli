@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,6 +44,23 @@ var unreadDotStyle = lipgloss.NewStyle().Foreground(colorSecondary)
 func renderSessionsView(sessions []*SessionState, width, height int, s Styles, filter, inputView string, selectedRow int) string {
 	const colSession = 10
 	const colRunning = 10
+
+	// Sort sessions by creation time, newest at the top.
+	// The user reported: "sort sessions by date from
+	// newest (top) to oldest (bottom)". m.sessions is in
+	// creation order (oldest at index 0, newest at the
+	// end), so we copy the slice and sort a stable-sort
+	// copy. We don't mutate m.sessions itself because the
+	// model still uses the original indices for
+	// m.selectedSession / findSessionByDaemonID / etc.
+	// — only the visual list needs to be flipped.
+	sorted := make([]*SessionState, len(sessions))
+	copy(sorted, sessions)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].createdAt.After(sorted[j].createdAt)
+	})
+	sessions = sorted
+
 
 	// Help banner: description line + shortcuts line + separator.
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
