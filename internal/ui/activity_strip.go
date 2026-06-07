@@ -163,3 +163,33 @@ func truncateForStrip(s string, max int) string {
 	}
 	return s[:max-1] + "…"
 }
+
+// orchestrationTools is the set of LLM-side
+// orchestration tool names that should NOT appear
+// in the bottom activity strip. These tools are
+// internal coordination primitives that render as
+// inline panels in the chat (a question panel, a
+// todo list, a workflow picker); they don't
+// represent work the user would want to see in
+// the activity strip. The user-reported complaint
+// was that ask_user_question rows were cluttering
+// the strip with noise like:
+//
+//   ✓ ask_user_question header="Scope" (done)
+//   ✓ ask_user_question header="Design" (done)
+//   ✗ ask_user_question header="Routing" (failed)
+//
+// ...and the user asked us to remove them.
+var orchestrationTools = map[string]bool{
+	"ask_user_question": true,
+	"dispatch_workflow": true,
+	"todo_write":        true,
+}
+
+// isOrchestrationTool returns true if the given
+// tool name is an LLM-orchestration primitive
+// that should be hidden from the bottom activity
+// strip (it has its own inline panel in the chat).
+func isOrchestrationTool(name string) bool {
+	return orchestrationTools[name]
+}

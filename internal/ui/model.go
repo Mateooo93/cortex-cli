@@ -4145,13 +4145,29 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		// a glance what the agent is currently
 		// doing without scrolling through the
 		// chat history.
-		sess.pushRecentTool(RecentToolEntry{
-			ToolID:    tc.ToolID,
-			Name:      tc.Name,
-			Summary:   tc.Summary,
-			StartedAt: time.Now(),
-			Status:    RecentToolPending,
-		})
+		//
+		// We skip LLM-orchestration tools that
+		// create their OWN UI panel in the chat
+		// (ask_user_question, dispatch_workflow,
+		// todo_write). The user complained that
+		// 'ask_user_question' rows were cluttering
+		// the strip with internal coordination
+		// noise ('✓ ask_user_question header="Scope"...
+		// remove this line'). These tools don't
+		// represent "real" sub-agent work; they
+		// render as inline question/plan/todo
+		// panels that the user already sees in
+		// the chat. The strip is for actions
+		// that aren't otherwise visible.
+		if !isOrchestrationTool(tc.Name) {
+			sess.pushRecentTool(RecentToolEntry{
+				ToolID:    tc.ToolID,
+				Name:      tc.Name,
+				Summary:   tc.Summary,
+				StartedAt: time.Now(),
+				Status:    RecentToolPending,
+			})
+		}
 		if tc.ToolID != "" {
 			if sess.pendingTools == nil {
 				sess.pendingTools = make(map[string]int)
