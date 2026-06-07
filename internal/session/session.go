@@ -1311,9 +1311,26 @@ func convertParams(s tools.ProviderSchema) map[string]provider.ToolParam {
 				break
 			}
 		}
-		out[k] = provider.ToolParam{Type: v.Type, Description: v.Description, Required: req}
+		param := convertParamInfo(v)
+		param.Required = req
+		out[k] = param
 	}
 	return out
+}
+
+func convertParamInfo(v tools.ParamInfo) provider.ToolParam {
+	p := provider.ToolParam{Type: v.Type, Description: v.Description}
+	if v.Items != nil {
+		item := convertParamInfo(*v.Items)
+		p.Items = &item
+	}
+	if len(v.Properties) > 0 {
+		p.Properties = make(map[string]provider.ToolParam, len(v.Properties))
+		for k, child := range v.Properties {
+			p.Properties[k] = convertParamInfo(child)
+		}
+	}
+	return p
 }
 
 // convertToolsToProvider converts the tool registry to a slice of provider.Tool.

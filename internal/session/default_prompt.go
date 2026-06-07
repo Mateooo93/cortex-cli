@@ -33,7 +33,7 @@ Tool / file editing rules:
   or create a concise skeleton first and then patch
   sections with edit_file.
 - Prefer Pi-style edit_file calls for file edits:
-  path first, then edits as a JSON array string:
+  path first, then edits as an array:
   [{"oldText":"exact text","newText":"replacement"}].
   Use multiple entries for separate non-overlapping
   edits in the same file.

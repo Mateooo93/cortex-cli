@@ -14,7 +14,7 @@ import (
 
 // Message represents one turn in a conversation.
 type Message struct {
-	Role       string    // "system" | "user" | "assistant" | "tool"
+	Role       string // "system" | "user" | "assistant" | "tool"
 	Content    string
 	ToolName   string // for role=="tool"
 	ToolCallID string // for role=="tool"
@@ -40,9 +40,11 @@ type Tool struct {
 
 // ToolParam is one parameter of a tool.
 type ToolParam struct {
-	Type        string // "string" | "number" | "boolean"
+	Type        string // "string" | "number" | "boolean" | "array" | "object"
 	Description string
 	Required    bool
+	Items       *ToolParam
+	Properties  map[string]ToolParam
 }
 
 // ToolChoice controls how the model picks a tool.
@@ -57,15 +59,15 @@ type ToolChoice struct {
 
 // Request is the input to a chat call.
 type Request struct {
-	Model        string
-	Messages     []Message
-	Tools        []Tool
-	ToolChoice   ToolChoice
-	Temperature  float64
-	MaxTokens    int
-	Stream       bool
+	Model       string
+	Messages    []Message
+	Tools       []Tool
+	ToolChoice  ToolChoice
+	Temperature float64
+	MaxTokens   int
+	Stream      bool
 	// Cortex-specific overrides (forwarded to the model server)
-	ReasoningEffort string
+	ReasoningEffort  string
 	CortexPromptMode string
 }
 

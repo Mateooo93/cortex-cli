@@ -29,9 +29,14 @@ type Tool interface {
 
 // Param describes a single parameter of a tool.
 type Param struct {
-	Type        string // "string" | "number" | "boolean"
+	Type        string // "string" | "number" | "boolean" | "array" | "object"
 	Description string
 	Required    bool
+	// Nested schema support (Pi-style tools). Used by
+	// edit_file.edits so providers can see a real
+	// array-of-objects schema instead of a JSON string.
+	Items      *Param
+	Properties map[string]Param
 }
 
 // Context is the per-call context for a tool.
@@ -86,7 +91,7 @@ func (r *Registry) ToProviderTools() []ProviderTool {
 		params := map[string]ParamInfo{}
 		required := []string{}
 		for k, p := range t.Parameters() {
-			params[k] = ParamInfo{Type: p.Type, Description: p.Description}
+			params[k] = paramToInfo(p)
 			if p.Required {
 				required = append(required, k)
 			}
@@ -121,6 +126,23 @@ type ProviderSchema struct {
 type ParamInfo struct {
 	Type        string
 	Description string
+	Items       *ParamInfo
+	Properties  map[string]ParamInfo
+}
+
+func paramToInfo(p Param) ParamInfo {
+	info := ParamInfo{Type: p.Type, Description: p.Description}
+	if p.Items != nil {
+		item := paramToInfo(*p.Items)
+		info.Items = &item
+	}
+	if len(p.Properties) > 0 {
+		info.Properties = make(map[string]ParamInfo, len(p.Properties))
+		for k, v := range p.Properties {
+			info.Properties[k] = paramToInfo(v)
+		}
+	}
+	return info
 }
 
 // ToSystemPrompt renders the registry as a markdown block for the system
@@ -219,17 +241,20 @@ func (t *WriteFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 	// is returned in the tool result so the
 	// model can see what actually happened.
 	full, corrected := resolvePath(ctx.CWD, p)
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return Result{OK: false, Error: err.Error()}, nil
-	}
-	if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
-		return Result{OK: false, Error: err.Error()}, nil
-	}
-	output := fmt.Sprintf("Wrote %d bytes to %s", len(c), full)
-	if corrected {
-		output += fmt.Sprintf(" (auto-corrected from %q — you forgot the leading slash on an absolute path; remember to always start absolute paths with /)", p)
-	}
-	return Result{OK: true, Output: output}, nil
+	res := withFileMutationQueue(full, func() Result {
+		if err := mkdirAllForFile(full); err != nil {
+			return Result{OK: false, Error: err.Error()}
+		}
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			return Result{OK: false, Error: err.Error()}
+		}
+		output := fmt.Sprintf("Wrote %d bytes to %s", len(c), full)
+		if corrected {
+			output += fmt.Sprintf(" (auto-corrected from %q — you forgot the leading slash on an absolute path; remember to always start absolute paths with /)", p)
+		}
+		return Result{OK: true, Output: output}
+	})
+	return res, nil
 }
 
 type EditFileTool struct{}
@@ -245,11 +270,19 @@ func (t *EditFileTool) Parameters() map[string]Param {
 		// provider compatibility.
 		"oldString": {Type: "string", Description: "Legacy single edit: small exact string/block to replace. Include before newString.", Required: false},
 		"newString": {Type: "string", Description: "Legacy single edit replacement. Keep small; for large changes split into multiple edits.", Required: false},
-		// Pi-style multi-edit fallback. Cortex's
-		// current schema type doesn't support nested
-		// arrays yet, so this is a JSON string
-		// containing [{\"oldText\":...,\"newText\":...}].
-		"edits": {Type: "string", Description: "Optional Pi-style JSON array string of replacements: [{\"oldText\":\"exact text\",\"newText\":\"replacement\"}]. Prefer this for multiple small disjoint edits in one file.", Required: false},
+		// Pi-style multi-edit input. Providers now
+		// receive a real nested array schema; parser
+		// still accepts a JSON string for backwards
+		// compatibility with v0.2.31.
+		"edits": {
+			Type:        "array",
+			Description: "Optional Pi-style array of replacements. Prefer this for multiple small disjoint edits in one file.",
+			Required:    false,
+			Items: &Param{Type: "object", Properties: map[string]Param{
+				"oldText": {Type: "string", Description: "Exact text for one targeted replacement. Must match a unique, non-overlapping region.", Required: true},
+				"newText": {Type: "string", Description: "Replacement text for this edit.", Required: true},
+			}},
+		},
 	}
 }
 func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
@@ -266,36 +299,39 @@ func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 		return Result{OK: false, Error: msg}, nil
 	}
 	full, corrected := resolvePath(ctx.CWD, p)
-	data, err := os.ReadFile(full)
-	if err != nil {
-		return Result{OK: false, Error: err.Error()}, nil
-	}
-	content := string(data)
-	repls, err := planEditReplacements(content, edits)
-	if err != nil {
-		return Result{OK: false, Error: err.Error()}, nil
-	}
-	newContent := applyEditReplacements(content, repls)
-	if err := os.WriteFile(full, []byte(newContent), 0o644); err != nil {
-		return Result{OK: false, Error: err.Error()}, nil
-	}
-	replaced := 0
-	fallbacks := []string{}
-	for _, r := range repls {
-		replaced += r.end - r.start
-		if r.mode != "exact" {
-			fallbacks = append(fallbacks, r.mode)
+	res := withFileMutationQueue(full, func() Result {
+		data, err := os.ReadFile(full)
+		if err != nil {
+			return Result{OK: false, Error: err.Error()}
 		}
-	}
-	output := fmt.Sprintf("Edited %s (replaced %d block(s), %d chars", full, len(repls), replaced)
-	if len(fallbacks) > 0 {
-		output += ", fallback=" + strings.Join(fallbacks, ",")
-	}
-	output += ")"
-	if corrected {
-		output += fmt.Sprintf(" (auto-corrected from %q)", p)
-	}
-	return Result{OK: true, Output: output}, nil
+		content := string(data)
+		repls, err := planEditReplacements(content, edits)
+		if err != nil {
+			return Result{OK: false, Error: err.Error()}
+		}
+		newContent := applyEditReplacements(content, repls)
+		if err := os.WriteFile(full, []byte(newContent), 0o644); err != nil {
+			return Result{OK: false, Error: err.Error()}
+		}
+		replaced := 0
+		fallbacks := []string{}
+		for _, r := range repls {
+			replaced += r.end - r.start
+			if r.mode != "exact" {
+				fallbacks = append(fallbacks, r.mode)
+			}
+		}
+		output := fmt.Sprintf("Edited %s (replaced %d block(s), %d chars", full, len(repls), replaced)
+		if len(fallbacks) > 0 {
+			output += ", fallback=" + strings.Join(fallbacks, ",")
+		}
+		output += ")"
+		if corrected {
+			output += fmt.Sprintf(" (auto-corrected from %q)", p)
+		}
+		return Result{OK: true, Output: output}
+	})
+	return res, nil
 }
 
 type editReplacementInput struct {
@@ -310,21 +346,39 @@ type editReplacementPlan struct {
 	mode    string
 }
 
+func parseEditReplacementJSON(raw string) ([]editReplacementInput, error) {
+	var edits []editReplacementInput
+	if err := json.Unmarshal([]byte(raw), &edits); err != nil {
+		return nil, fmt.Errorf("invalid edits JSON: %w", err)
+	}
+	if len(edits) == 0 {
+		return nil, fmt.Errorf("edits must contain at least one replacement")
+	}
+	for i, e := range edits {
+		if e.OldText == "" {
+			return nil, fmt.Errorf("edits[%d].oldText is required", i)
+		}
+	}
+	return edits, nil
+}
+
 func parseEditFileEdits(args map[string]any) ([]editReplacementInput, error) {
 	if raw, ok := args["edits"].(string); ok && strings.TrimSpace(raw) != "" {
-		var edits []editReplacementInput
-		if err := json.Unmarshal([]byte(raw), &edits); err != nil {
-			return nil, fmt.Errorf("invalid edits JSON: %w", err)
+		return parseEditReplacementJSON(raw)
+	}
+	if arr, ok := args["edits"].([]any); ok {
+		buf, err := json.Marshal(arr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid edits array: %w", err)
 		}
-		if len(edits) == 0 {
-			return nil, fmt.Errorf("edits must contain at least one replacement")
+		return parseEditReplacementJSON(string(buf))
+	}
+	if arr, ok := args["edits"].([]map[string]any); ok {
+		buf, err := json.Marshal(arr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid edits array: %w", err)
 		}
-		for i, e := range edits {
-			if e.OldText == "" {
-				return nil, fmt.Errorf("edits[%d].oldText is required", i)
-			}
-		}
-		return edits, nil
+		return parseEditReplacementJSON(string(buf))
 	}
 	oldStr, _ := args["oldString"].(string)
 	newStr, _ := args["newString"].(string)

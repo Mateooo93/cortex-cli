@@ -142,10 +142,7 @@ func toOaiTools(tools []Tool) []oaiTool {
 		props := map[string]interface{}{}
 		required := []string{}
 		for k, p := range t.Parameters {
-			props[k] = map[string]interface{}{
-				"type":        p.Type,
-				"description": p.Description,
-			}
+			props[k] = oaiParamSchema(p)
 			if p.Required {
 				required = append(required, k)
 			}
@@ -161,6 +158,31 @@ func toOaiTools(tools []Tool) []oaiTool {
 		out = append(out, ot)
 	}
 	return out
+}
+
+func oaiParamSchema(p ToolParam) map[string]interface{} {
+	schema := map[string]interface{}{"type": p.Type}
+	if p.Description != "" {
+		schema["description"] = p.Description
+	}
+	if p.Items != nil {
+		schema["items"] = oaiParamSchema(*p.Items)
+	}
+	if len(p.Properties) > 0 {
+		props := map[string]interface{}{}
+		required := []string{}
+		for k, child := range p.Properties {
+			props[k] = oaiParamSchema(child)
+			if child.Required {
+				required = append(required, k)
+			}
+		}
+		schema["properties"] = props
+		if len(required) > 0 {
+			schema["required"] = required
+		}
+	}
+	return schema
 }
 
 func toOaiToolChoice(tc ToolChoice) any {

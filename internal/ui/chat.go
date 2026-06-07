@@ -208,8 +208,11 @@ func renderToolCall(name, summary, reason string, bashReasons [4]string, s Style
 			displayName = "[MCP] " + parts[1] + "." + parts[2]
 		}
 	}
-	text := toolCallStyle.Render(fmt.Sprintf("🔨 %s  %s", displayName, summary))
-	rendered := fmt.Sprintf("  %s %s\n", dot, text)
+	if lipgloss.Width(summary) > 90 {
+		summary = lipgloss.NewStyle().MaxWidth(90).Render(summary) + "…"
+	}
+	text := toolCallStyle.Render(fmt.Sprintf("%s — %s", displayName, summary))
+	rendered := fmt.Sprintf("\n  %s %s\n", dot, text)
 	if reason != "" {
 		rendered += s.ToolCallReasonStyle.Render("    ↳ "+reason) + "\n"
 	}
