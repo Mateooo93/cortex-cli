@@ -30,10 +30,14 @@ func computeLayout(width, height, inputLineCount int, panelHeights ...int) Layou
 	const statusBarHeight = 1
 	const tabBarHeight = 3
 
-	// Input area: textarea lines + 2 for top/bottom border
-	inputHeight := inputLineCount + 2
-	if inputHeight < 3 {
-		inputHeight = 3
+	// Input area: textarea lines + 2 for top/bottom border +
+	// 1 for the key-hint row below the prompt (Tab=queue,
+	// Enter=send, Esc=cancel, Shift+Enter=newline, ↑/↓
+	// history). The right panel no longer carries these
+	// hints so the prompt area owns them.
+	inputHeight := inputLineCount + 2 + 1
+	if inputHeight < 4 {
+		inputHeight = 4
 	}
 
 	// Sum panel heights (attachment, history, mode warning, etc.)

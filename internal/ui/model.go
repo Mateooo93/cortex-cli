@@ -2566,7 +2566,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// --- Workflows tab key handling ---
 		if m.activeTab == TabKindWorkflows {
 			key := msg.String()
-			flows := sess.workflowEngine.Workflows()
+			// Lazy-init the per-session workflow engine
+			// if it isn't there yet. Switching to the
+			// Workflows tab before any workflow has been
+			// started shouldn't crash; the user just sees
+			// the empty-state prompt ("Start one with
+			// /workflow <prompt>"). Without this guard
+			// the empty engine's Workflows() panicked
+			// with a nil pointer dereference.
+			engine := sess.EnsureWorkflowEngine(m.cortexCfg)
+			flows := engine.Workflows()
 			switch key {
 			case "up", "k":
 				if m.workflowsSelected > 0 {
@@ -2580,7 +2589,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Cancel the selected workflow.
 				if m.workflowsSelected < len(flows) {
 					id := flows[m.workflowsSelected].ID
-					sess.workflowEngine.Cancel(id)
+					engine.Cancel(id)
 					cmds = append(cmds, m.emitStatusMsg("cancelling workflow", StatusMsgInfo))
 				}
 			case "s":
@@ -2590,10 +2599,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// step.
 				if m.workflowsSelected < len(flows) {
 					id := flows[m.workflowsSelected].ID
-					snap := sess.workflowEngine.Snapshot(id)
+					snap := engine.Snapshot(id)
 					for _, st := range snap.Steps {
 						if st.Status == workflow.StepInProgress {
-							sess.workflowEngine.CancelStep(id, st.ID)
+							engine.CancelStep(id, st.ID)
 							cmds = append(cmds, m.emitStatusMsg("stopped step: "+st.Role+" ("+st.Description+")", StatusMsgInfo))
 							break
 						}
@@ -3681,6 +3690,15 @@ func (m Model) handleEnter(sess *SessionState) (tea.Model, tea.Cmd) {
 			} else {
 				sess.client.SendInput(displayText, attachments)
 			}
+		} else {
+			// No client yet — the reconnect goroutine is
+			// still in flight. Surface a status message
+			// instead of silently dropping the user's
+			// message; they reported "loads forever" when
+			// the daemon wasn't ready.
+			sess.input.SetValue(displayText)
+			sess.agentState = StateWaitingForInput
+			return m, tea.Batch(animCmd, m.emitStatusMsg("Reconnecting to daemon… press Enter again in a moment", StatusMsgWarning))
 		}
 		if firstUser && !strings.HasPrefix(displayText, "/") {
 			return m, tea.Batch(animCmd, generateSessionTitleCmd(sess.persistID, displayText))
