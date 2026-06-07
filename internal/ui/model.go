@@ -21,12 +21,12 @@ import (
 
 	"github.com/Mateooo93/cortex-cli/internal/config"
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
-	"github.com/Mateooo93/cortex-cli/internal/workflow"
 	"github.com/Mateooo93/cortex-cli/internal/daemon"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
-	"github.com/Mateooo93/cortex-cli/internal/provider/codex"
 	llmprovider "github.com/Mateooo93/cortex-cli/internal/provider"
+	"github.com/Mateooo93/cortex-cli/internal/provider/codex"
 	"github.com/Mateooo93/cortex-cli/internal/updater"
+	"github.com/Mateooo93/cortex-cli/internal/workflow"
 )
 
 // teaProgram holds the Bubble Tea program reference for event injection via Send().
@@ -343,7 +343,7 @@ type Model struct {
 	// compactions when several turns complete in quick
 	// succession (each one would otherwise see the same 80%+ usage
 	// and fire another compaction).
-	compactInFlight          bool
+	compactInFlight bool
 
 	// workflowEngine has moved to SessionState — each
 	// session owns its own engine so workflows from one
@@ -2830,7 +2830,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// bubbletea naming convention.
 				ks := msg.String()
 				if isPickerFilterKey(ks) {
-					m.modelPicker.SetQuery(m.modelPicker.Query() + ks, m.cortexCfg)
+					m.modelPicker.SetQuery(m.modelPicker.Query()+ks, m.cortexCfg)
 				}
 			}
 			return m, tea.Batch(cmds...)
@@ -4024,6 +4024,7 @@ func isFirstUserMessage(msgs []ChatMessage) bool {
 	}
 	return true
 }
+
 // applyEventToSession processes a single daemon event for the session at idx.
 func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.Cmd {
 	sess := m.sessions[idx]
@@ -4069,7 +4070,19 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		var chunk protocol.EventStreamChunk
 		json.Unmarshal(data, &chunk)
 		sess.assistantBuf += chunk.Text
-		sess.assistantRendered = m.mdRenderer.Render(sess.assistantBuf)
+		// Smooth streaming: don't re-render the full
+		// Markdown document on every tiny SSE chunk.
+		// That was making the terminal feel clunky
+		// and jumpy. Append chunks immediately, but
+		// re-render at a ~30fps cadence (or whenever
+		// the chunk is large enough to warrant an
+		// immediate refresh). stream_done below does
+		// a final render so no text is left behind.
+		now := time.Now()
+		if sess.assistantLastRenderAt.IsZero() || now.Sub(sess.assistantLastRenderAt) >= 33*time.Millisecond || len(chunk.Text) >= 256 {
+			sess.assistantRendered = m.mdRenderer.Render(sess.assistantBuf)
+			sess.assistantLastRenderAt = now
+		}
 
 	case "event.thinking_chunk":
 		data := marshalData(event.Data)
@@ -4084,6 +4097,15 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var done protocol.EventStreamDone
 		json.Unmarshal(data, &done)
+		// Final streaming render: because stream_chunk
+		// throttles Markdown rendering for smoothness,
+		// there may be a small tail of assistantBuf
+		// that has not yet been rendered. Render once
+		// here before finalising token/accounting state.
+		if sess.assistantBuf != "" {
+			sess.assistantRendered = m.mdRenderer.Render(sess.assistantBuf)
+			sess.assistantLastRenderAt = time.Now()
+		}
 		// Context-window counting fix. The streaming API
 		// reports `InputTokens` as the prompt size of the
 		// CURRENT turn (which includes the entire
@@ -4115,6 +4137,9 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		// Finalise the per-turn timer. The accumulator is
 		// reset to 0 for the next turn.
 		sess.FinishTurn()
+		if strings.EqualFold(done.FinishReason, "length") {
+			cmds = append(cmds, m.emitStatusMsg("response hit max output tokens and was cut off — continuing with higher maxTokens or ask 'continue'", StatusMsgWarning))
+		}
 		if done.ElapsedMs > 0 {
 			sess.lastOutputTokens = done.OutputTokens
 			sess.elapsed = time.Duration(done.ElapsedMs) * time.Millisecond
@@ -5132,6 +5157,7 @@ func (m *Model) flushSessionBuf(sess *SessionState) {
 	}
 	sess.assistantBuf = ""
 	sess.assistantRendered = ""
+	sess.assistantLastRenderAt = time.Time{}
 	sess.thinkingBuf = ""
 	sess.thinkingRendered = ""
 }

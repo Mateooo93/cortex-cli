@@ -51,170 +51,170 @@ var BuiltinProviderPresets = []ProviderPreset{
 	// local browser; the resulting token is stored in the OS keychain.
 	{
 		Name: "codex", DisplayName: "ChatGPT (codex)",
-		BaseURL: "https://api.openai.com/v1",
+		BaseURL:      "https://api.openai.com/v1",
 		APIKeyEnvVar: "CODEX_CODEX_TOKEN",
 		DefaultModel: "gpt-5.5",
-		NeedsAPIKey: false, AuthKind: "oauth",
+		NeedsAPIKey:  false, AuthKind: "oauth",
 		HelpURL: "https://chatgpt.com/auth/login",
 	},
 	{
 		Name: "claude-sub", DisplayName: "Claude (Pro/Max)",
-		BaseURL: "https://api.anthropic.com/v1",
+		BaseURL:      "https://api.anthropic.com/v1",
 		APIKeyEnvVar: "CLAUDE_CODE_OAUTH_TOKEN",
 		DefaultModel: "claude-opus-4-8",
-		NeedsAPIKey: false, AuthKind: "oauth",
+		NeedsAPIKey:  false, AuthKind: "oauth",
 		HelpURL: "https://claude.ai/login",
 	},
 	{
 		Name: "copilot", DisplayName: "GitHub Copilot",
-		BaseURL: "https://api.githubcopilot.com",
+		BaseURL:      "https://api.githubcopilot.com",
 		APIKeyEnvVar: "COPILOT_OAUTH_TOKEN",
 		DefaultModel: "gpt-5.5",
-		NeedsAPIKey: false, AuthKind: "oauth",
+		NeedsAPIKey:  false, AuthKind: "oauth",
 		HelpURL: "https://github.com/settings/copilot",
 	},
 
 	// ===== API-key providers (paid) =====
 	{
 		Name: "openai", DisplayName: "OpenAI",
-		BaseURL: "https://api.openai.com/v1",
+		BaseURL:      "https://api.openai.com/v1",
 		APIKeyEnvVar: "OPENAI_API_KEY",
 		DefaultModel: "gpt-5.5",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 		HelpURL: "https://platform.openai.com/api-keys",
 	},
 	{
 		Name: "anthropic", DisplayName: "Anthropic",
-		BaseURL: "https://api.anthropic.com/v1",
+		BaseURL:      "https://api.anthropic.com/v1",
 		APIKeyEnvVar: "ANTHROPIC_API_KEY",
 		DefaultModel: "claude-opus-4-8",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 		HelpURL: "https://console.anthropic.com/settings/keys",
 	},
 	{
 		Name: "gemini", DisplayName: "Google Gemini",
-		BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+		BaseURL:      "https://generativelanguage.googleapis.com/v1beta/openai",
 		APIKeyEnvVar: "GEMINI_API_KEY",
 		DefaultModel: "gemini-2.5-pro",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 		HelpURL: "https://aistudio.google.com/apikey",
 	},
 	{
 		Name: "xai", DisplayName: "xAI (Grok)",
-		BaseURL: "https://api.x.ai/v1",
+		BaseURL:      "https://api.x.ai/v1",
 		APIKeyEnvVar: "XAI_API_KEY",
 		DefaultModel: "grok-4",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 		HelpURL: "https://console.x.ai",
 	},
 	{
 		Name: "deepseek", DisplayName: "DeepSeek",
-		BaseURL: "https://api.deepseek.com",
+		BaseURL:      "https://api.deepseek.com",
 		APIKeyEnvVar: "DEEPSEEK_API_KEY",
 		DefaultModel: "deepseek-chat",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 		HelpURL: "https://platform.deepseek.com/api_keys",
 	},
 	{
 		Name: "mistral", DisplayName: "Mistral AI",
-		BaseURL: "https://api.mistral.ai/v1",
+		BaseURL:      "https://api.mistral.ai/v1",
 		APIKeyEnvVar: "MISTRAL_API_KEY",
 		DefaultModel: "mistral-large-latest",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 		HelpURL: "https://console.mistral.ai/api-keys",
 	},
 	{
 		Name: "groq", DisplayName: "Groq",
-		BaseURL: "https://api.groq.com/openai/v1",
+		BaseURL:      "https://api.groq.com/openai/v1",
 		APIKeyEnvVar: "GROQ_API_KEY",
 		DefaultModel: "llama-3.3-70b-versatile",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 		HelpURL: "https://console.groq.com/keys",
 	},
 	{
 		Name: "cohere", DisplayName: "Cohere",
-		BaseURL: "https://api.cohere.com/v1",
+		BaseURL:      "https://api.cohere.com/v1",
 		APIKeyEnvVar: "COHERE_API_KEY",
 		DefaultModel: "command-r-plus",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 		HelpURL: "https://dashboard.cohere.com/api-keys",
 	},
 	{
 		Name: "perplexity", DisplayName: "Perplexity",
-		BaseURL: "https://api.perplexity.ai",
+		BaseURL:      "https://api.perplexity.ai",
 		APIKeyEnvVar: "PERPLEXITY_API_KEY",
 		DefaultModel: "sonar-pro",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 		HelpURL: "https://www.perplexity.ai/settings/api",
 	},
 
 	// ===== Aggregators / multi-model gateways =====
 	{
 		Name: "openrouter", DisplayName: "OpenRouter",
-		BaseURL: "https://openrouter.ai/api/v1",
+		BaseURL:      "https://openrouter.ai/api/v1",
 		APIKeyEnvVar: "OPENROUTER_API_KEY",
 		DefaultModel: "anthropic/claude-opus-4-8",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 		HelpURL: "https://openrouter.ai/keys",
 	},
 	{
 		Name: "opengateway", DisplayName: "OpenGateway",
-		BaseURL: "https://opengateway.gitlawb.com/v1",
+		BaseURL:      "https://opengateway.gitlawb.com/v1",
 		APIKeyEnvVar: "OPENGATEWAY_API_KEY",
 		DefaultModel: "minimax/minimax-m3",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 	},
 	{
 		Name: "minimax", DisplayName: "MiniMax",
-		BaseURL: "https://api.minimax.io/v1",
+		BaseURL:      "https://api.minimax.io/v1",
 		APIKeyEnvVar: "MINIMAX_API_KEY",
 		DefaultModel: "MiniMax-M2.7",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 	},
 	{
 		Name: "mimo", DisplayName: "Xiaomi MiMo",
-		BaseURL: "https://api.xiaomimimo.com/v1",
+		BaseURL:      "https://api.xiaomimimo.com/v1",
 		APIKeyEnvVar: "MIMO_API_KEY",
 		DefaultModel: "mimo-v2.5-pro",
-		NeedsAPIKey: true, AuthKind: "apikey",
+		NeedsAPIKey:  true, AuthKind: "apikey",
 	},
 	{
 		Name: "bedrock", DisplayName: "AWS Bedrock (OpenAI-compat)",
-		BaseURL: "https://bedrock-mantle.us-east-1.amazonaws.com/v1",
+		BaseURL:      "https://bedrock-mantle.us-east-1.amazonaws.com/v1",
 		APIKeyEnvVar: "AWS_BEARER_TOKEN_BEDROCK",
 		DefaultModel: "anthropic.claude-opus-4-8",
-		NeedsAPIKey: true, AuthKind: "env",
+		NeedsAPIKey:  true, AuthKind: "env",
 		HelpURL: "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions.html",
 	},
 
 	// ===== Local / self-hosted (no key) =====
 	{
 		Name: "cortex", DisplayName: "Cortex",
-		BaseURL: "http://127.0.0.1:8000/v1",
+		BaseURL:      "http://127.0.0.1:8000/v1",
 		APIKeyEnvVar: "CORTEX_API_KEY",
 		DefaultModel: "cortex-code",
-		NeedsAPIKey: false, AuthKind: "none",
+		NeedsAPIKey:  false, AuthKind: "none",
 	},
 	{
 		Name: "ollama", DisplayName: "Ollama",
-		BaseURL: "http://127.0.0.1:11434/v1",
+		BaseURL:      "http://127.0.0.1:11434/v1",
 		APIKeyEnvVar: "",
 		DefaultModel: "qwen3.5",
-		NeedsAPIKey: false, AuthKind: "none",
+		NeedsAPIKey:  false, AuthKind: "none",
 	},
 	{
 		Name: "lmstudio", DisplayName: "LM Studio",
-		BaseURL: "http://127.0.0.1:1234/v1",
+		BaseURL:      "http://127.0.0.1:1234/v1",
 		APIKeyEnvVar: "",
 		DefaultModel: "qwen2.5-7b-instruct",
-		NeedsAPIKey: false, AuthKind: "none",
+		NeedsAPIKey:  false, AuthKind: "none",
 	},
 	{
 		Name: "vllm", DisplayName: "vLLM",
-		BaseURL: "http://127.0.0.1:8001/v1",
+		BaseURL:      "http://127.0.0.1:8001/v1",
 		APIKeyEnvVar: "",
 		DefaultModel: "meta-llama/Llama-3.3-70B-Instruct",
-		NeedsAPIKey: false, AuthKind: "none",
+		NeedsAPIKey:  false, AuthKind: "none",
 	},
 }
 
@@ -466,7 +466,7 @@ type Config struct {
 	// window. Default true so users get a safety net on long
 	// sessions; power users can turn it off in Settings →
 	// Other Settings.
-	AutoCompact   bool                   `yaml:"autoCompact"`
+	AutoCompact bool `yaml:"autoCompact"`
 }
 
 // Default is the default config (matches the original TS default).
@@ -480,7 +480,7 @@ func Default() *Config {
 				BaseURL:          "http://127.0.0.1:8000/v1",
 				APIKey:           "",
 				Temperature:      0.2,
-				MaxTokens:        16384,
+				MaxTokens:        32768,
 				ReasoningEffort:  "auto",
 				CortexPromptMode: "minimal",
 			},
@@ -490,7 +490,7 @@ func Default() *Config {
 				BaseURL:     "https://api.openai.com/v1",
 				APIKey:      "",
 				Temperature: 0.2,
-				MaxTokens:        16384,
+				MaxTokens:   32768,
 			},
 			"anthropic": {
 				Provider:    "anthropic",
@@ -498,7 +498,7 @@ func Default() *Config {
 				BaseURL:     "https://api.anthropic.com/v1",
 				APIKey:      "",
 				Temperature: 0.2,
-				MaxTokens:        16384,
+				MaxTokens:   32768,
 			},
 			"ollama": {
 				Provider:    "ollama",
@@ -506,7 +506,7 @@ func Default() *Config {
 				BaseURL:     "http://127.0.0.1:11434/v1",
 				APIKey:      "ollama",
 				Temperature: 0.2,
-				MaxTokens:        16384,
+				MaxTokens:   32768,
 			},
 		},
 		SwarmDefaults: SwarmDefaults{
@@ -520,10 +520,10 @@ func Default() *Config {
 			AllowWrite: true,
 			AllowGit:   true,
 		},
-		Streaming: true,
-		ShowUsage: true,
+		Streaming:   true,
+		ShowUsage:   true,
 		AutoCompact: true,
-		Theme:     "auto",
+		Theme:       "auto",
 	}
 }
 
@@ -729,7 +729,7 @@ func (c *Config) EnsureProviderPresets() {
 				Model:       p.DefaultModel,
 				BaseURL:     p.BaseURL,
 				Temperature: 0.2,
-				MaxTokens:        16384,
+				MaxTokens:   32768,
 			}
 			continue
 		}
@@ -814,7 +814,7 @@ func (c *Config) SetProviderBaseURL(provider, baseURL string) {
 	}
 	if !updated {
 		p, _ := presetForProvider(provider)
-		mc := ModelConfig{Provider: provider, Model: p.DefaultModel, BaseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"), Temperature: 0.2, MaxTokens: 16384}
+		mc := ModelConfig{Provider: provider, Model: p.DefaultModel, BaseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"), Temperature: 0.2, MaxTokens: 32768}
 		if mc.Model == "" {
 			mc.Model = "model"
 		}
@@ -844,7 +844,7 @@ func (c *Config) SetProviderAPIKey(provider, apiKey string) {
 	}
 	if !updated {
 		p, _ := presetForProvider(provider)
-		mc := ModelConfig{Provider: provider, Model: p.DefaultModel, BaseURL: p.BaseURL, APIKey: strings.TrimSpace(apiKey), Temperature: 0.2, MaxTokens: 16384}
+		mc := ModelConfig{Provider: provider, Model: p.DefaultModel, BaseURL: p.BaseURL, APIKey: strings.TrimSpace(apiKey), Temperature: 0.2, MaxTokens: 32768}
 		if mc.Model == "" {
 			mc.Model = "model"
 		}
@@ -940,7 +940,7 @@ func (c *Config) AddCustomProvider(provider, baseURL, apiKey string) string {
 		BaseURL:     strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		APIKey:      strings.TrimSpace(apiKey),
 		Temperature: 0.2,
-		MaxTokens:        16384,
+		MaxTokens:   32768,
 	}
 	return provider
 }

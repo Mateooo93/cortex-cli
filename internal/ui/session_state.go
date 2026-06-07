@@ -31,9 +31,11 @@ const (
 // main agent is making) at the bottom of the chat.
 // We track each tool call with enough metadata to
 // render a one-liner like:
-//     ● read_file  internal/ui/model.go    2.1s
-//     ✓ edit_file  internal/ui/foo.go      done
-//     ✗ run_shell  npm test               failed
+//
+//	● read_file  internal/ui/model.go    2.1s
+//	✓ edit_file  internal/ui/foo.go      done
+//	✗ run_shell  npm test               failed
+//
 // The StartedAt time drives the elapsed timer; the
 // strip auto-fades old entries off the end of the
 // buffer once we hit recentToolsMax (5).
@@ -114,9 +116,16 @@ type SessionState struct {
 	// Live streaming buffers
 	assistantBuf      string
 	assistantRendered string
-	thinkingBuf       string
-	thinkingRendered  string
-	showThinking      bool
+	// assistantLastRenderAt throttles expensive full
+	// Markdown re-renders during streaming. Rendering
+	// the entire assistant buffer on EVERY tiny SSE
+	// chunk made the UI feel clunky/stuttery. We now
+	// append chunks immediately but only re-render at
+	// a smooth cadence (~30fps) or on stream_done.
+	assistantLastRenderAt time.Time
+	thinkingBuf           string
+	thinkingRendered      string
+	showThinking          bool
 
 	// RecentTools is a compact FIFO of the last few
 	// tool calls made by the main agent. The UI
@@ -226,17 +235,17 @@ type SessionState struct {
 // newSessionState initialises a fresh session state ready for a new agent session.
 func newSessionState(cfg *config.Config, client *daemon.SessionClient) *SessionState {
 	s := &SessionState{
-		agentState:     StateWaitingForInput,
-		input:          newInput(),
-		thinkingAnim:   NewThinkingAnim(),
-		questionPanel:  NewQuestionPanel(),
-		focus:          FocusEditor,
-		client:         client,
-		modelName:      cfg.Model,
-		history:        NewHistory(cfg.Paths.Primary()),
-		showThinking:   config.ShowThinking(),
-		createdAt:      time.Now(),
-		rightPanel:     NewRightPanel(),
+		agentState:    StateWaitingForInput,
+		input:         newInput(),
+		thinkingAnim:  NewThinkingAnim(),
+		questionPanel: NewQuestionPanel(),
+		focus:         FocusEditor,
+		client:        client,
+		modelName:     cfg.Model,
+		history:       NewHistory(cfg.Paths.Primary()),
+		showThinking:  config.ShowThinking(),
+		createdAt:     time.Now(),
+		rightPanel:    NewRightPanel(),
 	}
 	if client != nil {
 		s.daemonSessionID = client.SessionID()

@@ -379,7 +379,12 @@ func (s *Session) runTurn(parent context.Context, text string, attachments []pro
 			})
 			s.mu.Unlock()
 			// Emit a synthetic stream-done event with usage
-			s.emitStreamDone(resp.Usage)
+			// and finish_reason. If finish_reason is
+			// "length", the UI warns the user that
+			// the model hit max_tokens instead of
+			// silently looking like the agent
+			// randomly stopped mid-sentence.
+			s.emitStreamDone(resp.Usage, resp.FinishReason)
 			return
 		}
 
@@ -1195,7 +1200,7 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 		Type: "stream_chunk",
 		Data: protocol.EventStreamChunk{Text: resp.Content},
 	})
-	s.emitStreamDone(resp.Usage)
+	s.emitStreamDone(resp.Usage, resp.FinishReason)
 	return resp, nil
 }
 
@@ -1206,17 +1211,18 @@ func (s *Session) onChunk(c provider.Chunk) {
 			Data: protocol.EventStreamChunk{Text: c.Content},
 		})
 	}
-	if c.Usage.TotalTokens > 0 || c.Usage.PromptTokens > 0 {
-		s.emitStreamDone(c.Usage)
+	if c.Usage.TotalTokens > 0 || c.Usage.PromptTokens > 0 || c.FinishReason != "" {
+		s.emitStreamDone(c.Usage, c.FinishReason)
 	}
 }
 
-func (s *Session) emitStreamDone(u provider.Usage) {
+func (s *Session) emitStreamDone(u provider.Usage, finish provider.FinishReason) {
 	s.safeEmit(protocol.SessionEvent{
 		Type: "stream_done",
 		Data: protocol.EventStreamDone{
 			InputTokens:  u.PromptTokens,
 			OutputTokens: u.CompletionTokens,
+			FinishReason: string(finish),
 		},
 	})
 }

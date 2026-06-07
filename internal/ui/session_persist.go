@@ -173,8 +173,8 @@ func loadSavedChat(id string) []ChatMessage {
 // was captured at; re-rendering on load is both cheaper and
 // width-correct.
 type persistedChatMessage struct {
-	Type         ChatMessageType `json:"type"`
-	Text         string          `json:"text"`
+	Type ChatMessageType `json:"type"`
+	Text string          `json:"text"`
 	// Rendered is the pre-styled ANSI string for this message.
 	// We persist it (rather than regenerating on load) because
 	// not every ChatMessageType has a re-render path: system
@@ -187,18 +187,18 @@ type persistedChatMessage struct {
 	// and lipgloss handles the right-edge truncation visually.
 	// Without persisting Rendered, the chat panel would be empty
 	// after a restart — the original bug the user reported.
-	Rendered     string          `json:"rendered,omitempty"`
-	Timestamp    time.Time       `json:"timestamp,omitempty"`
-	ToolName     string          `json:"toolName,omitempty"`
-	IsError      bool            `json:"isError,omitempty"`
-	Detail       string          `json:"detail,omitempty"`
-	FilePath     string          `json:"filePath,omitempty"`
-	IsGrouped    bool            `json:"isGrouped,omitempty"`
-	GroupIndex   int             `json:"groupIndex,omitempty"`
-	ShowToolName bool            `json:"showToolName,omitempty"`
-	TurnModel    string          `json:"turnModel,omitempty"`
-	TurnElapsed  string          `json:"turnElapsed,omitempty"`
-	TurnCost     float64         `json:"turnCost,omitempty"`
+	Rendered     string    `json:"rendered,omitempty"`
+	Timestamp    time.Time `json:"timestamp,omitempty"`
+	ToolName     string    `json:"toolName,omitempty"`
+	IsError      bool      `json:"isError,omitempty"`
+	Detail       string    `json:"detail,omitempty"`
+	FilePath     string    `json:"filePath,omitempty"`
+	IsGrouped    bool      `json:"isGrouped,omitempty"`
+	GroupIndex   int       `json:"groupIndex,omitempty"`
+	ShowToolName bool      `json:"showToolName,omitempty"`
+	TurnModel    string    `json:"turnModel,omitempty"`
+	TurnElapsed  string    `json:"turnElapsed,omitempty"`
+	TurnCost     float64   `json:"turnCost,omitempty"`
 }
 
 // saveChat writes a session's chat scrollback to disk using the
@@ -271,6 +271,46 @@ func deleteSavedChat(id string) {
 	}
 	path := filepath.Join(dir, id+".json")
 	_ = os.Remove(path)
+}
+
+// sessionHasPersistableContent returns true when a
+// session has meaningful chat content worth showing in
+// the Sessions tab after restart. Empty placeholder
+// sessions (Ctrl+T then quit, reconnect placeholders,
+// model-only sessions, etc.) should NOT be saved — the
+// user reported they bloat the Sessions tab.
+//
+// We count user/assistant/tool/workflow content, but
+// ignore pure system/error/noise and empty thinking.
+// In-flight assistant/thinking buffers only count if
+// they contain non-whitespace text.
+func sessionHasPersistableContent(sess *SessionState) bool {
+	if sess == nil {
+		return false
+	}
+	for _, msg := range sess.chatMessages {
+		if strings.TrimSpace(msg.Text) == "" && strings.TrimSpace(msg.Rendered) == "" {
+			continue
+		}
+		switch msg.Type {
+		case MsgUser, MsgAssistant, MsgToolCall, MsgToolResult,
+			MsgPlanProposal, MsgPlanTaskStart, MsgPlanTaskDone, MsgPlanSummary,
+			MsgWorkflowStart, MsgWorkflowStepStart, MsgWorkflowStepDone, MsgWorkflowComplete:
+			return true
+		case MsgThinking:
+			// Thinking alone should not keep an empty
+			// session alive, especially now thinking is
+			// hidden by default.
+			continue
+		}
+	}
+	if strings.TrimSpace(sess.assistantBuf) != "" {
+		return true
+	}
+	// User input currently typed but not sent should
+	// not create a saved session; it is not part of
+	// chat history and would restore as an empty tab.
+	return false
 }
 
 // firstUserMessage returns the first user message in a session,
@@ -350,18 +390,16 @@ func (m *Model) persistSessions() {
 		if created.IsZero() {
 			created = time.Now()
 		}
-		// Skip sessions that have no chat history and no
-		// label. They were created by mistake (e.g. user
-		// hit Ctrl+T without typing anything) and just
-		// clutter the Sessions tab on next launch.
-		totalMsgs := len(sess.chatMessages)
-		if sess.showThinking && sess.thinkingBuf != "" {
-			totalMsgs++
-		}
-		if sess.assistantBuf != "" {
-			totalMsgs++
-		}
-		if totalMsgs == 0 && sess.label == "" && firstUserMessage(sess) == "" {
+		// Skip truly empty sessions. A new Ctrl+T
+		// session with no user/assistant/tool content
+		// should not be saved just because it has a
+		// model name, placeholder daemonSessionID, or
+		// reconnect state — those entries bloat the
+		// Sessions tab. Also delete any stale chat file
+		// with the same id in case an older version saved
+		// it before this stricter filter existed.
+		if !sessionHasPersistableContent(sess) {
+			deleteSavedChat(id)
 			continue
 		}
 		saved = append(saved, SavedSession{
