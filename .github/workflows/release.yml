@@ -125,7 +125,15 @@ jobs:
       - name: Publish release
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          # publish.sh uses GITHUB_TOKEN implicitly via gh
+          # gh CLI requires GH_TOKEN (not GITHUB_TOKEN
+          # which is the actions/runner's built-in
+          # environment variable for checkout, but not
+          # for the gh CLI itself). Without this set
+          # explicitly, 'gh release create' fails with:
+          #   gh: To use GitHub CLI in a GitHub Actions
+          #       workflow, set the GH_TOKEN environment
+          #       variable.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           echo "==> Publishing $VERSION"
