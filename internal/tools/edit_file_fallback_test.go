@@ -43,7 +43,7 @@ func TestEditFileTool_MissingPathOldStringGivesRetryHint(t *testing.T) {
 	if res.OK {
 		t.Fatalf("expected failure")
 	}
-	if !strings.Contains(res.Error, "put fields in this order: path, oldString, newString") {
+	if !strings.Contains(res.Error, "Prefer Pi-style ordered args") {
 		t.Fatalf("missing retry hint: %q", res.Error)
 	}
 }
@@ -72,7 +72,7 @@ func TestEditFileTool_IndentationInsensitiveFallback(t *testing.T) {
 	if !strings.Contains(string(data), "return 2") {
 		t.Fatalf("file not edited: %q", string(data))
 	}
-	if !strings.Contains(res.Output, "match=indentation-insensitive") {
+	if !strings.Contains(res.Output, "fallback=indentation-insensitive") {
 		t.Fatalf("expected fallback note, got %q", res.Output)
 	}
 }

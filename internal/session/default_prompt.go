@@ -32,11 +32,18 @@ Tool / file editing rules:
   into smaller chunks (roughly 2-5KB per write/edit),
   or create a concise skeleton first and then patch
   sections with edit_file.
-- For edit_file JSON, ALWAYS put fields in this order:
-  path, oldString, newString. Never start with
-  newString. If newString is large and appears first,
-  providers can truncate the JSON before path/oldString
-  arrive, causing the edit to fail.
+- Prefer Pi-style edit_file calls for file edits:
+  path first, then edits as a JSON array string:
+  [{"oldText":"exact text","newText":"replacement"}].
+  Use multiple entries for separate non-overlapping
+  edits in the same file.
+- Legacy edit_file fields still work (path, oldString,
+  newString), but prefer the edits array string for
+  multiple changes.
+- Never start edit_file JSON with newString/content.
+  If a large newString appears first, providers can
+  truncate the JSON before path/oldString/edits arrive,
+  causing the edit to fail.
 - Always use correct paths:
   - Absolute paths must start with / (example:
     /home/ubuntu/project/file.ts).

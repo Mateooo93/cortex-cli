@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -239,9 +240,16 @@ func (t *EditFileTool) Description() string {
 }
 func (t *EditFileTool) Parameters() map[string]Param {
 	return map[string]Param{
-		"path":      {Type: "string", Description: "Path to file. IMPORTANT: include this first. Absolute paths must start with /.", Required: true},
-		"oldString": {Type: "string", Description: "Small exact string/block to replace. IMPORTANT: include this before newString. Keep it short and copy from read_file output.", Required: true},
-		"newString": {Type: "string", Description: "Replacement string. Keep reasonably small; for large changes split into multiple edit_file calls.", Required: true},
+		"path": {Type: "string", Description: "Path to file. IMPORTANT: include this first. Absolute paths must start with /.", Required: true},
+		// Legacy single-edit fields. Kept for
+		// provider compatibility.
+		"oldString": {Type: "string", Description: "Legacy single edit: small exact string/block to replace. Include before newString.", Required: false},
+		"newString": {Type: "string", Description: "Legacy single edit replacement. Keep small; for large changes split into multiple edits.", Required: false},
+		// Pi-style multi-edit fallback. Cortex's
+		// current schema type doesn't support nested
+		// arrays yet, so this is a JSON string
+		// containing [{\"oldText\":...,\"newText\":...}].
+		"edits": {Type: "string", Description: "Optional Pi-style JSON array string of replacements: [{\"oldText\":\"exact text\",\"newText\":\"replacement\"}]. Prefer this for multiple small disjoint edits in one file.", Required: false},
 	}
 }
 func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
@@ -249,10 +257,13 @@ func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 		return Result{OK: false, Error: "File editing is disabled in config."}, nil
 	}
 	p, _ := args["path"].(string)
-	oldStr, _ := args["oldString"].(string)
-	newStr, _ := args["newString"].(string)
-	if p == "" || oldStr == "" {
-		return Result{OK: false, Error: "path and oldString are required. If this came from _raw/truncated JSON, retry with a SMALL edit_file call and put fields in this order: path, oldString, newString. Do not start with newString; large newString first gets truncated before path/oldString arrive."}, nil
+	edits, parseErr := parseEditFileEdits(args)
+	if p == "" || parseErr != nil {
+		msg := "path and an edit are required. Prefer Pi-style ordered args: path, edits where edits is a JSON array string like [{\"oldText\":\"exact text\",\"newText\":\"replacement\"}]. Legacy path, oldString, newString also works. Keep each oldText small and copied verbatim from read_file output."
+		if parseErr != nil {
+			msg += " Parse error: " + parseErr.Error()
+		}
+		return Result{OK: false, Error: msg}, nil
 	}
 	full, corrected := resolvePath(ctx.CWD, p)
 	data, err := os.ReadFile(full)
@@ -260,23 +271,94 @@ func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 		return Result{OK: false, Error: err.Error()}, nil
 	}
 	content := string(data)
-	start, end, mode, ok := findReplacementRange(content, oldStr)
-	if !ok {
-		return Result{OK: false, Error: "oldString not found in file. Retry by first calling read_file on the target, then use a smaller exact oldString copied verbatim from the file. If this was a large rewrite, split it into multiple small edit_file calls or write a skeleton then patch sections."}, nil
+	repls, err := planEditReplacements(content, edits)
+	if err != nil {
+		return Result{OK: false, Error: err.Error()}, nil
 	}
-	newContent := content[:start] + newStr + content[end:]
+	newContent := applyEditReplacements(content, repls)
 	if err := os.WriteFile(full, []byte(newContent), 0o644); err != nil {
 		return Result{OK: false, Error: err.Error()}, nil
 	}
-	output := fmt.Sprintf("Edited %s (replaced %d chars", full, end-start)
-	if mode != "exact" {
-		output += ", match=" + mode
+	replaced := 0
+	fallbacks := []string{}
+	for _, r := range repls {
+		replaced += r.end - r.start
+		if r.mode != "exact" {
+			fallbacks = append(fallbacks, r.mode)
+		}
+	}
+	output := fmt.Sprintf("Edited %s (replaced %d block(s), %d chars", full, len(repls), replaced)
+	if len(fallbacks) > 0 {
+		output += ", fallback=" + strings.Join(fallbacks, ",")
 	}
 	output += ")"
 	if corrected {
 		output += fmt.Sprintf(" (auto-corrected from %q)", p)
 	}
 	return Result{OK: true, Output: output}, nil
+}
+
+type editReplacementInput struct {
+	OldText string `json:"oldText"`
+	NewText string `json:"newText"`
+}
+
+type editReplacementPlan struct {
+	start   int
+	end     int
+	newText string
+	mode    string
+}
+
+func parseEditFileEdits(args map[string]any) ([]editReplacementInput, error) {
+	if raw, ok := args["edits"].(string); ok && strings.TrimSpace(raw) != "" {
+		var edits []editReplacementInput
+		if err := json.Unmarshal([]byte(raw), &edits); err != nil {
+			return nil, fmt.Errorf("invalid edits JSON: %w", err)
+		}
+		if len(edits) == 0 {
+			return nil, fmt.Errorf("edits must contain at least one replacement")
+		}
+		for i, e := range edits {
+			if e.OldText == "" {
+				return nil, fmt.Errorf("edits[%d].oldText is required", i)
+			}
+		}
+		return edits, nil
+	}
+	oldStr, _ := args["oldString"].(string)
+	newStr, _ := args["newString"].(string)
+	if oldStr == "" {
+		return nil, fmt.Errorf("oldString or edits is required")
+	}
+	return []editReplacementInput{{OldText: oldStr, NewText: newStr}}, nil
+}
+
+func planEditReplacements(content string, edits []editReplacementInput) ([]editReplacementPlan, error) {
+	plans := make([]editReplacementPlan, 0, len(edits))
+	for i, edit := range edits {
+		start, end, mode, ok := findReplacementRange(content, edit.OldText)
+		if !ok {
+			return nil, fmt.Errorf("edit %d: oldText not found in file. Retry by first calling read_file, then use a smaller exact oldText copied verbatim. If this is a large rewrite, split it into multiple small edit_file calls or write a skeleton then patch sections", i)
+		}
+		for _, prev := range plans {
+			if start < prev.end && end > prev.start {
+				return nil, fmt.Errorf("edit %d overlaps another edit. Merge nearby edits into one replacement or use separate non-overlapping oldText blocks", i)
+			}
+		}
+		plans = append(plans, editReplacementPlan{start: start, end: end, newText: edit.NewText, mode: mode})
+	}
+	// Sort descending so byte offsets remain valid as we apply.
+	sort.Slice(plans, func(i, j int) bool { return plans[i].start > plans[j].start })
+	return plans, nil
+}
+
+func applyEditReplacements(content string, plans []editReplacementPlan) string {
+	out := content
+	for _, p := range plans {
+		out = out[:p.start] + p.newText + out[p.end:]
+	}
+	return out
 }
 
 // findReplacementRange returns the byte range in
