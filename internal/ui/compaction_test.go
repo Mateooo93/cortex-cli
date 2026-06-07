@@ -46,10 +46,22 @@ func TestHandleCommandAction_Compact(t *testing.T) {
 	}
 	// First cmd: status emit (clearStatusMsgMsg) — the user
 	// sees "compacting context…" right away.
-	// Second cmd: the compaction itself. Run it and
-	// verify the result is a compactMsg with ok=false
-	// (because there's no session).
-	compactCmd := cmds[len(cmds)-1]
+	// Second cmd: the compaction itself (tea.Batch containing
+	// compactProgressTick + the actual compaction func).
+	// Run the batch and extract the inner command that
+	// produces the compactMsg.
+	compactBatch := cmds[len(cmds)-1]
+	batchMsg := compactBatch()
+	batch, ok := batchMsg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("expected tea.BatchMsg from compactCmd, got %T", batchMsg)
+	}
+	// The batch contains: [compactProgressTick, compactionFunc]
+	// We want the second one (the actual compaction).
+	if len(batch) < 2 {
+		t.Fatalf("expected batch with 2 cmds, got %d", len(batch))
+	}
+	compactCmd := batch[1]
 	msg := compactCmd()
 	if c, ok := msg.(compactMsg); !ok {
 		t.Errorf("expected compactMsg from last cmd, got %T", msg)

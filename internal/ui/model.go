@@ -1377,6 +1377,19 @@ type updateOverlayExecMsg struct{}
 // result to close the overlay.
 type updateOverlayDismissMsg struct{}
 
+// compactProgressTick fires periodically while compaction is
+// in-flight so the status bar spinner animates. 120ms matches
+// the self-update spinner cadence.
+func compactProgressTick() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg {
+		return compactProgressMsg{}
+	})
+}
+
+// compactProgressMsg fires periodically while a /compact run is
+// in progress. The handler advances the status bar spinner frame.
+type compactProgressMsg struct{}
+
 // applyModelPickerSelection routes a spec chosen from the /model
 // picker to the right action. OAuth providers (codex, claude-sub,
 // copilot) fire the OAuth flow directly — the user never sees the
@@ -3558,6 +3571,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// animation frames cycling.
 		return m, selfUpdateProgressTick()
 
+	case compactProgressMsg:
+		// Advance the spinner frame while compaction is
+		// in-flight. The compactInFlight flag is set when
+		// /compact starts and cleared when compactMsg fires.
+		if m.compactInFlight {
+			m.statusMsg.Spinner = (m.statusMsg.Spinner + 1) % 8
+			m.statusMsg.gen++ // bump gen so auto-clear doesn't wipe mid-compaction
+			return m, compactProgressTick()
+		}
+		// Compaction done — don't reschedule the tick.
+		return m, nil
+
 	case animStepMsg:
 		// Route to whichever session owns this generation tick.
 		for _, sess := range m.sessions {
@@ -4717,6 +4742,7 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 		// looks frozen. handleCompactMsg replaces it
 		// with the final 'done compacting' / 'compacted
 		// 142k → 4k tokens' result.
+		m.compactInFlight = true
 		cmds = append(cmds, m.emitStatusMsg("compacting context…", StatusMsgInfo))
 		cmds = append(cmds, m.compactCmd())
 	case "open_workflow_picker":

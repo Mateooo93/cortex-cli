@@ -61,147 +61,147 @@ type compactMsg struct {
 //  7. Emit a compactMsg so the status bar can show
 //     "compacted 142k → 4k tokens (97% reduction)".
 func (m *Model) compactCmd() tea.Cmd {
-	return func() tea.Msg {
-		sess := m.currentSession()
-		if sess == nil {
-			return compactMsg{ok: false, err: fmt.Errorf("no active session")}
-		}
-		oldCount := len(sess.chatMessages)
-		oldTokens := sess.inputTokens
-		if oldTokens == 0 {
-			// Fall back to chars/4 estimate so the
-			// before/after numbers are non-zero.
-			chars := 0
+	return tea.Batch(
+		compactProgressTick(), // start the 120ms spinner tick
+		func() tea.Msg {
+			sess := m.currentSession()
+			if sess == nil {
+				m.compactInFlight = false
+				return compactMsg{ok: false, err: fmt.Errorf("no active session")}
+			}
+			oldCount := len(sess.chatMessages)
+			oldTokens := sess.inputTokens
+			if oldTokens == 0 {
+				// Fall back to chars/4 estimate so the
+				// before/after numbers are non-zero.
+				chars := 0
+				for _, msg := range sess.chatMessages {
+					chars += len(msg.Text)
+				}
+				oldTokens = int64(chars / 4)
+			}
+
+			// Build a transcript of user + assistant messages
+			// only. Tool calls, system messages, and confirm
+			// prompts are noise from the LLM's perspective.
+			type tx struct{ role, text string }
+			var transcript []tx
 			for _, msg := range sess.chatMessages {
-				chars += len(msg.Text)
-			}
-			oldTokens = int64(chars / 4)
-		}
-
-		// Announce the start so the user sees something
-		// happen right away. Without this the LLM
-		// summary call can take 5-15s and the user has
-		// no feedback. We schedule the status emit from
-		// the orchestrator (model.go) so it runs on the
-		// bubbletea event loop.
-
-		// Build a transcript of user + assistant messages
-		// only. Tool calls, system messages, and confirm
-		// prompts are noise from the LLM's perspective.
-		type tx struct{ role, text string }
-		var transcript []tx
-		for _, msg := range sess.chatMessages {
-			switch msg.Type {
-			case MsgUser:
-				transcript = append(transcript, tx{"user", msg.Text})
-			case MsgAssistant:
-				if msg.Text != "" {
-					transcript = append(transcript, tx{"assistant", msg.Text})
+				switch msg.Type {
+				case MsgUser:
+					transcript = append(transcript, tx{"user", msg.Text})
+				case MsgAssistant:
+					if msg.Text != "" {
+						transcript = append(transcript, tx{"assistant", msg.Text})
+					}
 				}
 			}
-		}
-		if len(transcript) < 4 {
-			return compactMsg{
-				ok:        false,
-				oldCount:  oldCount,
-				oldTokens: oldTokens,
-				newCount:  oldCount,
-				newTokens: oldTokens,
-				err:       fmt.Errorf("nothing to compact (only %d messages)", oldCount),
-			}
-		}
-
-		// Build the prompt the LLM will summarize.
-		var b strings.Builder
-		b.WriteString("Summarize the following conversation in 5-10 bullet points.\n")
-		b.WriteString("Preserve any decisions, file paths, error messages, function names,\n")
-		b.WriteString("and tool calls the user is likely to need in later turns.\n")
-		b.WriteString("Keep the summary under 1500 words. Use markdown.\n\n")
-		for _, t := range transcript {
-			fmt.Fprintf(&b, "**%s:** %s\n\n", t.role, t.text)
-		}
-
-		summary, ok := m.callLLMForSummary(b.String(), sess)
-		if !ok {
-			// LLM call failed — fall back to dropping the
-			// oldest half of the messages so the user
-			// gets at least a partial reset.
-			half := len(sess.chatMessages) / 2
-			if half < 1 {
-				half = 1
-			}
-			dropped := sess.chatMessages[:half]
-			// Convert the dropped messages into a single
-			// "compaction" message so the LLM has some
-			// context about what was lost.
-			var droppedText strings.Builder
-			droppedText.WriteString("**[compaction: dropped ")
-			droppedText.WriteString(fmt.Sprintf("%d", half))
-			droppedText.WriteString(" older messages — LLM summarisation failed]**\n\n")
-			for _, msg := range dropped {
-				if msg.Type == MsgUser || msg.Type == MsgAssistant {
-					fmt.Fprintf(&droppedText, "- %s\n", msg.Text)
+			if len(transcript) < 4 {
+				m.compactInFlight = false
+				return compactMsg{
+					ok:        false,
+					oldCount:  oldCount,
+					oldTokens: oldTokens,
+					newCount:  oldCount,
+					newTokens: oldTokens,
+					err:       fmt.Errorf("nothing to compact (only %d messages)", oldCount),
 				}
 			}
-			sess.chatMessages = append(
-				[]ChatMessage{renderSystemSuccessMessage(droppedText.String())},
-				sess.chatMessages[half:]...,
-			)
+
+			// Build the prompt the LLM will summarize.
+			var b strings.Builder
+			b.WriteString("Summarize the following conversation in 5-10 bullet points.\n")
+			b.WriteString("Preserve any decisions, file paths, error messages, function names,\n")
+			b.WriteString("and tool calls the user is likely to need in later turns.\n")
+			b.WriteString("Keep the summary under 1500 words. Use markdown.\n\n")
+			for _, t := range transcript {
+				fmt.Fprintf(&b, "**%s:** %s\n\n", t.role, t.text)
+			}
+
+			summary, ok := m.callLLMForSummary(b.String(), sess)
+			if !ok {
+				// LLM call failed — fall back to dropping the
+				// oldest half of the messages so the user
+				// gets at least a partial reset.
+				half := len(sess.chatMessages) / 2
+				if half < 1 {
+					half = 1
+				}
+				dropped := sess.chatMessages[:half]
+				// Convert the dropped messages into a single
+				// "compaction" message so the LLM has some
+				// context about what was lost.
+				var droppedText strings.Builder
+				droppedText.WriteString("**[compaction: dropped ")
+				droppedText.WriteString(fmt.Sprintf("%d", half))
+				droppedText.WriteString(" older messages — LLM summarisation failed]**\n\n")
+				for _, msg := range dropped {
+					if msg.Type == MsgUser || msg.Type == MsgAssistant {
+						fmt.Fprintf(&droppedText, "- %s\n", msg.Text)
+					}
+				}
+				sess.chatMessages = append(
+					[]ChatMessage{renderSystemSuccessMessage(droppedText.String())},
+					sess.chatMessages[half:]...,
+				)
+				// Push the new history to the daemon.
+				if sess.client != nil {
+					_ = sess.client.SendRestoreHistory(chatMessagesToProviderHistory(sess.chatMessages))
+				}
+				newChars := 0
+				for _, msg := range sess.chatMessages {
+					newChars += len(msg.Text)
+				}
+				m.compactInFlight = false
+				return compactMsg{
+					ok:        false,
+					oldCount:  oldCount,
+					oldTokens: oldTokens,
+					newCount:  len(sess.chatMessages),
+					newTokens: int64(newChars / 4),
+					err:       fmt.Errorf("LLM summarisation failed; kept last %d messages", len(sess.chatMessages)-1),
+				}
+			}
+
+			// Success path: build the new message list = [system
+			// message with the summary, …last 4 messages]. We
+			// keep the last 4 verbatim so the LLM doesn't lose
+			// immediate context (the user's most recent question,
+			// the tool calls it just made, etc.).
+			const keepLast = 4
+			startKeep := len(sess.chatMessages) - keepLast
+			if startKeep < 0 {
+				startKeep = 0
+			}
+			newMessages := []ChatMessage{renderSystemSuccessMessage("**Conversation summary (auto-compacted):**\n\n" + summary)}
+			newMessages = append(newMessages, sess.chatMessages[startKeep:]...)
+			sess.chatMessages = newMessages
+
+			// Reset the per-turn token counters so the next
+			// turn starts at 0 and the user sees the context
+			// usage drop in the status bar.
+			sess.inputTokens = 0
+			sess.outputTokens = 0
+			sess.cacheReadTokens = 0
+			sess.cacheCreationTokens = 0
+			sess.turnStartInputTokens = 0
+			sess.turnStartOutputTokens = 0
+
 			// Push the new history to the daemon.
 			if sess.client != nil {
 				_ = sess.client.SendRestoreHistory(chatMessagesToProviderHistory(sess.chatMessages))
 			}
-			newChars := 0
-			for _, msg := range sess.chatMessages {
-				newChars += len(msg.Text)
-			}
+			newChars := len(summary) + 200 // ballpark for the 4 kept messages
+			m.compactInFlight = false
 			return compactMsg{
-				ok:        false,
+				ok:        true,
 				oldCount:  oldCount,
 				oldTokens: oldTokens,
 				newCount:  len(sess.chatMessages),
 				newTokens: int64(newChars / 4),
-				err:       fmt.Errorf("LLM summarisation failed; kept last %d messages", len(sess.chatMessages)-1),
 			}
-		}
-
-		// Success path: build the new message list = [system
-		// message with the summary, …last 4 messages]. We
-		// keep the last 4 verbatim so the LLM doesn't lose
-		// immediate context (the user's most recent question,
-		// the tool calls it just made, etc.).
-		const keepLast = 4
-		startKeep := len(sess.chatMessages) - keepLast
-		if startKeep < 0 {
-			startKeep = 0
-		}
-		newMessages := []ChatMessage{renderSystemSuccessMessage("**Conversation summary (auto-compacted):**\n\n" + summary)}
-		newMessages = append(newMessages, sess.chatMessages[startKeep:]...)
-		sess.chatMessages = newMessages
-
-		// Reset the per-turn token counters so the next
-		// turn starts at 0 and the user sees the context
-		// usage drop in the status bar.
-		sess.inputTokens = 0
-		sess.outputTokens = 0
-		sess.cacheReadTokens = 0
-		sess.cacheCreationTokens = 0
-		sess.turnStartInputTokens = 0
-		sess.turnStartOutputTokens = 0
-
-		// Push the new history to the daemon.
-		if sess.client != nil {
-			_ = sess.client.SendRestoreHistory(chatMessagesToProviderHistory(sess.chatMessages))
-		}
-		newChars := len(summary) + 200 // ballpark for the 4 kept messages
-		return compactMsg{
-			ok:        true,
-			oldCount:  oldCount,
-			oldTokens: oldTokens,
-			newCount:  len(sess.chatMessages),
-			newTokens: int64(newChars / 4),
-		}
-	}
+		},
+	)
 }
 
 // callLLMForSummary runs a one-shot completion against the
