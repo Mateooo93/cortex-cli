@@ -78,6 +78,13 @@ func (m *Model) compactCmd() tea.Cmd {
 			oldTokens = int64(chars / 4)
 		}
 
+		// Announce the start so the user sees something
+		// happen right away. Without this the LLM
+		// summary call can take 5-15s and the user has
+		// no feedback. We schedule the status emit from
+		// the orchestrator (model.go) so it runs on the
+		// bubbletea event loop.
+
 		// Build a transcript of user + assistant messages
 		// only. Tool calls, system messages, and confirm
 		// prompts are noise from the LLM's perspective.
@@ -306,12 +313,10 @@ func (m *Model) handleCompactMsg(msg compactMsg) tea.Cmd {
 		pct = float64(delta) / float64(msg.oldTokens) * 100
 	}
 	return m.emitStatusMsg(fmt.Sprintf(
-		"compacted %s → %s tokens (%.0f%% reduction, %d → %d messages)",
+		"✓ done compacting — %s → %s tokens (%.0f%% reduction)",
 		formatTokenCount(msg.oldTokens),
 		formatTokenCount(msg.newTokens),
 		pct,
-		msg.oldCount,
-		msg.newCount,
 	), StatusMsgInfo)
 }
 

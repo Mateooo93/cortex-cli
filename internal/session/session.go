@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +42,24 @@ type Session struct {
 	// Events
 	events chan protocol.SessionEvent
 
+	// userAnswerCh carries the user's response to a question
+	// the model raised via the ask_user_question tool. The
+	// tool handler blocks on this channel so the LLM sees
+	// the real answer as the tool result — the previous
+	// design returned a "pending" placeholder which left
+	// the conversation in a bad state (the LLM had no
+	// answer, the API rejected the next turn with a
+	// "tool call and result not match" 400, and the user
+	// couldn't send any more messages).
+	userAnswerCh chan userAnswer
+
+	// done is closed when the session is shutting down.
+	// Blocking tool calls (e.g. ask_user_question) select
+	// on it so they can exit promptly when the TUI quits
+	// instead of leaving an orphan goroutine waiting
+	// forever for a user answer.
+	done chan struct{}
+
 	// Cancellable
 	cancel context.CancelFunc
 	// Whether the user has requested a cancel.
@@ -62,6 +81,19 @@ type Config struct {
 	ActiveModel string
 }
 
+// userAnswer is the user's response to a question the model
+// raised via the ask_user_question tool. `answer` is the
+// label the user picked (or the free-text they typed for
+// the "Type something." option); `text` is the
+// supplementary text when the picked option had
+// has_user_input=true; `batch` is a non-empty map when the
+// answer is for a multi-question batch (id → answer).
+type userAnswer struct {
+	answer string
+	text   string
+	batch  map[string]string
+}
+
 // New constructs a Session. The model is resolved and a Provider is
 // built on first use.
 func New(cfg Config) (*Session, error) {
@@ -75,14 +107,16 @@ func New(cfg Config) (*Session, error) {
 		return nil, err
 	}
 	s := &Session{
-		id:        uuid.NewString(),
-		startedAt: time.Now(),
-		workdir:   cfg.Workdir,
-		configDir: cfg.ConfigDir,
-		cfg:       cfg.CortexCfg,
-		active:    cfg.ActiveModel,
-		tools:     tools.NewRegistry(),
-		events:    make(chan protocol.SessionEvent, 64),
+		id:           uuid.NewString(),
+		startedAt:    time.Now(),
+		workdir:      cfg.Workdir,
+		configDir:    cfg.ConfigDir,
+		cfg:          cfg.CortexCfg,
+		active:       cfg.ActiveModel,
+		tools:        tools.NewRegistry(),
+		events:       make(chan protocol.SessionEvent, 64),
+		userAnswerCh: make(chan userAnswer, 1),
+		done:         make(chan struct{}),
 	}
 	return s, nil
 }
@@ -166,6 +200,39 @@ func (s *Session) Send(text string, attachments []protocol.Attachment) {
 	go s.runTurn(context.Background(), text, attachments)
 }
 
+// SendUserAnswer feeds the user's response back to a
+// handleAskUserQuestion call that is blocked on
+// s.userAnswerCh. If no question is pending (the channel
+// is full or the user pressed Esc on a closed panel) the
+// answer is silently dropped — the session has nothing to
+// do with it.
+func (s *Session) SendUserAnswer(answer, text string) {
+	if s.userAnswerCh == nil {
+		return
+	}
+	select {
+	case s.userAnswerCh <- userAnswer{answer: answer, text: text}:
+	default:
+		// Drop — there was no pending question (or one
+		// was already answered). The TUI shouldn't
+		// normally hit this path because the question
+		// panel only emits an answer while it's open.
+	}
+}
+
+// SendUserAnswerBatch feeds a multi-question response
+// back to handleAskUserQuestion. Same drop semantics as
+// SendUserAnswer.
+func (s *Session) SendUserAnswerBatch(answers map[string]string) {
+	if s.userAnswerCh == nil {
+		return
+	}
+	select {
+	case s.userAnswerCh <- userAnswer{batch: answers}:
+	default:
+	}
+}
+
 // SendCancel asks the running turn to stop. Safe to call when no turn
 // is in flight (it's a no-op).
 func (s *Session) SendCancel() {
@@ -222,6 +289,16 @@ func (s *Session) SendClose() {
 		s.cancel()
 	}
 	s.mu.Unlock()
+	// Close the done channel first so any goroutine
+	// blocked in handleAskUserQuestion bails out before
+	// we close s.events (which they might also be
+	// selecting on).
+	select {
+	case <-s.done:
+		// already closed
+	default:
+		close(s.done)
+	}
 	close(s.events)
 }
 
@@ -438,6 +515,7 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) {
 	case string:
 		if err := json.Unmarshal([]byte(v), &parsed); err != nil {
 			s.emitToolResult(call.ID, call.Name, "", true, "todos: invalid JSON: "+err.Error())
+			s.recordToolResult(call.ID, call.Name, "", true, "todos: invalid JSON: "+err.Error())
 			return
 		}
 	case []any:
@@ -448,10 +526,12 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) {
 		}
 	default:
 		s.emitToolResult(call.ID, call.Name, "", true, "todos: unsupported type")
+		s.recordToolResult(call.ID, call.Name, "", true, "todos: unsupported type")
 		return
 	}
 	if len(parsed) == 0 {
 		s.emitToolResult(call.ID, call.Name, "", true, "todos: empty list")
+		s.recordToolResult(call.ID, call.Name, "", true, "todos: empty list")
 		return
 	}
 
@@ -476,15 +556,42 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) {
 		Type: "todo_list_updated",
 		Data: protocol.EventTodoListUpdated{Todos: items},
 	}
-	s.emitToolResult(call.ID, call.Name, fmt.Sprintf("updated %d todo(s)", len(items)), false, "")
+	out := fmt.Sprintf("updated %d todo(s)", len(items))
+	s.emitToolResult(call.ID, call.Name, out, false, "")
+	s.recordToolResult(call.ID, call.Name, out, false, "")
 }
 
 // handleAskUserQuestion parses an ask_user_question tool
 // call and emits a structured EventUserQuestion. The TUI
 // opens the question panel overlay so the user can pick
-// one of the options interactively. Without this hook the
-// AI fell back to typing the question in chat as plain
-// text and the user had no way to answer it.
+// one of the options interactively. We then BLOCK on
+// s.userAnswerCh until the user submits an answer (or
+// cancels), and the user's response becomes the tool
+// result that the LLM sees in its history. This is the
+// correct shape of the conversation: the LLM asked a
+// question, the user answered it, the model can now act
+// on the answer.
+//
+// The previous version emitted the event and returned a
+// "pending" placeholder string. That broke the API
+// protocol — the LLM had no real answer, so the next turn
+// was rejected with HTTP 400 "tool call and result not
+// match" (providers like MiniMax validate the tool-call
+// ↔ tool-result pairing) and the user couldn't send any
+// more messages.
+//
+// We accept the `options` argument in three formats,
+// because the LLM doesn't always serialise it the same
+// way:
+//
+//   - string:  JSON-encoded array of {label, description} objects
+//   - []any:   already-parsed array of {label, description} objects
+//   - map[string]any: Anthropic-style {"item": [...]}
+//     wrapper, or {"options": [...]}, or {"questions": [...]}
+//
+// In all three cases we end up with a normalised
+// []protocol.EventQuestionOption that the question panel
+// can render.
 func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 	summary := summarizeArgs(call.Arguments)
 	s.emitToolCall(call.ID, call.Name, call.Arguments, summary)
@@ -492,42 +599,30 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 	question, _ := call.Arguments["question"].(string)
 	if question == "" {
 		s.emitToolResult(call.ID, call.Name, "", true, "question is required")
+		s.recordToolResult(call.ID, call.Name, "", true, "question is required")
 		return
 	}
-	raw, _ := call.Arguments["options"].(string)
-	if raw == "" {
-		s.emitToolResult(call.ID, call.Name, "", true, "options is required")
+	opts := parseAskUserQuestionOptions(call.Arguments["options"])
+	if len(opts) < 2 {
+		s.emitToolResult(call.ID, call.Name, "", true, "options: need at least 2 options")
+		s.recordToolResult(call.ID, call.Name, "", true, "options: need at least 2 options")
 		return
+	}
+	if len(opts) > 4 {
+		opts = opts[:4]
 	}
 	header, _ := call.Arguments["header"].(string)
 	if header == "" {
 		header = "Question"
 	}
 
-	var options []struct {
-		Label       string `json:"label"`
-		Description string `json:"description"`
-	}
-	if err := json.Unmarshal([]byte(raw), &options); err != nil {
-		s.emitToolResult(call.ID, call.Name, "", true, "options: invalid JSON: "+err.Error())
-		return
-	}
-	if len(options) < 2 {
-		s.emitToolResult(call.ID, call.Name, "", true, "options: need at least 2 options")
-		return
-	}
-	if len(options) > 4 {
-		options = options[:4]
-	}
-
-	opts := make([]protocol.EventQuestionOption, 0, len(options))
-	for _, o := range options {
-		opts = append(opts, protocol.EventQuestionOption{
-			Title:       o.Label,
-			Description: o.Description,
-		})
-	}
-	s.events <- protocol.SessionEvent{
+	// Emit the question event so the TUI pops the panel.
+	// This is a blocking send — the events channel is
+	// buffered to 64, but if the TUI is wedged (or has
+	// closed) we'd block forever. Guard with a short
+	// timeout via select+default.
+	select {
+	case s.events <- protocol.SessionEvent{
 		Type: "user_question",
 		Data: protocol.EventUserQuestion{
 			Question:    question,
@@ -535,8 +630,166 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 			RichOptions: opts,
 			Category:    header,
 		},
+	}:
+	default:
+		// TUI not listening — degrade to a synchronous
+		// answer of "skip" so the LLM can keep going.
+		out := "skipped (TUI unavailable)"
+		s.emitToolResult(call.ID, call.Name, out, false, "")
+		s.recordToolResult(call.ID, call.Name, out, false, "")
+		return
 	}
-	s.emitToolResult(call.ID, call.Name, "question shown in the TUI; awaiting user answer", false, "")
+
+	// Block until the user answers, cancels, or the
+	// session is closed. The TUI pushes exactly one of:
+	//   - SendUserAnswer(answer, text) for a single answer
+	//   - SendUserAnswerBatch(map) for a multi-question
+	//     batch (the simple ask_user_question path never
+	//     uses this; it's here so any future call to the
+	//     tool that wants multiple questions works)
+	//   - SendClose (when the user quits the TUI) which
+	//     closes s.done
+	var ua userAnswer
+	select {
+	case ua = <-s.userAnswerCh:
+	case <-s.done:
+		// Session was closed while we were waiting.
+		out := "skipped (session closed)"
+		s.emitToolResult(call.ID, call.Name, out, false, "")
+		s.recordToolResult(call.ID, call.Name, out, false, "")
+		return
+	}
+
+	// Build the tool result from the user's response.
+	// The LLM sees this in its history on the next turn
+	// and can act on it directly.
+	var result string
+	switch {
+	case ua.batch != nil:
+		// Multi-question batch: serialise the answers
+		// map so the model gets a structured response.
+		// The format is <id>=<answer> per line, which
+		// reads naturally in chat.
+		var b strings.Builder
+		// Stable order so the model sees the same
+		// string regardless of Go map iteration.
+		ids := make([]string, 0, len(ua.batch))
+		for id := range ua.batch {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			fmt.Fprintf(&b, "%s=%s\n", id, ua.batch[id])
+		}
+		result = strings.TrimRight(b.String(), "\n")
+	case ua.answer == "":
+		// User pressed Esc — tell the LLM they skipped.
+		result = "(user dismissed the question without answering)"
+	default:
+		if ua.text != "" {
+			result = ua.answer + ": " + ua.text
+		} else {
+			result = ua.answer
+		}
+	}
+	s.emitToolResult(call.ID, call.Name, result, false, "")
+	// Record the tool result in history so the LLM
+	// sees the answer on the next turn. The generic
+	// executeToolCall path does this itself, but the
+	// special-case handlers return early and need to
+	// do it explicitly. Without this, the LLM's prior
+	// tool-call has no matching tool-result in its
+	// history, and providers like MiniMax reject the
+	// next request with HTTP 400 "tool call and
+	// result not match".
+	s.recordToolResult(call.ID, call.Name, result, false, "")
+}
+
+// parseAskUserQuestionOptions normalises the `options`
+// argument into []protocol.EventQuestionOption. See the
+// doc-comment on handleAskUserQuestion for the accepted
+// shapes.
+func parseAskUserQuestionOptions(raw any) []protocol.EventQuestionOption {
+	if raw == nil {
+		return nil
+	}
+	// Case 1: JSON-encoded string.
+	if s, ok := raw.(string); ok {
+		var arr []struct {
+			Label       string `json:"label"`
+			Description string `json:"description"`
+		}
+		if err := json.Unmarshal([]byte(s), &arr); err == nil {
+			return toEventOptions(arr)
+		}
+		// Could also be a single object stringified;
+		// try wrapping it in an array.
+		var single struct {
+			Label       string `json:"label"`
+			Description string `json:"description"`
+		}
+		if err := json.Unmarshal([]byte(s), &single); err == nil && single.Label != "" {
+			return toEventOptions([]struct {
+				Label       string `json:"label"`
+				Description string `json:"description"`
+			}{single})
+		}
+		return nil
+	}
+	// Case 2: already-parsed array of objects.
+	if arr, ok := raw.([]any); ok {
+		var out []struct {
+			Label       string `json:"label"`
+			Description string `json:"description"`
+		}
+		for _, item := range arr {
+			if m, ok := item.(map[string]any); ok {
+				var row struct {
+					Label       string `json:"label"`
+					Description string `json:"description"`
+				}
+				if l, ok := m["label"].(string); ok {
+					row.Label = l
+				} else if l, ok := m["title"].(string); ok {
+					row.Label = l
+				}
+				if d, ok := m["description"].(string); ok {
+					row.Description = d
+				}
+				out = append(out, row)
+			}
+		}
+		return toEventOptions(out)
+	}
+	// Case 3: object wrapping an array. Try the common
+	// keys in turn.
+	if m, ok := raw.(map[string]any); ok {
+		for _, key := range []string{"item", "items", "options", "questions"} {
+			if v, ok := m[key]; ok {
+				if opts := parseAskUserQuestionOptions(v); len(opts) > 0 {
+					return opts
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func toEventOptions(arr []struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}) []protocol.EventQuestionOption {
+	out := make([]protocol.EventQuestionOption, 0, len(arr))
+	for _, o := range arr {
+		if o.Label == "" {
+			continue
+		}
+		out = append(out, protocol.EventQuestionOption{
+			Title:       o.Label,
+			Description: o.Description,
+		})
+	}
+	return out
 }
 
 // maybeFireDelayedCancel cancels the running turn's context if the
@@ -737,6 +990,33 @@ func (s *Session) emitToolResult(id, name, output string, isErr bool, errMsg str
 			IsError: isErr,
 		},
 	}
+}
+
+// recordToolResult appends a tool message to the
+// conversation history so the LLM sees the result on the
+// next turn. The generic executeToolCall path does this
+// itself, but the special-case handlers (handleTodoWrite,
+// handleAskUserQuestion) return early and need to record
+// the result themselves. Without this, the LLM's
+// tool-call has no matching tool-result in history and
+// providers like MiniMax reject the next request with
+// HTTP 400 "tool call and result not match".
+func (s *Session) recordToolResult(id, name, output string, isErr bool, errMsg string) {
+	if isErr {
+		output = errMsg
+	}
+	content := fmt.Sprintf("[tool %s] %s", name, output)
+	if isErr {
+		content = fmt.Sprintf("[tool %s] error: %s", name, output)
+	}
+	s.mu.Lock()
+	s.history = append(s.history, provider.Message{
+		Role:       "tool",
+		Content:    content,
+		ToolName:   name,
+		ToolCallID: id,
+	})
+	s.mu.Unlock()
 }
 
 // resolveAPIKey returns the API key for the model, falling back to

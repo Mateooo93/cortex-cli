@@ -643,14 +643,17 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 	lines = append(lines, "")
 
 	// ── Keybind legend ──────────────────────────────────────────
-	// Compact two-column key/value table. Each key gets a tiny
-	// inverse-color badge so it pops against the dim labels.
+	// F1-F4 are now in the tab bar at the top of the screen
+	// (the user asked for them there so the right panel
+	// could dedicate its space to live workflow + todo data).
+	// Only the panel-specific shortcuts live here: Ctrl+T
+	// to start a new session, Ctrl+B to hide the panel, and
+	// `/` to open the slash menu. The per-input keys (Tab
+	// queue, Enter send, Esc cancel) sit in a hint row
+	// directly under the input box so they're visible while
+	// the user is typing.
 	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Keys"))
 	for _, row := range [][2]string{
-		{"F1", "Sessions"},
-		{"F2", "Chat"},
-		{"F3", "Workflows"},
-		{"F4", "Settings"},
 		{"Ctrl+T", "new session"},
 		{"Ctrl+B", "hide panel"},
 		{"/", "slash menu"},

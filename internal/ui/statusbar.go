@@ -51,7 +51,6 @@ func renderStatusBar(
 	s Styles,
 	info StatusBarInfo,
 ) string {
-	badgeStyle := lipgloss.NewStyle().Background(colorSecondary).Foreground(lipgloss.Color("0")).Bold(true)
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 	dimLabel := lipgloss.NewStyle().Foreground(s.ColorDimGray)
 
@@ -123,17 +122,13 @@ func renderStatusBar(
 		centerParts = append(centerParts, wfStyle.Render(wfSeg))
 	}
 
-	// ── Right: F1 F2 F3 F4 tab bar (the one reminder users need) ──────────
-	tabs := badgeStyle.Render(" F1 ") + dimLabel.Render(" ") +
-		badgeStyle.Render(" F2 ") + dimLabel.Render(" ") +
-		badgeStyle.Render(" F3 ") + dimLabel.Render(" ") +
-		badgeStyle.Render(" F4 ")
-
-	// Build the three segments and pad with spaces to fill
-	// the line. Center segment is centred in the remaining
-	// space.
+	// ── Right: nothing (F1-F4 moved to the top tab bar) ──────────
+	// The user asked for the F-key tabs at the top of the
+	// screen (in the tab bar with the section names). The
+	// slim footer no longer duplicates them — it stays
+	// focused on connection, model, context, and elapsed.
 	leftSeg := connStatus
-	rightSeg := tabs
+	rightSeg := ""
 	centerSeg := strings.Join(centerParts, dimLabel.Render("  "))
 
 	leftLen := lipgloss.Width(leftSeg)

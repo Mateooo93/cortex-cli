@@ -33,27 +33,28 @@ func TestSlashMenuIncludesCompact(t *testing.T) {
 }
 
 // TestHandleCommandAction_Compact verifies the
-// "compact_context" action returns a non-nil tea.Cmd (so the
-// TUI can actually fire the compaction).
+// "compact_context" action returns at least one non-nil
+// tea.Cmd (so the TUI can actually fire the compaction
+// and emit a 'compacting context…' status up front so
+// the user sees something happen right away).
 func TestHandleCommandAction_Compact(t *testing.T) {
 	cfg := &cortexconfig.Config{}
 	m := NewModel(&config.Config{}, cfg, nil, true, "", true, true)
 	cmds := m.handleCommandAction("compact_context", nil)
-	// nil session: handler still returns a no-op cmd
-	// (the message is "no active session"), so cmds
-	// should have at least one element.
-	if len(cmds) == 0 {
-		t.Error("expected handleCommandAction to return at least one cmd for compact_context")
+	if len(cmds) < 2 {
+		t.Fatalf("expected at least 2 cmds (status + compact), got %d", len(cmds))
 	}
-	// Run the cmd and verify the result is a compactMsg
-	// with ok=false (because there's no session).
-	if len(cmds) > 0 {
-		msg := cmds[0]()
-		if c, ok := msg.(compactMsg); !ok {
-			t.Errorf("expected compactMsg, got %T", msg)
-		} else if c.ok {
-			t.Error("expected ok=false when no session")
-		}
+	// First cmd: status emit (clearStatusMsgMsg) — the user
+	// sees "compacting context…" right away.
+	// Second cmd: the compaction itself. Run it and
+	// verify the result is a compactMsg with ok=false
+	// (because there's no session).
+	compactCmd := cmds[len(cmds)-1]
+	msg := compactCmd()
+	if c, ok := msg.(compactMsg); !ok {
+		t.Errorf("expected compactMsg from last cmd, got %T", msg)
+	} else if c.ok {
+		t.Error("expected ok=false when no session")
 	}
 }
 

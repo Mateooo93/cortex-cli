@@ -4455,8 +4455,14 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 	switch action {
 	case "compact_context":
 		// /compact slash command. Fire the compaction in
-		// a goroutine so the TUI stays responsive. The
-		// result lands in handleCompactMsg.
+		// a goroutine so the TUI stays responsive. We
+		// emit a 'compacting…' status up front so the
+		// user sees something happen — the LLM summary
+		// call takes 5-15s and without this the TUI
+		// looks frozen. handleCompactMsg replaces it
+		// with the final 'done compacting' / 'compacted
+		// 142k → 4k tokens' result.
+		cmds = append(cmds, m.emitStatusMsg("compacting context…", StatusMsgInfo))
 		cmds = append(cmds, m.compactCmd())
 	case "open_workflow_picker":
 		// /workflow [prompt] slash command. The user

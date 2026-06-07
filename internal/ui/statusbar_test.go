@@ -65,9 +65,11 @@ func TestFormatDuration(t *testing.T) {
 
 // TestRenderStatusBarSlimDefault verifies the new slim footer
 // shows: connection state, model tag, ctx percentage, elapsed
-// time, and the F1/F2/F3 tab bar — all on a single line. The
-// user complained the old 2-line design was cluttered; this
-// test pins the new shape.
+// time — all on a single line. F1-F4 moved to the top tab
+// bar (the user asked for them there) so the slim footer
+// stays focused on readouts. The user complained the old
+// 2-line design was cluttered; this test pins the new
+// shape.
 func TestRenderStatusBarSlimDefault(t *testing.T) {
 	s := NewStyles(true)
 	info := StatusBarInfo{
@@ -82,9 +84,15 @@ func TestRenderStatusBarSlimDefault(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("slim status bar should be 1 line, got %d: %q", len(lines), bar)
 	}
-	for _, want := range []string{"connected", "GPT-5.5", "codex", "12k", "200k", "2:13", "F1", "F2", "F3"} {
+	for _, want := range []string{"connected", "GPT-5.5", "codex", "12k", "200k", "2:13"} {
 		if !strings.Contains(bar, want) {
 			t.Errorf("status bar missing %q, got %q", want, bar)
+		}
+	}
+	// F1-F4 should NOT be in the slim footer anymore.
+	for _, unwanted := range []string{" F1 ", " F2 ", " F3 ", " F4 "} {
+		if strings.Contains(bar, unwanted) {
+			t.Errorf("slim footer should not contain %q (moved to tab bar), got %q", unwanted, bar)
 		}
 	}
 }

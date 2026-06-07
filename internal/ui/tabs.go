@@ -717,14 +717,15 @@ func renderSettingsWizardView(width, height int, s Styles, dimStyle, selectedSty
 // alertBlink is true when some session needs user attention (shown on Chat tab label).
 func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, alertBlink bool) string {
 	type tabDef struct {
-		label string
-		kind  TabKind
+		key  string // "F1" | "F2" | "F3" | "F4"
+		name string // "Sessions" | "Chat" | "Workflows" | "Settings"
+		kind TabKind
 	}
 	defs := []tabDef{
-		{" Sessions ", TabKindSessions},
-		{" Workspace ", TabKindChat},
-		{" Workflows ", TabKindWorkflows},
-		{" Settings ", TabKindSettings},
+		{"F1", "Sessions", TabKindSessions},
+		{"F2", "Chat", TabKindChat},
+		{"F3", "Workflows", TabKindWorkflows},
+		{"F4", "Settings", TabKindSettings},
 	}
 
 	var sepStyle lipgloss.Style
@@ -734,6 +735,18 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 		sepStyle = lipgloss.NewStyle().Foreground(s.ColorBlurBorder)
 	}
 
+	// Key style: inverse for inactive tabs so the keybind
+	// is always visible; primary inverse for the active tab
+	// so the F-key pops on the active tab.
+	keyStyleInactive := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("0")).
+		Background(s.ColorWhite).
+		Bold(true)
+	keyStyleActive := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("0")).
+		Background(colorPrimary).
+		Bold(true)
+
 	var top, mid, bot strings.Builder
 	top.WriteString(" ")
 	mid.WriteString(" ")
@@ -741,13 +754,10 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 	visPos := 1
 
 	for i, d := range defs {
-		if i > 0 {
-			top.WriteString(" ")
-			mid.WriteString(" ")
-			bot.WriteString(sepStyle.Render("─"))
-			visPos++
-		}
-		lw := len(d.label)
+		key := d.key
+		rest := " " + d.name + " "
+		full := key + rest
+		lw := len(full)
 		topLine := "╭" + strings.Repeat("─", lw) + "╮"
 		var botLine string
 		if d.kind == activeTab {
@@ -756,18 +766,28 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 			botLine = "┴" + strings.Repeat("─", lw) + "┴"
 		}
 
-		var textStyle lipgloss.Style
+		var nameStyle lipgloss.Style
 		switch {
 		case d.kind == activeTab:
-			textStyle = s.TabActiveStyle
+			nameStyle = s.TabActiveStyle
 		case alertBlink && d.kind == TabKindSessions:
-			textStyle = s.TabAlertStyle
+			nameStyle = s.TabAlertStyle
 		default:
-			textStyle = s.TabInactiveStyle
+			nameStyle = s.TabInactiveStyle
+		}
+		ks := keyStyleInactive
+		if d.kind == activeTab {
+			ks = keyStyleActive
 		}
 
+		if i > 0 {
+			top.WriteString(" ")
+			mid.WriteString(" ")
+			bot.WriteString(sepStyle.Render("─"))
+			visPos++
+		}
 		top.WriteString(sepStyle.Render(topLine))
-		mid.WriteString(sepStyle.Render("│") + textStyle.Render(d.label) + sepStyle.Render("│"))
+		mid.WriteString(sepStyle.Render("│") + ks.Render(key) + nameStyle.Render(rest) + sepStyle.Render("│"))
 		bot.WriteString(sepStyle.Render(botLine))
 		visPos += lw + 2
 	}

@@ -65,10 +65,19 @@ func TestRightPanel_InfoMode_ShowsContextBar(t *testing.T) {
 	}
 	view := rp.View(40, s, true, "GPT-5.5", nil, nil, info)
 	// Should contain "Model", "Context", "6%" (12k/200k),
-	// "2:13" (elapsed), and the keybind legend.
-	for _, want := range []string{"Model", "Context", "6%", "2:13", "Sessions", "Workflows", "Settings", "Keys"} {
+	// "2:13" (elapsed), and the keybind legend. F1-F4
+	// were moved to the tab bar (the user asked for
+	// them there) so only Ctrl+T / Ctrl+B / `/` remain
+	// in the right panel.
+	for _, want := range []string{"Model", "Context", "6%", "2:13", "Ctrl+T", "Ctrl+B", "Keys"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("info panel missing %q, got:\n%s", want, view)
+		}
+	}
+	// F1-F4 should NOT be in the right panel anymore.
+	for _, unwanted := range []string{"F1 Sessions", "F2 Chat", "F3 Workflows", "F4 Settings"} {
+		if strings.Contains(view, unwanted) {
+			t.Errorf("info panel should not contain %q (moved to tab bar), got:\n%s", unwanted, view)
 		}
 	}
 }

@@ -287,8 +287,20 @@ func (c *SessionClient) SendConfirm(approved, persistDirs bool) error {
 	return nil
 }
 
-// SendUserAnswer answers a single user question.
+// SendUserAnswer answers a single user question. It
+// forwards the answer to the in-process session, which is
+// currently blocked inside handleAskUserQuestion waiting
+// for the user to pick an option in the question panel.
+// The session drops the answer if no question is pending
+// (channel full or panel already closed).
 func (c *SessionClient) SendUserAnswer(answer, text string) error {
+	if c.sess != nil {
+		c.sess.SendUserAnswer(answer, text)
+		return nil
+	}
+	// Fallback: nobody is listening; drop silently. (We
+	// keep the channel send as a defensive no-op in case
+	// a future caller wants the buffered behaviour.)
 	select {
 	case c.userAnswerCh <- userAnswerReq{Answer: answer, Text: text}:
 	default:
@@ -298,6 +310,10 @@ func (c *SessionClient) SendUserAnswer(answer, text string) error {
 
 // SendUserAnswerBatch answers multiple questions at once.
 func (c *SessionClient) SendUserAnswerBatch(answers map[string]string) error {
+	if c.sess != nil {
+		c.sess.SendUserAnswerBatch(answers)
+		return nil
+	}
 	select {
 	case c.userAnswerCh <- userAnswerReq{Answers: answers}:
 	default:
