@@ -480,7 +480,7 @@ func Default() *Config {
 				BaseURL:          "http://127.0.0.1:8000/v1",
 				APIKey:           "",
 				Temperature:      0.2,
-				MaxTokens:        2048,
+				MaxTokens:        16384,
 				ReasoningEffort:  "auto",
 				CortexPromptMode: "minimal",
 			},
@@ -490,7 +490,7 @@ func Default() *Config {
 				BaseURL:     "https://api.openai.com/v1",
 				APIKey:      "",
 				Temperature: 0.2,
-				MaxTokens:   2048,
+				MaxTokens:        16384,
 			},
 			"anthropic": {
 				Provider:    "anthropic",
@@ -498,7 +498,7 @@ func Default() *Config {
 				BaseURL:     "https://api.anthropic.com/v1",
 				APIKey:      "",
 				Temperature: 0.2,
-				MaxTokens:   2048,
+				MaxTokens:        16384,
 			},
 			"ollama": {
 				Provider:    "ollama",
@@ -506,7 +506,7 @@ func Default() *Config {
 				BaseURL:     "http://127.0.0.1:11434/v1",
 				APIKey:      "ollama",
 				Temperature: 0.2,
-				MaxTokens:   2048,
+				MaxTokens:        16384,
 			},
 		},
 		SwarmDefaults: SwarmDefaults{
@@ -729,7 +729,7 @@ func (c *Config) EnsureProviderPresets() {
 				Model:       p.DefaultModel,
 				BaseURL:     p.BaseURL,
 				Temperature: 0.2,
-				MaxTokens:   2048,
+				MaxTokens:        16384,
 			}
 			continue
 		}
@@ -814,7 +814,7 @@ func (c *Config) SetProviderBaseURL(provider, baseURL string) {
 	}
 	if !updated {
 		p, _ := presetForProvider(provider)
-		mc := ModelConfig{Provider: provider, Model: p.DefaultModel, BaseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"), Temperature: 0.2, MaxTokens: 2048}
+		mc := ModelConfig{Provider: provider, Model: p.DefaultModel, BaseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"), Temperature: 0.2, MaxTokens: 16384}
 		if mc.Model == "" {
 			mc.Model = "model"
 		}
@@ -844,7 +844,7 @@ func (c *Config) SetProviderAPIKey(provider, apiKey string) {
 	}
 	if !updated {
 		p, _ := presetForProvider(provider)
-		mc := ModelConfig{Provider: provider, Model: p.DefaultModel, BaseURL: p.BaseURL, APIKey: strings.TrimSpace(apiKey), Temperature: 0.2, MaxTokens: 2048}
+		mc := ModelConfig{Provider: provider, Model: p.DefaultModel, BaseURL: p.BaseURL, APIKey: strings.TrimSpace(apiKey), Temperature: 0.2, MaxTokens: 16384}
 		if mc.Model == "" {
 			mc.Model = "model"
 		}
@@ -940,7 +940,7 @@ func (c *Config) AddCustomProvider(provider, baseURL, apiKey string) string {
 		BaseURL:     strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		APIKey:      strings.TrimSpace(apiKey),
 		Temperature: 0.2,
-		MaxTokens:   2048,
+		MaxTokens:        16384,
 	}
 	return provider
 }

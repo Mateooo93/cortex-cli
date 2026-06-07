@@ -175,7 +175,7 @@ func (t *ReadFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 			maxBytes = int(f)
 		}
 	}
-	full := filepath.Join(ctx.CWD, p)
+	full, _ := resolvePath(ctx.CWD, p)
 	data, err := os.ReadFile(full)
 	if err != nil {
 		return Result{OK: false, Error: err.Error()}, nil
@@ -208,14 +208,27 @@ func (t *WriteFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 	if p == "" || c == "" {
 		return Result{OK: false, Error: "path and content are required"}, nil
 	}
-	full := filepath.Join(ctx.CWD, p)
+	// Auto-correct paths that LOOK like an
+	// absolute path missing the leading slash
+	// (the user-reported bug: the agent wrote
+	// "home/ubuntu/foo.py" expecting
+	// "/home/ubuntu/foo.py" but the tool
+	// created "{cwd}/home/ubuntu/foo.py"
+	// instead). The corrected path + a note
+	// is returned in the tool result so the
+	// model can see what actually happened.
+	full, corrected := resolvePath(ctx.CWD, p)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return Result{OK: false, Error: err.Error()}, nil
 	}
 	if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
 		return Result{OK: false, Error: err.Error()}, nil
 	}
-	return Result{OK: true, Output: fmt.Sprintf("Wrote %d bytes to %s", len(c), full)}, nil
+	output := fmt.Sprintf("Wrote %d bytes to %s", len(c), full)
+	if corrected {
+		output += fmt.Sprintf(" (auto-corrected from %q — you forgot the leading slash on an absolute path; remember to always start absolute paths with /)", p)
+	}
+	return Result{OK: true, Output: output}, nil
 }
 
 type EditFileTool struct{}
@@ -241,7 +254,7 @@ func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 	if p == "" || oldStr == "" {
 		return Result{OK: false, Error: "path and oldString are required"}, nil
 	}
-	full := filepath.Join(ctx.CWD, p)
+	full, corrected := resolvePath(ctx.CWD, p)
 	data, err := os.ReadFile(full)
 	if err != nil {
 		return Result{OK: false, Error: err.Error()}, nil
@@ -254,7 +267,11 @@ func (t *EditFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 	if err := os.WriteFile(full, []byte(newContent), 0o644); err != nil {
 		return Result{OK: false, Error: err.Error()}, nil
 	}
-	return Result{OK: true, Output: fmt.Sprintf("Edited %s (replaced %d chars)", full, len(oldStr))}, nil
+	output := fmt.Sprintf("Edited %s (replaced %d chars)", full, len(oldStr))
+	if corrected {
+		output += fmt.Sprintf(" (auto-corrected from %q)", p)
+	}
+	return Result{OK: true, Output: output}, nil
 }
 
 type ListDirTool struct{}

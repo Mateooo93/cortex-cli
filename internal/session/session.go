@@ -1153,6 +1153,35 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 		CortexPromptMode: mc.CortexPromptMode,
 	}
 
+	// Fix orphan tool results: some strict
+	// providers (MiniMax, certain OpenRouter
+	// backends) reject requests with HTTP 400
+	// 'tool result's tool id() not found' when
+	// a `role: tool` message references a
+	// tool_call_id that the previous assistant
+	// message didn't include in its tool_calls
+	// array. This can happen when:
+	//   - The session was restored from disk
+	//     and the assistant's tool_calls were
+	//     dropped (we only persist the rendered
+	//     chat text) but the tool results were
+	//     kept
+	//   - The LLM emitted an inline `tool_call`
+	//     markdown block AND the provider also
+	//     returned its own tool_calls, and the
+	//     we recorded results for the inline ones
+	//     that the provider didn't recognise
+	//   - A tool result for one turn leaks into
+	//     a later turn (provider error handling)
+	//
+	// Rather than fail the request, we drop any
+	// orphan tool result messages from the
+	// outgoing history. The model still has the
+	// text context from the chat history, so it
+	// can continue the conversation; it just
+	// won't see a tool result for a tool call
+	// it didn't see.
+	req.Messages = stripOrphanToolResults(req.Messages)
 	if s.cfg.Streaming {
 		return prov.Stream(ctx, req, s.onChunk)
 	}
@@ -1284,6 +1313,58 @@ func convertToolsToProvider(reg *tools.Registry) []provider.Tool {
 			Description: t.Description,
 			Parameters:  convertParams(t.Parameters),
 		})
+	}
+	return out
+}
+
+// stripOrphanToolResults walks the outgoing
+// conversation history and drops any `role: tool`
+// message whose tool_call_id doesn't appear in the
+// previous assistant message's tool_calls array.
+// Strict providers (MiniMax, certain OpenRouter
+// backends) reject the request with HTTP 400
+// "tool result's tool id() not found" otherwise.
+// The fix is defensive: we don't trust the history
+// to be perfectly consistent (session restore,
+// inline-vs-provider tool call duplication, etc.
+// can leave dangling tool results), and we'd
+// rather drop a result than fail the whole turn.
+func stripOrphanToolResults(msgs []provider.Message) []provider.Message {
+	if len(msgs) == 0 {
+		return msgs
+	}
+	out := make([]provider.Message, 0, len(msgs))
+	// Set of valid tool_call_ids from the most
+	// recent assistant message that has
+	// tool_calls. A `role: tool` message is only
+	// valid if its tool_call_id is in this set.
+	validIDs := map[string]bool{}
+	for _, m := range msgs {
+		switch m.Role {
+		case "assistant":
+			// Reset: a new assistant message
+			// means previous tool_call_ids are
+			// no longer valid for following
+			// messages. Each assistant turn
+			// owns its own tool_call_ids.
+			validIDs = map[string]bool{}
+			for _, tc := range m.ToolCalls {
+				if tc.ID != "" {
+					validIDs[tc.ID] = true
+				}
+			}
+			out = append(out, m)
+		case "tool":
+			if validIDs[m.ToolCallID] {
+				out = append(out, m)
+			}
+			// else: orphan — drop silently.
+		default:
+			// system / user messages: pass
+			// through, they don't reference
+			// tool_call_ids.
+			out = append(out, m)
+		}
 	}
 	return out
 }
