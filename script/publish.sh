@@ -93,9 +93,17 @@ mkdir -p "$DIST_DIR"
 
 stage_platform() {
   local platform="$1"  # e.g. darwin-arm64
+  # Windows binaries end in .exe (because Go on Linux
+  # / macOS won't auto-append it for GOOS=windows and
+  # the build script's `-o name.exe` is respected
+  # verbatim). All other platforms are bare names.
+  local src_ext=""
+  if [[ "$platform" == windows-* ]]; then
+    src_ext=".exe"
+  fi
   local stage_dir="$DIST_DIR/cortex-${platform}"
   mkdir -p "$stage_dir"
-  cp "$BIN_DIR/cortex-${platform}"  "$stage_dir/cortex"
+  cp "$BIN_DIR/cortex-${platform}${src_ext}"  "$stage_dir/cortex"
   tar -czf "$DIST_DIR/cortex-${platform}.tar.gz" -C "$DIST_DIR" "cortex-${platform}"
   rm -rf "$stage_dir"
 }
