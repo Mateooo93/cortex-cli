@@ -242,7 +242,6 @@ echo "----------------------------------"
 echo ""
 read -r -p "Use this as the Discord changelog? [y/N] " CHANGELOG_OK || CHANGELOG_OK=""
 if [[ -z "${YES:-}" ]] && [[ ! "$CHANGELOG_OK" =~ ^[Yy]$ ]]; then
-if [[ ! "$CHANGELOG_OK" =~ ^[Yy]$ ]]; then
   echo "Aborted by user."
   exit 1
 fi
