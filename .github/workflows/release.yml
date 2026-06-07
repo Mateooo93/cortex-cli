@@ -138,7 +138,8 @@ jobs:
           ./script/publish.sh "$VERSION" \
             --repo "${{ github.repository }}" \
             --changelog "$CHANGELOG_FILE" \
-            --force
+            --force \
+            --yes
 
       - name: Update Homebrew tap
         if: env.HOMEBREW_TAP_TOKEN != ''

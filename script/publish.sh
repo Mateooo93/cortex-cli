@@ -2,12 +2,13 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 <version> --repo <owner/repo> [--force] [--changelog <path>]"
+  echo "Usage: $0 <version> --repo <owner/repo> [--force] [--changelog <path>] [--yes]"
   echo "  e.g. $0 v0.1.0 --repo Mateooo93/cortex-cli"
   echo ""
   echo "  --force              Delete existing release before creating a new one"
   echo "  --changelog <path>   Use contents of this file as the changelog"
   echo "                       (skips git-log derivation; confirmation prompt still shown)"
+  echo "  --yes                Skip the confirmation prompt (for CI/automated runs)"
   exit 1
 }
 
@@ -29,6 +30,10 @@ while [[ $# -gt 0 ]]; do
     --changelog)
       CHANGELOG_FILE="$2"
       shift 2
+      ;;
+    --yes)
+      YES=1
+      shift
       ;;
     -h|--help)
       usage
@@ -235,7 +240,8 @@ echo "----- Changelog $RANGE_LABEL -----"
 echo "$CHANGELOG"
 echo "----------------------------------"
 echo ""
-read -r -p "Use this as the Discord changelog? [y/N] " CHANGELOG_OK
+read -r -p "Use this as the Discord changelog? [y/N] " CHANGELOG_OK || CHANGELOG_OK=""
+if [[ -z "${YES:-}" ]] && [[ ! "$CHANGELOG_OK" =~ ^[Yy]$ ]]; then
 if [[ ! "$CHANGELOG_OK" =~ ^[Yy]$ ]]; then
   echo "Aborted by user."
   exit 1
