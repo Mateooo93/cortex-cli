@@ -108,10 +108,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
           OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
-          # Don't pass OPENCODE_API_KEY - let opencode use GITHUB_TOKEN for GitHub ops
         run: |
           ISSUE_NUM=${{ steps.get-issue.outputs.issue_number }}
-          opencode run "Fix issue #$ISSUE_NUM. Read the issue, understand the problem, implement the fix, and create a PR with the changes. Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen."
+          # Use opencode to make code changes locally (Zen only does inference)
+          opencode run "Fix issue #$ISSUE_NUM. Read the issue, understand the problem, and implement the fix in the codebase. Make all necessary code changes. Do NOT create a PR - just make the changes locally."
 
       - name: Find created PR
         id: create-pr
@@ -127,6 +127,25 @@ jobs:
             if [[ -n "$PR_NUMBER" ]]; then
               echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
             fi
+          fi
+
+      - name: Commit changes and create PR if opencode made changes
+        if: steps.create-pr.outputs.pr_number == ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUM=${{ steps.get-issue.outputs.issue_number }}
+          # Check if there are any changes
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git checkout -b "auto-fix/issue-$ISSUE_NUM"
+            git add -A
+            git commit -m "Fix issue #$ISSUE_NUM [auto-fix]"
+            git push origin "auto-fix/issue-$ISSUE_NUM"
+            gh pr create --title "Auto-fix for issue #$ISSUE_NUM" --body "Fixes #$ISSUE_NUM" --base main --head "auto-fix/issue-$ISSUE_NUM"
+          else
+            echo "No changes made by opencode"
           fi
 
   # Validate PR after fix
@@ -205,9 +224,24 @@ jobs:
 
           $REVIEW
 
-          Please address all CodeRabbit review comments. Make the necessary changes and push to the same PR branch.
+          Please address all CodeRabbit review comments. Make the necessary code changes locally. Do NOT create a PR - just make the changes.
           Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen.
           "
+
+      - name: Commit and push CodeRabbit fixes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ needs.detect-and-fix.outputs.pr_number }}
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "Address CodeRabbit review on PR #$PR_NUMBER [auto-fix]"
+            git push origin HEAD
+          else
+            echo "No changes needed"
+          fi
 
   # Monitor for new CodeRabbit reviews on existing PRs (scheduled - runs every minute)
   monitor-coderabbit:
@@ -259,9 +293,19 @@ jobs:
 
             $FULL_REVIEW
 
-            Please address all CodeRabbit review comments. Make the necessary changes and push to the same PR branch.
+            Please address all CodeRabbit review comments. Make the necessary code changes locally. Do NOT create a PR - just make the changes.
             Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen.
             "
+            # Commit and push the fixes
+            if ! git diff --quiet; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add -A
+              git commit -m "Address CodeRabbit review on PR #$PR_NUMBER [auto-fix]"
+              git push origin HEAD
+            else
+              echo "No changes needed for PR #$PR_NUMBER"
+            fi
           done
 
   # Cron to monitor issues every minute
