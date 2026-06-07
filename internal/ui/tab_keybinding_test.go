@@ -101,10 +101,23 @@ func TestRenderTabBar_FKeysAfterName(t *testing.T) {
 	// Strip ANSI escape sequences so the substring check
 	// works regardless of style.
 	plain := stripANSI(bar)
-	for _, want := range []string{"Sessions (F1)", "Chat (F2)", "Workflows (F3)", "Settings (F4)"} {
+	// The Workflows tab was removed from the UI per
+	// the user-reported request 'workflows and stuff
+	// like that isnt really clear and kinda messy
+	// maybe we just remove it completely (workflows)'.
+	// The user chose 'hide tab, keep /workflow +
+	// dispatch_workflow', so the tab bar now has
+	// 3 tabs: Sessions (F1), Chat (F2), Settings (F3).
+	for _, want := range []string{"Sessions (F1)", "Chat (F2)", "Settings (F3)"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("tab bar missing %q, got:\n%s", want, plain)
 		}
+	}
+	// The Workflows tab should NOT appear in the
+	// tab bar (still accessible via /workflow and
+	// dispatch_workflow, just no tab).
+	if strings.Contains(plain, "Workflows") {
+		t.Errorf("tab bar should not contain 'Workflows' (tab removed from UI), got:\n%s", plain)
 	}
 	// The old F-key badge style (" F1 " with surrounding
 	// spaces) is gone — make sure we don't have any of
@@ -116,15 +129,19 @@ func TestRenderTabBar_FKeysAfterName(t *testing.T) {
 	}
 }
 
-// TestRenderTabBar_AllFourTabs verifies the bar shows exactly
-// four tabs (Sessions, Chat, Workflows, Settings) with the
-// correct F-key for each. Regression test for a bug where the
-// Workflows tab was missing.
-func TestRenderTabBar_AllFourTabs(t *testing.T) {
+// TestRenderTabBar_AllThreeTabs verifies the bar shows exactly
+// three tabs (Sessions, Chat, Settings) with the correct F-key
+// for each. The Workflows tab was removed from the UI per
+// the user-reported request 'workflows and stuff like that
+// isnt really clear and kinda messy maybe we just remove it
+// completely (workflows)'. The /workflow command and the
+// LLM's dispatch_workflow tool still work; only the
+// dedicated UI tab is gone.
+func TestRenderTabBar_AllThreeTabs(t *testing.T) {
 	s := NewStyles(true)
 	bar := renderTabBar(TabKindSettings, 120, s, true, false)
 	plain := stripANSI(bar)
-	for _, want := range []string{"Sessions", "Chat", "Workflows", "Settings", "(F1)", "(F2)", "(F3)", "(F4)"} {
+	for _, want := range []string{"Sessions", "Chat", "Settings", "(F1)", "(F2)", "(F3)"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("tab bar missing %q, got:\n%s", want, plain)
 		}

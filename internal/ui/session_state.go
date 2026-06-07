@@ -13,6 +13,80 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/workflow"
 )
 
+// RecentToolStatus is the lifecycle state of a
+// single tool call as it appears in the bottom
+// activity strip. The strip is rendered as a FIFO
+// of these entries.
+type RecentToolStatus int
+
+const (
+	RecentToolPending RecentToolStatus = iota // tool call issued, no result yet
+	RecentToolDone                            // tool returned successfully
+	RecentToolFailed                          // tool returned an error
+)
+
+// RecentToolEntry is one row in the bottom activity
+// strip. The user requested a Claude-Code-style
+// compact view of "sub-agents" (i.e. tool calls the
+// main agent is making) at the bottom of the chat.
+// We track each tool call with enough metadata to
+// render a one-liner like:
+//     ● read_file  internal/ui/model.go    2.1s
+//     ✓ edit_file  internal/ui/foo.go      done
+//     ✗ run_shell  npm test               failed
+// The StartedAt time drives the elapsed timer; the
+// strip auto-fades old entries off the end of the
+// buffer once we hit recentToolsMax (5).
+type RecentToolEntry struct {
+	ToolID    string
+	Name      string
+	Summary   string
+	StartedAt time.Time
+	EndedAt   time.Time
+	Status    RecentToolStatus
+	// IsError is true when the tool returned a
+	// non-zero exit / error. Drives the "✗"
+	// prefix in the strip.
+	IsError bool
+}
+
+const recentToolsMax = 5
+
+// pushRecentTool appends a new entry to the
+// session's recent-tools FIFO, dropping the oldest
+// entry if the buffer is full. Pure function over
+// the entry slice — no locking required since the
+// caller (the Update goroutine) is the only writer.
+func (s *SessionState) pushRecentTool(e RecentToolEntry) {
+	if len(s.RecentTools) >= recentToolsMax {
+		// Drop the oldest. The slice is small (max
+		// 5) so a simple in-place shift is fine.
+		s.RecentTools = s.RecentTools[1:]
+	}
+	s.RecentTools = append(s.RecentTools, e)
+}
+
+// markRecentToolDone updates the status (and
+// EndedAt time) of the most recent pending entry
+// matching toolID. No-op if no match is found
+// (e.g. the tool result arrived for a tool we
+// didn't see the start of, which can happen after
+// a session restore).
+func (s *SessionState) markRecentToolDone(toolID string, isError bool) {
+	for i := len(s.RecentTools) - 1; i >= 0; i-- {
+		if s.RecentTools[i].ToolID == toolID && s.RecentTools[i].Status == RecentToolPending {
+			s.RecentTools[i].EndedAt = time.Now()
+			s.RecentTools[i].IsError = isError
+			if isError {
+				s.RecentTools[i].Status = RecentToolFailed
+			} else {
+				s.RecentTools[i].Status = RecentToolDone
+			}
+			return
+		}
+	}
+}
+
 // SessionState holds all accumulated UI state for a single agent session.
 // Sessions are independent objects — the Chat tab renders whichever session
 // is currently selected. Messages accumulate continuously from daemon events
@@ -43,6 +117,18 @@ type SessionState struct {
 	thinkingBuf       string
 	thinkingRendered  string
 	showThinking      bool
+
+	// RecentTools is a compact FIFO of the last few
+	// tool calls made by the main agent. The UI
+	// renders this as a Claude-Code-style activity
+	// strip at the bottom of the chat tab so the
+	// user can see at a glance what the agent is
+	// currently doing (e.g. "● read_file
+	// internal/ui/model.go" with a spinner) and
+	// what's about to be sent to the model. We
+	// keep at most 5 entries (the strip is 1 line
+	// tall; more would overflow).
+	RecentTools []RecentToolEntry
 
 	// Agent / workflow state
 	agentState     AppState

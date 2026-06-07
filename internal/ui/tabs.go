@@ -739,11 +739,21 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 		key  string // "F1" | "F2" | "F3" | "F4"
 		kind TabKind
 	}
+	// Tab bar definition. The Workflows tab was
+	// removed from the UI per the user-reported
+	// request: 'workflows and stuff like that isnt
+	// really clear and kinda messy maybe we just
+	// remove it completely (workflows)'. The user
+	// chose 'hide tab, keep /workflow + dispatch_workflow',
+	// so the TabKindWorkflows constant and the
+	// /workflow command + dispatch_workflow tool
+	// still work — they just can't be reached via
+	// the tab bar. To open a workflow, type
+	// '/workflow <prompt>' in the chat input.
 	defs := []tabDef{
 		{"Sessions", "F1", TabKindSessions},
 		{"Chat", "F2", TabKindChat},
-		{"Workflows", "F3", TabKindWorkflows},
-		{"Settings", "F4", TabKindSettings},
+		{"Settings", "F3", TabKindSettings},
 	}
 
 	var sepStyle lipgloss.Style

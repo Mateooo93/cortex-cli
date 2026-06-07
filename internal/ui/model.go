@@ -2412,19 +2412,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Batch(cmds...)
 			case "f3":
-				m.activeTab = TabKindWorkflows
+				// F3 used to open the Workflows tab,
+				// which was removed from the UI per
+				// the user-reported request:
+				// 'workflows and stuff like that
+				// isnt really clear and kinda messy
+				// maybe we just remove it completely'.
+				// The user chose 'hide tab, keep
+				// /workflow + dispatch_workflow', so
+				// F3 is now a no-op when in the
+				// Sessions tab. The /workflow command
+				// and the LLM's dispatch_workflow
+				// tool still work in the background.
 				m.sessionsInput.Blur()
-				// Start the 1Hz tick that keeps the
-				// workflow elapsed timers + per-step
-				// spinners live. The user reported:
-				// 'the workflow time spent clock
-				// doesnt update when looking only
-				// updates when i change tabs'. The
-				// tick is self-stopping (see
-				// workflowTickMsg handler) so it
-				// doesn't burn CPU when no
-				// workflows are running.
-				cmds = append(cmds, workflowTick())
 				return m, tea.Batch(cmds...)
 			case "f4":
 				m.openSettingsTab()
@@ -2626,9 +2626,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						cmds = append(cmds, s.thinkingAnim.Resume())
 					}
 				case "f3":
-					m.activeTab = TabKindWorkflows
+					// Already here (F3 = Settings in
+					// the new tab bar; the Workflows
+					// tab was removed from the UI)
 				case "f4":
-					// Already here
+					// Legacy F4-Settings binding,
+					// still respected for muscle
+					// memory
 				}
 			} else {
 				// Other Settings section
@@ -2697,78 +2701,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						cmds = append(cmds, s.thinkingAnim.Resume())
 					}
 				case "f3":
-					m.activeTab = TabKindWorkflows
+					// Already here (F3 = Settings in
+					// the new tab bar; the Workflows
+					// tab was removed from the UI)
 				case "f4":
-					// Already here
+					// Legacy F4-Settings binding
 				}
 			}
 			return m, tea.Batch(cmds...)
 		}
 
 		// --- Workflows tab key handling ---
+		// The Workflows tab was removed from the UI
+		// (see tabs.go / model.go F-key handlers), but
+		// the TabKindWorkflows code path is preserved
+		// in case future code re-introduces it. If
+		// activeTab is somehow still TabKindWorkflows
+		// (e.g. loaded from a session restore), just
+		// bounce back to Chat so the user isn't stuck
+		// in a tab they can't see in the tab bar.
 		if m.activeTab == TabKindWorkflows {
-			key := msg.String()
-			// Lazy-init the per-session workflow engine
-			// if it isn't there yet. Switching to the
-			// Workflows tab before any workflow has been
-			// started shouldn't crash; the user just sees
-			// the empty-state prompt ("Start one with
-			// /workflow <prompt>"). Without this guard
-			// the empty engine's Workflows() panicked
-			// with a nil pointer dereference.
-			engine := sess.EnsureWorkflowEngine(m.cortexCfg)
-			flows := engine.Workflows()
-			switch key {
-			case "up", "k":
-				if m.workflowsSelected > 0 {
-					m.workflowsSelected--
-				}
-			case "down", "j":
-				if m.workflowsSelected < len(flows)-1 {
-					m.workflowsSelected++
-				}
-			case "c":
-				// Cancel the selected workflow.
-				if m.workflowsSelected < len(flows) {
-					id := flows[m.workflowsSelected].ID
-					engine.Cancel(id)
-					cmds = append(cmds, m.emitStatusMsg("cancelling workflow", StatusMsgInfo))
-				}
-			case "s":
-				// Stop the currently-running step in the
-				// selected workflow. We use the same
-				// cancel mechanism but only for one
-				// step.
-				if m.workflowsSelected < len(flows) {
-					id := flows[m.workflowsSelected].ID
-					snap := engine.Snapshot(id)
-					for _, st := range snap.Steps {
-						if st.Status == workflow.StepInProgress {
-							engine.CancelStep(id, st.ID)
-							cmds = append(cmds, m.emitStatusMsg("stopped step: "+st.Role+" ("+st.Description+")", StatusMsgInfo))
-							break
-						}
-					}
-				}
-			case "esc":
-				// Same as F2 — jump back to chat.
-				m.activeTab = TabKindChat
-				if s := m.currentSession(); s != nil {
-					s.unreadCount = 0
-					cmds = append(cmds, s.thinkingAnim.Resume())
-				}
-			case "f1":
-				m.activeTab = TabKindSessions
-				m.syncSessionsSelected()
-				cmds = append(cmds, m.sessionsInput.Focus())
-			case "f2":
-				m.activeTab = TabKindChat
-				if s := m.currentSession(); s != nil {
-					s.unreadCount = 0
-					cmds = append(cmds, s.thinkingAnim.Resume())
-				}
-			case "f4":
-				m.openSettingsTab()
+			m.activeTab = TabKindChat
+			if s := m.currentSession(); s != nil {
+				s.unreadCount = 0
+				cmds = append(cmds, s.thinkingAnim.Resume())
 			}
 			return m, tea.Batch(cmds...)
 		}
@@ -3109,22 +3065,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 
 		case "f3":
-			// Open the Workflows tab (between Workspace
-			// and Settings). Shows the list of saved +
-			// active workflows, with a detail panel for
-			// the active one.
-			m.activeTab = TabKindWorkflows
-			if sess := m.currentSession(); sess != nil {
-				sess.unreadCount = 0
-			}
-			// Start the 1Hz tick that keeps the
-			// workflow elapsed timers + per-step
-			// spinners live. Self-stopping when no
-			// workflows are running.
-			cmds = append(cmds, workflowTick())
+			// F3 = Settings (was F4 before the
+			// Workflows tab was removed from the
+			// UI). The /workflow command and
+			// dispatch_workflow tool still work in
+			// the background; this is just the
+			// visible tab bar.
+			m.openSettingsTab()
 			return m, tea.Batch(cmds...)
 
 		case "f4":
+			// Legacy F4-Settings binding preserved
+			// for muscle memory.
 			m.openSettingsTab()
 			return m, tea.Batch(cmds...)
 
@@ -4185,6 +4137,21 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		chatIdx := len(sess.chatMessages)
 		sess.chatMessages = append(sess.chatMessages, renderToolCall(tc.Name, tc.Summary, tc.Reason,
 			[4]string{tc.ReasonNotReadFile, tc.ReasonNotEditFile, tc.ReasonNotGlobFiles, tc.ReasonToIncreaseTimeout}, m.styles))
+		// Push to the bottom activity strip. The
+		// user requested a Claude-Code-style
+		// compact view of "sub-agents" (tool
+		// calls the main agent is making) at the
+		// bottom of the chat, so they can see at
+		// a glance what the agent is currently
+		// doing without scrolling through the
+		// chat history.
+		sess.pushRecentTool(RecentToolEntry{
+			ToolID:    tc.ToolID,
+			Name:      tc.Name,
+			Summary:   tc.Summary,
+			StartedAt: time.Now(),
+			Status:    RecentToolPending,
+		})
 		if tc.ToolID != "" {
 			if sess.pendingTools == nil {
 				sess.pendingTools = make(map[string]int)
@@ -4196,6 +4163,12 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var tr protocol.EventToolResult
 		json.Unmarshal(data, &tr)
+		// Mark the matching entry in the bottom
+		// activity strip as done/failed. We do
+		// this BEFORE the chat-message mutation
+		// below so the strip updates at the same
+		// instant the result appears in the chat.
+		sess.markRecentToolDone(tr.ToolID, tr.IsError)
 		detail := tr.Detail
 		if sess.confirmDetailShown && tr.Name == sess.confirmToolName {
 			detail = ""
@@ -4686,6 +4659,36 @@ func (m Model) View() tea.View {
 		} else {
 			inputSection = renderInputBox("Chat", false, "", m.width, false, m.styles.ColorBlurBorder)
 		}
+
+		// Bottom activity strip — Claude-Code-style
+		// compact view of recent tool calls. The
+		// user requested: "sub agents run by the
+		// main ai agent should appear in the bottom
+		// like claude code". We render the strip
+		// ABOVE the input box (between the chat
+		// viewport and the input) so it doesn't
+		// overlap the input area. The strip is 1
+		// row tall; when there are no recent tool
+		// calls it's empty and we skip drawing
+		// entirely so the chat viewport gets the
+		// row back.
+		//
+		// The strip is drawn at y - 1 (one row
+		// above the input), and the chat viewport
+		// height is reduced by 1 when the strip is
+		// visible. We also bump the chatHeight
+		// down so the chat doesn't get pushed up
+		// by the strip — the chat and the strip
+		// share the same vertical region.
+		if sess != nil {
+			if strip := renderActivityStrip(sess, m.width, m.workflowAnimFrame); strip != "" {
+				stripStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color("240")).
+					Width(m.width)
+				uv.NewStyledString(stripStyle.Render(strip)).Draw(canvas, image.Rect(0, y-1, m.width, y))
+			}
+		}
+
 		uv.NewStyledString(inputSection).Draw(canvas, image.Rect(0, y, m.width, y+layout.InputHeight))
 		y += layout.InputHeight
 
