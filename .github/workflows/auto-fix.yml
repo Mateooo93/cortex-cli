@@ -108,7 +108,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
           OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
         run: |
           ISSUE_NUM=${{ steps.get-issue.outputs.issue_number }}
           opencode run "Fix issue #$ISSUE_NUM. Read the issue, understand the problem, implement the fix, and create a PR with the changes. Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen."
@@ -195,7 +195,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
           OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUMBER=${{ needs.detect-and-fix.outputs.pr_number }}
@@ -247,7 +247,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
           OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for PR_NUMBER in ${{ steps.find-prs.outputs.prs }}; do
