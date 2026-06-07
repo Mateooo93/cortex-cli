@@ -129,9 +129,15 @@ jobs:
         run: |
           set -euo pipefail
           echo "==> Publishing $VERSION"
+          # Process substitution `<( ... )` doesn't work
+          # inside the runner's /bin/bash -e shell. Write
+          # the changelog to a real file first, then pass
+          # that file's path to publish.sh.
+          CHANGELOG_FILE="$(mktemp)"
+          git log -1 --pretty=%B > "$CHANGELOG_FILE"
           ./script/publish.sh "$VERSION" \
             --repo "${{ github.repository }}" \
-            --changelog <(git log -1 --pretty=%B) \
+            --changelog "$CHANGELOG_FILE" \
             --force
 
       - name: Update Homebrew tap
