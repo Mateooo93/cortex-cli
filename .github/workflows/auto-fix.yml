@@ -109,7 +109,7 @@ jobs:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         run: |
           ISSUE_NUM=${{ steps.get-issue.outputs.issue_number }}
-          opencode -p "Fix issue #$ISSUE_NUM. Read the issue, understand the problem, implement the fix, and create a PR with the changes. Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen."
+          opencode run "Fix issue #$ISSUE_NUM. Read the issue, understand the problem, implement the fix, and create a PR with the changes. Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen."
 
       - name: Find created PR
         id: create-pr
@@ -193,12 +193,12 @@ jobs:
         run: |
           PR_NUMBER=${{ needs.detect-and-fix.outputs.pr_number }}
           ISSUE_NUM=${{ needs.detect-and-fix.outputs.issue_number }}
-          REVIEW=$(cat coderabbit_review.txt)
-          opencode -p "
+          # Send to opencode with the review context to fix the issues
+          opencode run "
           PR #$PR_NUMBER (for issue #$ISSUE_NUM) received a CodeRabbit review with the following feedback:
-
+          
           $REVIEW
-
+          
           Please address all CodeRabbit review comments. Make the necessary changes and push to the same PR branch.
           Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen.
           "
@@ -241,11 +241,11 @@ jobs:
             REVIEW_BODY=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews --jq '.[] | select(.user.login=="coderabbitai" and .state=="CHANGES_REQUESTED") | .body' | tail -1)
             REVIEW_COMMENTS=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER/comments --jq '.[] | select(.user.login=="coderabbitai") | .body')
             FULL_REVIEW="${REVIEW_BODY}\n\n--- Inline Comments ---\n${REVIEW_COMMENTS}"
-            opencode -p "
-            PR #$PR_NUMBER (for issue #$ISSUE_NUM) received a CodeRabbit review requesting changes:
-
+            opencode run "
+            PR #$PR_NUMBER (for issue #$ISSUE_NUM) received a CodeRabbit review with the following feedback:
+            
             $FULL_REVIEW
-
+            
             Please address all CodeRabbit review comments. Make the necessary changes and push to the same PR branch.
             Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen.
             "
