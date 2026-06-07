@@ -20,6 +20,16 @@ on:
         required: false
         default: ""
 
+# Concurrency control: cancel any in-progress release
+# when a new push to main arrives. Without this, the
+# workflow would run twice (once for the merge commit,
+# once for a follow-up commit on the same PR), and the
+# second run would race the first. The user noticed
+# "2 github action workflows running" — this is the fix.
+concurrency:
+  group: release
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
