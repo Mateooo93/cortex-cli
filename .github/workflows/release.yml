@@ -1,0 +1,147 @@
+name: Release
+
+# Auto-release on merge to main.
+# Version is derived from the merged PR's "fixes #N" / "closes #N" reference.
+# Triggers:
+#   - push to main
+#   - manual dispatch (with optional version override)
+#
+# Requires these repo secrets:
+#   GITHUB_TOKEN     (auto-provided)
+#   HOMEBREW_TAP_TOKEN  (PAT with 'repo' scope on the homebrew-cortex tap repo)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Override version (e.g. v1.2.3). Leave empty to auto-derive from PR."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Derive version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+            echo "Using manually supplied version: $VERSION"
+          else
+            # Read the issue number from the most recent merge commit on main
+            # and bump the patch version from the latest tag.
+            # Pull "fixes #N" or "closes #N" out of the merge commit subject.
+            MERGE_MSG=$(git log -1 --pretty=%s)
+            echo "Merge commit: $MERGE_MSG"
+            ISSUE_NUM=$(echo "$MERGE_MSG" | grep -oiE '(fixes|closes|resolves)\s+#([0-9]+)' \
+                        | grep -oE '[0-9]+' | head -n1 || true)
+
+            # Latest existing tag (e.g. v0.0.5) — fall back to v0.0.0
+            LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            echo "Latest tag: $LATEST"
+
+            # Strip leading 'v' and split into parts
+            VER="${LATEST#v}"
+            MAJOR=$(echo "$VER" | cut -d. -f1)
+            MINOR=$(echo "$VER" | cut -d. -f2)
+            PATCH=$(echo "$VER" | cut -d. -f3)
+
+            if [[ -n "$ISSUE_NUM" ]]; then
+              # If we already have a tag matching the issue number, no-op
+              EXPECTED="v$MAJOR.$MINOR.$ISSUE_NUM"
+              if git rev-parse "$EXPECTED" >/dev/null 2>&1; then
+                echo "Tag $EXPECTED already exists; skipping release."
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              PATCH="$ISSUE_NUM"
+            else
+              # No issue number found — bump patch by 1
+              PATCH=$((PATCH + 1))
+            fi
+
+            VERSION="v$MAJOR.$MINOR.$PATCH"
+            echo "Derived version: $VERSION"
+          fi
+
+          # Sanity check: must look like vX.Y.Z
+          if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "!! Invalid version: $VERSION (must be vX.Y.Z)"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if already released
+        if: steps.version.outputs.skip == 'true'
+        run: |
+          echo "Nothing to do — release already exists."
+          exit 0
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "==> Building $VERSION"
+          make build-web
+          ./script/build.sh --version "$VERSION" --force
+
+      - name: Publish release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          # publish.sh uses GITHUB_TOKEN implicitly via gh
+        run: |
+          set -euo pipefail
+          echo "==> Publishing $VERSION"
+          ./script/publish.sh "$VERSION" \
+            --repo "${{ github.repository }}" \
+            --changelog <(git log -1 --pretty=%B) \
+            --force
+
+      - name: Update Homebrew tap
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "==> Updating tap ${{ github.repository_owner }}/homebrew-cortex"
+          ./script/update-tap.sh "$VERSION" \
+            --tap "${{ github.repository_owner }}/homebrew-cortex" || \
+            echo "!! Tap update failed; the GitHub release is still published."
+
+      - name: Tag the release
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "==> Tagging $VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "$VERSION"
