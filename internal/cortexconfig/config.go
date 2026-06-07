@@ -571,13 +571,26 @@ func Load() (*Config, error) {
 	// field is absent from the YAML. yaml.Unmarshal leaves
 	// missing bool fields as false even if the default is
 	// true, which silently turned streaming / showUsage /
-	// autoCompact OFF for users who had a config from before
-	// those settings existed. We detect the absence by
-	// checking the raw YAML for the key. If the user has
-	// explicitly set the field (any value, including false),
-	// we respect their choice.
+	// autoCompact / tool permissions OFF for users who had a
+	// config from before those settings existed. We detect the
+	// absence by checking the raw YAML for the key. If the
+	// user has explicitly set the field (any value, including
+	// false), we respect their choice.
+	//
+	// Bug history: the original loader only re-applied
+	// streaming / showUsage / autoCompact. The tools block
+	// (allowShell / allowWrite / allowGit) was missing, so a
+	// user upgrading from a pre-tools config ended up with all
+	// three permissions stuck at false — every shell / file
+	// write tool call returned "X is disabled in config" even
+	// though the user had never opted out. The user reported
+	// this as "default settings i told you to keep on earlier
+	// arent left on" and "shell execution is disabled in
+	// config" errors flooding the chat. Fixed by extending
+	// hasField coverage to the tool permissions.
 	hasField := func(name string) bool {
 		return bytes.Contains(data, []byte("\n"+name+":")) ||
+			bytes.Contains(data, []byte(" "+name+":")) ||
 			bytes.HasPrefix(data, []byte(name+":"))
 	}
 	if !hasField("streaming") {
@@ -588,6 +601,20 @@ func Load() (*Config, error) {
 	}
 	if !hasField("autoCompact") {
 		cfg.AutoCompact = true
+	}
+	// Tool permissions default to true. If the user has
+	// explicitly disabled one we keep their choice; if the
+	// field is missing entirely we re-apply the default so an
+	// upgrade from a pre-tools config doesn't silently turn
+	// the agent's hands behind its back.
+	if !hasField("allowShell") {
+		cfg.Tools.AllowShell = true
+	}
+	if !hasField("allowWrite") {
+		cfg.Tools.AllowWrite = true
+	}
+	if !hasField("allowGit") {
+		cfg.Tools.AllowGit = true
 	}
 	cfg.EnsureProviderPresets()
 	return cfg, nil

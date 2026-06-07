@@ -398,21 +398,40 @@ func (s *Session) runTurn(parent context.Context, text string, attachments []pro
 	}
 }
 
-func (s *Session) emitAgentDone() {
+// safeEmit sends an event to s.events, dropping it if no
+// one is listening (TUI is wedged) and recovering if the
+// channel has been closed (SendClose was called while a
+// goroutine was still in the middle of runTurn).
+//
+// The "send on closed channel" panic was the root cause of
+// the user-reported "AI doesn't respond at all" symptom
+// when they created a new session, sent a message, and then
+// the TUI quit (or the session was torn down) before the
+// goroutine finished. The goroutine would panic in its
+// defer emitAgentDone, the Bubble Tea program would
+// receive the panic and exit abruptly, and any subsequent
+// messages routed to that session's client would silently
+// fail because the underlying session was already shut
+// down. Fix: every emit() helper now wraps the send in a
+// defer/recover so a closed channel is treated as a
+// drop-the-event condition, not a fatal panic.
+func (s *Session) safeEmit(ev protocol.SessionEvent) {
+	defer func() { _ = recover() }()
 	select {
-	case s.events <- protocol.SessionEvent{Type: "agent_done"}:
+	case s.events <- ev:
 	default:
 	}
 }
 
+func (s *Session) emitAgentDone() {
+	s.safeEmit(protocol.SessionEvent{Type: "agent_done"})
+}
+
 func (s *Session) emitError(err error) {
-	select {
-	case s.events <- protocol.SessionEvent{
+	s.safeEmit(protocol.SessionEvent{
 		Type: "error",
 		Data: protocol.EventError{Message: err.Error()},
-	}:
-	default:
-	}
+	})
 }
 
 // extractInlineToolCalls parses ```tool_call {...}``` blocks from
@@ -552,10 +571,10 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) {
 			Status:  protocol.TodoStatus(status),
 		})
 	}
-	s.events <- protocol.SessionEvent{
+	s.safeEmit(protocol.SessionEvent{
 		Type: "todo_list_updated",
 		Data: protocol.EventTodoListUpdated{Todos: items},
-	}
+	})
 	out := fmt.Sprintf("updated %d todo(s)", len(items))
 	s.emitToolResult(call.ID, call.Name, out, false, "")
 	s.recordToolResult(call.ID, call.Name, out, false, "")
@@ -620,7 +639,10 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 	// This is a blocking send — the events channel is
 	// buffered to 64, but if the TUI is wedged (or has
 	// closed) we'd block forever. Guard with a short
-	// timeout via select+default.
+	// timeout via select+default, and recover from
+	// "send on closed channel" panics (via safeEmit).
+	sent := false
+	defer func() { _ = recover() }()
 	select {
 	case s.events <- protocol.SessionEvent{
 		Type: "user_question",
@@ -631,6 +653,7 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 			Category:    header,
 		},
 	}:
+		sent = true
 	default:
 		// TUI not listening — degrade to a synchronous
 		// answer of "skip" so the LLM can keep going.
@@ -639,6 +662,7 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 		s.recordToolResult(call.ID, call.Name, out, false, "")
 		return
 	}
+	_ = sent
 
 	// Block until the user answers, cancels, or the
 	// session is closed. The TUI pushes exactly one of:
@@ -901,10 +925,10 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 	}
 
 	// Emit init state
-	s.events <- protocol.SessionEvent{
+	s.safeEmit(protocol.SessionEvent{
 		Type: "init_state",
 		Data: protocol.EventInitState{State: 1, Model: canonical},
-	}
+	})
 
 	requestModel := mc.Model
 	if canonical != "" && canonical != mc.Provider {
@@ -935,20 +959,20 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 		return provider.Response{}, err
 	}
 	// Emit the content as a single chunk for uniform downstream handling
-	s.events <- protocol.SessionEvent{
+	s.safeEmit(protocol.SessionEvent{
 		Type: "stream_chunk",
 		Data: protocol.EventStreamChunk{Text: resp.Content},
-	}
+	})
 	s.emitStreamDone(resp.Usage)
 	return resp, nil
 }
 
 func (s *Session) onChunk(c provider.Chunk) {
 	if c.Content != "" {
-		s.events <- protocol.SessionEvent{
+		s.safeEmit(protocol.SessionEvent{
 			Type: "stream_chunk",
 			Data: protocol.EventStreamChunk{Text: c.Content},
-		}
+		})
 	}
 	if c.Usage.TotalTokens > 0 || c.Usage.PromptTokens > 0 {
 		s.emitStreamDone(c.Usage)
@@ -956,17 +980,17 @@ func (s *Session) onChunk(c provider.Chunk) {
 }
 
 func (s *Session) emitStreamDone(u provider.Usage) {
-	s.events <- protocol.SessionEvent{
+	s.safeEmit(protocol.SessionEvent{
 		Type: "stream_done",
 		Data: protocol.EventStreamDone{
 			InputTokens:  u.PromptTokens,
 			OutputTokens: u.CompletionTokens,
 		},
-	}
+	})
 }
 
 func (s *Session) emitToolCall(id, name string, args map[string]any, summary string) {
-	s.events <- protocol.SessionEvent{
+	s.safeEmit(protocol.SessionEvent{
 		Type: "tool_call",
 		Data: protocol.EventToolCall{
 			ToolID:    id,
@@ -974,14 +998,14 @@ func (s *Session) emitToolCall(id, name string, args map[string]any, summary str
 			Arguments: args,
 			Summary:   summary,
 		},
-	}
+	})
 }
 
 func (s *Session) emitToolResult(id, name, output string, isErr bool, errMsg string) {
 	if isErr {
 		output = errMsg
 	}
-	s.events <- protocol.SessionEvent{
+	s.safeEmit(protocol.SessionEvent{
 		Type: "tool_result",
 		Data: protocol.EventToolResult{
 			ToolID:  id,
@@ -989,7 +1013,7 @@ func (s *Session) emitToolResult(id, name, output string, isErr bool, errMsg str
 			Output:  output,
 			IsError: isErr,
 		},
-	}
+	})
 }
 
 // recordToolResult appends a tool message to the

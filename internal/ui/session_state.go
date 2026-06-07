@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"time"
 
 	"charm.land/bubbles/v2/textarea"
@@ -153,8 +155,47 @@ func newSessionState(cfg *config.Config, client *daemon.SessionClient) *SessionS
 	if client != nil {
 		s.daemonSessionID = client.SessionID()
 		s.persistID = s.daemonSessionID
+	} else {
+		// Allocate a unique placeholder daemonSessionID for
+		// sessions that haven't been connected yet. The
+		// reconnect-success handler matches the new client
+		// back to the right session via
+		// findSessionByDaemonID, which compares against
+		// SessionState.daemonSessionID. If we left this
+		// empty, multiple "not yet connected" sessions
+		// (one freshly created by Ctrl+T, plus any
+		// restored placeholders from disk) would all share
+		// the empty string, and findSessionByDaemonID("")
+		// would return the first one in the slice — not
+		// necessarily the session that just dispatched
+		// the reconnect. The user's bug report was "I make
+		// a new session, the AI doesn't respond at all":
+		// the new client's events were being routed to a
+		// stale restored session, while the freshly-
+		// created Ctrl+T session stayed with client=nil
+		// forever, so any submit went through the
+		// "Reconnecting to daemon…" branch. Fix: each
+		// not-yet-connected session gets a unique random
+		// placeholder, which is replaced with the real
+		// daemonSessionID once the reconnect completes.
+		s.daemonSessionID = "pending-" + randomHex(8)
 	}
 	return s
+}
+
+// randomHex returns a random hex string of the given byte
+// length. Used only for the placeholder daemonSessionID on
+// not-yet-connected sessions — never for security-sensitive
+// values.
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		// Extremely unlikely (rand.Read only fails if the
+		// OS crypto source is broken); fall back to a
+		// timestamp so we still have a unique value.
+		return time.Now().Format("20060102150405.000000")
+	}
+	return hex.EncodeToString(b)
 }
 
 // TurnElapsed returns the accumulated time the agent has spent

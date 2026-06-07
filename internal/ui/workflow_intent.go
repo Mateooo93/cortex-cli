@@ -4,7 +4,7 @@ import "strings"
 
 // detectWorkflowIntent returns true when the user's message
 // hints that a multi-agent workflow would be useful. The
-// heuristic is intentionally conservative \u2014 we don't want to
+// heuristic is intentionally conservative — we don't want to
 // fire a workflow for every "I need a function" message.
 //
 // Trigger phrases (any one of them):
@@ -12,6 +12,11 @@ import "strings"
 //   - "multiple agents", "in parallel", "run agents"
 //   - "team of agents", "coordinator", "orchestrator"
 //   - "rufflow", "ruflo"  (typos of the ruflo project)
+//   - multi-component project signals (landing page with
+//     multiple sections, full app build, refactor across many
+//     files, etc.) — these often benefit from a workflow
+//     because they combine planning + implementation +
+//     review + testing steps.
 //
 // Plus the user can always invoke /workflow explicitly.
 func detectWorkflowIntent(lower string) bool {
@@ -54,6 +59,80 @@ func detectWorkflowIntent(lower string) bool {
 		"subagents",
 	}
 	for _, t := range unambiguous {
+		if strings.Contains(lower, t) {
+			return true
+		}
+	}
+	// Multi-component project signals. These fire when the
+	// user's message names 3+ distinct deliverables or refers
+	// to a substantial build (landing page with several
+	// sections, full app, refactor across many files, etc.).
+	// The user reported: "make me a landing page for an app
+	// called cadence with pricing sections hero and mobile
+	// responsiveness" — this is a multi-component task that
+	// would benefit from a workflow but the old detector
+	// missed it because no trigger phrase was present.
+	multiComponentSignals := []string{
+		"landing page",
+		"homepage",
+		"hero section",
+		"pricing section",
+		"pricing page",
+		"full app",
+		"full site",
+		"full build",
+		"end to end",
+		"e2e app",
+		"build me a",
+		"build a full",
+		"build the whole",
+		"create a full",
+		"create me a",
+		"make me a",
+		"make a full",
+		"make a complete",
+		"with sections",
+		"with multiple sections",
+		"with hero",
+		"with pricing",
+		"with mobile",
+		"mobile responsive",
+		"responsive design",
+	}
+	hits := 0
+	for _, t := range multiComponentSignals {
+		if strings.Contains(lower, t) {
+			hits++
+		}
+	}
+	// Two or more signals = strong workflow candidate.
+	// (E.g. "landing page" + "pricing" + "hero" + "mobile
+	// responsive" would hit 4.)
+	if hits >= 2 {
+		return true
+	}
+	// Or a single very strong signal like "build me a" +
+	// "landing page" / "full app" / "full site".
+	strongSignals := []string{
+		"build me a landing page",
+		"build a landing page",
+		"build me a full app",
+		"build a full app",
+		"build me a full site",
+		"build a full site",
+		"make me a landing page",
+		"make a landing page",
+		"make me a full app",
+		"make a full app",
+		"make me a full site",
+		"make a full site",
+		"create me a full app",
+		"create a full app",
+		"create me a landing page",
+		"create a landing page",
+		"make me a complete",
+	}
+	for _, t := range strongSignals {
 		if strings.Contains(lower, t) {
 			return true
 		}
