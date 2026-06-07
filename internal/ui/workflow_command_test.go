@@ -27,6 +27,31 @@ func TestHandleCommandAction_WorkflowWithPrompt_StartsEngine(t *testing.T) {
 	if len(sess.workflowEngine.Workflows()) != 1 {
 		t.Fatalf("after /workflow <prompt>, expected 1 workflow, got %d", len(sess.workflowEngine.Workflows()))
 	}
+	// The chat input must be bound to the new workflow
+	// so subsequent messages route to the orchestrator,
+	// not the main agent. The user reported the main
+	// agent had no idea the workflow was running and
+	// "tries to do it by itself".
+	if sess.activeWorkflow == "" {
+		t.Error("expected activeWorkflow to be set after /workflow <prompt>")
+	}
+	// The TUI should also switch to the Workflows tab
+	// so the user sees the live progress.
+	if m.activeTab != TabKindWorkflows {
+		t.Errorf("expected activeTab TabKindWorkflows, got %v", m.activeTab)
+	}
+	// A system message announcing the workflow should be
+	// in the chat scrollback.
+	found := false
+	for _, msg := range sess.chatMessages {
+		if msg.Type == MsgSystem && strings.Contains(msg.Text, "Started workflow") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected a system message announcing the started workflow")
+	}
 }
 
 // TestHandleCommandAction_WorkflowWithoutPrompt_EmitsError

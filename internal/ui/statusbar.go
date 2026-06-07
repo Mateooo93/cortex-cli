@@ -180,7 +180,20 @@ func renderStatusBar(
 			prefix = " ✖ "
 		default: // StatusMsgInfo
 			msgStyle = lipgloss.NewStyle().Foreground(s.ColorDimGray).Italic(true)
-			prefix = " ℹ "
+			// When the message has a spinner frame
+			// attached, render a braille spinner instead
+			// of the static "ℹ" prefix. This animates
+			// because the StatusMessage is rewritten
+			// every 200ms by selfUpdateProgressMsg with
+			// a new frame index. The user reported
+			// "/update doesn't do the animation" — this
+			// is the fix.
+			if msg.Spinner >= 0 {
+				frames := []string{"\u280b", "\u2819", "\u2838", "\u2834", "\u2826", "\u2827", "\u2807", "\u280f"}
+				prefix = " " + frames[msg.Spinner%len(frames)] + " "
+			} else {
+				prefix = " ℹ "
+			}
 		}
 		topLine := lipgloss.NewStyle().Width(width).Render(msgStyle.Render(prefix + msg.Text))
 		return s.StatusBarStyle.Width(width).Render(line) + "\n" + topLine

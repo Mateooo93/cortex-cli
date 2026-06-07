@@ -14,8 +14,22 @@ import (
 // boldColor is the hex color applied to bold (Strong) text in markdown.
 const boldColor = "#FFD080"
 
-// styledConfig returns a copy of the base glamour StyleConfig with the Strong
-// color overridden to boldColor.
+// bodyColor is the hex color for regular (non-bold) text in
+// markdown rendering. We pin it to pure white so the
+// assistant's plain prose reads as "the main output" against
+// the dim grey thinking blocks. Without this override,
+// glamour's DarkStyleConfig uses #c0c0c0 (light grey) for
+// body text, which the user reported as too dim and hard to
+// distinguish from thinking. The user said: "thinking should
+// be greyed out and normal output text should be white".
+const bodyColor = "#FFFFFF"
+
+// styledConfig returns a copy of the base glamour StyleConfig with the
+// Strong and Text colors overridden. Strong is bumped to a
+// warm brand yellow (boldColor) and Text is pinned to
+// pure white so the body of the assistant message reads as
+// the primary output, while the ThinkingStyle (separate,
+// applied to extended-thinking blocks) stays at a dim grey.
 func styledConfig(base string) ansi.StyleConfig {
 	var cfg ansi.StyleConfig
 	if base == styles.DarkStyle {
@@ -23,12 +37,29 @@ func styledConfig(base string) ansi.StyleConfig {
 	} else {
 		cfg = styles.LightStyleConfig
 	}
-	color := boldColor
+	boldHex := boldColor
 	bold := true
 	cfg.Strong = ansi.StylePrimitive{
-		Color: &color,
+		Color: &boldHex,
 		Bold:  &bold,
 	}
+	// Override body text color to pure white so it
+	// contrasts with the grey thinking style. The Document
+	// style cascades to Text, Heading, Paragraph, etc.
+	bodyHex := bodyColor
+	cfg.Document.Color = &bodyHex
+	cfg.Text.Color = &bodyHex
+	cfg.Paragraph.Color = &bodyHex
+	cfg.Heading.Color = &bodyHex
+	cfg.H1.Color = &bodyHex
+	cfg.H2.Color = &bodyHex
+	cfg.H3.Color = &bodyHex
+	cfg.H4.Color = &bodyHex
+	cfg.H5.Color = &bodyHex
+	cfg.H6.Color = &bodyHex
+	cfg.List.Color = &bodyHex
+	cfg.Item.Color = &bodyHex
+	cfg.BlockQuote.Color = &bodyHex
 	return cfg
 }
 

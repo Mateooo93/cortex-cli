@@ -111,9 +111,10 @@ const (
 
 // StatusMessage is a transient message shown on the second line of the status bar.
 type StatusMessage struct {
-	Text string
-	Kind StatusMsgKind
-	gen  int // stale-clear guard
+	Text    string
+	Kind    StatusMsgKind
+	gen     int // stale-clear guard
+	Spinner int // spinner frame index (0..7); -1 = no spinner
 }
 
 type settingsInputMode int
@@ -356,6 +357,13 @@ type Model struct {
 	// without locking. The status bar reads it on every
 	// frame and shows the value as a transient message.
 	updateProgress atomic.Value // string
+	// updateProgressFrame cycles 0..7 every progress tick
+	// so the status bar can show a spinner (⠋⠙⠹⠸⠼⠴⠦⠧)
+	// animating alongside the step name. Without it the
+	// message just sat there as a static "Checking for
+	// updates…" string and the user reported "/update
+	// doesn't do the animation".
+	updateProgressFrame int
 	// codexAuthPending is true while the codex OAuth flow
 	// is in flight. The View() shows a full-screen
 	// "waiting for auth" overlay with the authorize URL
@@ -1912,12 +1920,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// terminal sends a tea.PasteMsg when the user hits
 		// Ctrl+V, so we also handle the key directly and
 		// pull from the system clipboard. (The user
-		// reported paste failing in the API-key form.)
-		if msg.String() == "ctrl+v" && m.activeTab == TabKindSettings && m.settingsInKeyInput {
-			if txt, err := clipboard.ReadAll(); err == nil && txt != "" {
-				m.settingsKeyInput.SetValue(m.settingsKeyInput.Value() + txt)
+		// reported paste failing in the API-key form and
+		// in the provider edit wizard.)
+		if msg.String() == "ctrl+v" && m.activeTab == TabKindSettings {
+			if m.settingsWizard.active {
+				// Provider edit wizard has its own
+				// text input bound to the active field.
+				// Paste there.
+				if txt, err := clipboard.ReadAll(); err == nil && txt != "" {
+					w := &m.settingsWizard
+					w.input.SetValue(w.input.Value() + txt)
+				}
+				return m, nil
 			}
-			return m, nil
+			if m.settingsInKeyInput {
+				if txt, err := clipboard.ReadAll(); err == nil && txt != "" {
+					m.settingsKeyInput.SetValue(m.settingsKeyInput.Value() + txt)
+				}
+				return m, nil
+			}
 		}
 		// --- Codex "waiting for auth" overlay ---
 		// Esc dismisses the overlay; the OAuth flow keeps
@@ -3259,7 +3280,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case clearStatusMsgMsg:
 		if msg.gen == m.statusMsg.gen {
-			m.statusMsg = StatusMessage{}
+			// Reset to empty (no spinner) so subsequent
+			// messages don't accidentally show a
+			// frozen spinner frame.
+			m.statusMsg = StatusMessage{Spinner: -1}
 		}
 		return m, nil
 
@@ -3355,6 +3379,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Surface the result in the status bar so the user
 		// gets explicit feedback regardless of outcome.
 		m.updateProgress.Store("")
+		m.statusMsg.Spinner = -1 // clear the in-progress spinner
 		switch msg.result.Kind {
 		case "up-to-date":
 			return m, m.emitStatusMsg("Already on the latest version ("+msg.result.NewVersion+").", StatusMsgInfo)
@@ -3375,16 +3400,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// step from m.updateProgress (set by the updater
 		// goroutine). We keep the progress visible until
 		// selfUpdateFinishedMsg fires.
+		//
+		// We ALWAYS reschedule the next tick — the previous
+		// version of this code returned nil when the loaded
+		// step was empty (e.g. the very first tick before
+		// the goroutine had a chance to store anything),
+		// which silently killed the progress animation.
+		// The user reported "/update doesn't do the
+		// animation and doesn't update it seems!" — the
+		// visible symptom was that the status bar
+		// sometimes showed "Checking for updates…" and
+		// then went blank, with the final result message
+		// (which only fires from the updater goroutine)
+		// racing with the auto-clear from emitStatusMsg.
+		// Rescheduling unconditionally keeps the chain
+		// alive until selfUpdateFinishedMsg fires.
+		m.updateProgressFrame++
 		if step, ok := m.updateProgress.Load().(string); ok && step != "" {
 			m.statusMsg.Text = step
 			m.statusMsg.Kind = StatusMsgInfo
+			m.statusMsg.Spinner = m.updateProgressFrame % 8
 			m.statusMsg.gen++ // bump so the auto-clear timer
 			// restarts for each step (otherwise the
 			// 3-second auto-clear from emitStatusMsg could
 			// wipe the message mid-update).
-			return m, selfUpdateProgressTick()
 		}
-		return m, nil
+		return m, selfUpdateProgressTick()
 
 	case animStepMsg:
 		// Route to whichever session owns this generation tick.
@@ -4549,6 +4590,25 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 			cmds = append(cmds, m.emitStatusMsg("Failed to start workflow: "+err.Error(), StatusMsgError))
 			break
 		}
+		// Bind the chat input to this workflow so any
+		// follow-up message the user types in chat
+		// (e.g. refinements, clarifications) is routed
+		// to the workflow orchestrator, not the main
+		// agent. Without this, the user reported the
+		// main agent "tries to do it by itself" — it
+		// has no idea a workflow is running and just
+		// answers the question in isolation. The
+		// orchestrator is the one that knows the task
+		// context and should respond.
+		sess.activeWorkflow = id
+		sess.input.Placeholder = m.placeholderForMode(sess)
+		m.updateInputPromptColor(sess)
+		// Inject a system message into chat so the user
+		// has a record of "I started a workflow on this
+		// prompt". The main agent (if it ever gets
+		// re-engaged) will also see this in its history.
+		sess.chatMessages = append(sess.chatMessages,
+			renderSystemSuccessMessage("Started workflow: "+preset.Name+"\n\nPrompt: "+prompt+"\n\nThe chat input is now bound to this workflow's orchestrator. Subsequent messages will go to the orchestrator, not the main agent. Press Shift+Tab to switch back to the main agent."))
 		// Switch to the Workflows tab so the user sees
 		// the live progress; auto-detected workflows
 		// (handled in submitFromInput) stay in the chat
@@ -5070,6 +5130,7 @@ func (m *Model) emitStatusMsg(text string, kind StatusMsgKind) tea.Cmd {
 	m.statusMsg.gen++
 	m.statusMsg.Text = text
 	m.statusMsg.Kind = kind
+	m.statusMsg.Spinner = -1 // no spinner by default; /update sets its own
 	gen := m.statusMsg.gen
 	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
 		return clearStatusMsgMsg{gen: gen}

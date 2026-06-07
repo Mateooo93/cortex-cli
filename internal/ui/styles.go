@@ -290,7 +290,10 @@ func NewStyles(hasDarkBG bool) Styles {
 		// glamour-rendered output is *not* italic, so the two cannot
 		// be confused on any terminal that supports either Faint or
 		// Italic.
-		ThinkingStyle:                lipgloss.NewStyle().Foreground(thinkingGray).Italic(true),
+		ThinkingStyle: lipgloss.NewStyle().
+				Foreground(thinkingGray).
+				Faint(true).
+				Italic(true),
 		StatusBarStyle:               lipgloss.NewStyle().Foreground(dimGray).Padding(0, 1),
 		PlanBulletStyle:              lipgloss.NewStyle().Foreground(dimGray),
 		PlanPromptDimStyle:           lipgloss.NewStyle().Foreground(dimGray),
