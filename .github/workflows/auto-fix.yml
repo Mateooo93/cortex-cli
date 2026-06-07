@@ -1,0 +1,259 @@
+name: Auto-Fix Issues
+
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to process'
+        required: true
+        type: string
+  pull_request_review:
+    types: [submitted]
+  schedule:
+    - cron: '*/30 * * * *'  # Every 30 minutes
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+env:
+  # Use OpenCode Zen with free models
+  OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
+  CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
+  # For opencode delegation
+  OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+
+jobs:
+  detect-and-fix:
+    runs-on: ubuntu-latest
+    if: github.event.issue.labels.*.name contains 'auto-fix' || github.event_name == 'workflow_dispatch'
+    outputs:
+      pr_number: ${{ steps.create-pr.outputs.pr_number }}
+      issue_number: ${{ steps.get-issue.outputs.issue_number }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build cortex binary
+        run: make build
+
+      - name: Install opencode
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+
+      - name: Get issue number
+        id: get-issue
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "issue_number=${{ github.event.inputs.issue_number }}" >> $GITHUB_OUTPUT
+          else
+            echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run opencode to fix issue
+        id: fix-issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
+          OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: |
+          ISSUE_NUM=${{ steps.get-issue.outputs.issue_number }}
+          # Delegate to opencode with free models via OpenCode Zen
+          opencode -p "Fix issue #$ISSUE_NUM. Read the issue, understand the problem, implement the fix, and create a PR with the changes. Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen."
+
+      - name: Find created PR
+        id: create-pr
+        run: |
+          ISSUE_NUM=${{ steps.get-issue.outputs.issue_number }}
+          # Find PR linked to this issue
+          PR_NUMBER=$(gh pr list --repo ${{ github.repository }} --search "fixes #$ISSUE_NUM" --json number --jq '.[0].number')
+          if [[ -n "$PR_NUMBER" && "$PR_NUMBER" != "null" ]]; then
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          else
+            # Fallback: find PR with "auto-fix" in title
+            PR_NUMBER=$(gh pr list --repo ${{ github.repository }} --state open --json number,title --jq '.[] | select(.title | test("auto-fix|Fix.*#'$ISSUE_NUM'"; "i")) | .number' | head -1)
+            if [[ -n "$PR_NUMBER" ]]; then
+              echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  # This job runs after the fix is pushed to verify the PR
+  validate-pr:
+    needs: detect-and-fix
+    runs-on: ubuntu-latest
+    if: always() && needs.detect-and-fix.outputs.pr_number != ''
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Run tests
+        run: make test
+
+      - name: Build release
+        run: make release VERSION=test
+
+  # Handle CodeRabbit reviews - fetch review comments and send back to the same agent
+  handle-coderabbit-review:
+    needs: detect-and-fix
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request_review' && github.event.review.user.login == 'coderabbitai' && needs.detect-and-fix.outputs.pr_number != ''
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Install opencode
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+
+      - name: Fetch CodeRabbit review comments
+        id: fetch-review
+        run: |
+          PR_NUMBER=${{ needs.detect-and-fix.outputs.pr_number }}
+          # Get the review comments from CodeRabbit
+          REVIEW_BODY=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews --jq '.[] | select(.user.login=="coderabbitai") | .body' | tail -1)
+          REVIEW_COMMENTS=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER/comments --jq '.[] | select(.user.login=="coderabbitai") | .body')
+          
+          # Combine review body and comments
+          FULL_REVIEW="${REVIEW_BODY}\n\n--- Inline Comments ---\n${REVIEW_COMMENTS}"
+          
+          # Save to file for next step
+          echo "$FULL_REVIEW" > coderabbit_review.txt
+          echo "review_body<<EOF" >> $GITHUB_OUTPUT
+          echo "$FULL_REVIEW" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Send CodeRabbit feedback to opencode agent for fixes
+        id: fix-from-review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
+          OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: |
+          PR_NUMBER=${{ needs.detect-and-fix.outputs.pr_number }}
+          ISSUE_NUM=${{ needs.detect-and-fix.outputs.issue_number }}
+          
+          # Read the review
+          REVIEW=$(cat coderabbit_review.txt)
+          
+          # Send to opencode with the review context to fix the issues
+          opencode -p "
+          PR #$PR_NUMBER (for issue #$ISSUE_NUM) received a CodeRabbit review with the following feedback:
+          
+          $REVIEW
+          
+          Please address all CodeRabbit review comments. Make the necessary changes and push to the same PR branch.
+          Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen.
+          "
+
+  # Monitor for new CodeRabbit reviews on existing PRs (scheduled)
+  monitor-coderabbit:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Install opencode
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+
+      - name: Find PRs with CodeRabbit reviews needing action
+        id: find-prs
+        run: |
+          # Find open PRs that have CodeRabbit reviews but haven't been addressed
+          PRS=$(gh pr list --repo ${{ github.repository }} --state open --json number,title,reviews --jq '.[] | select(.reviews[]?.user.login=="coderabbitai" and .reviews[]?.state=="CHANGES_REQUESTED") | .number')
+          echo "prs=$PRS" >> $GITHUB_OUTPUT
+
+      - name: Process each PR with CodeRabbit changes requested
+        if: steps.find-prs.outputs.prs != ''
+        run: |
+          for PR_NUMBER in ${{ steps.find-prs.outputs.prs }}; do
+            echo "Processing PR #$PR_NUMBER"
+            
+            # Get the issue number from PR title/body
+            ISSUE_NUM=$(gh pr view $PR_NUMBER --repo ${{ github.repository }} --json body --jq '.body' | grep -oP '(?<=Fixes #)\d+' | head -1)
+            
+            # Fetch CodeRabbit review
+            REVIEW_BODY=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews --jq '.[] | select(.user.login=="coderabbitai" and .state=="CHANGES_REQUESTED") | .body' | tail -1)
+            REVIEW_COMMENTS=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER/comments --jq '.[] | select(.user.login=="coderabbitai") | .body')
+            FULL_REVIEW="${REVIEW_BODY}\n\n--- Inline Comments ---\n${REVIEW_COMMENTS}"
+            
+            # Run opencode to fix
+            opencode -p "
+            PR #$PR_NUMBER (for issue #$ISSUE_NUM) received a CodeRabbit review requesting changes:
+            
+            $FULL_REVIEW
+            
+            Please address all CodeRabbit review comments. Make the necessary changes and push to the same PR branch.
+            Use model nvidia/nemotron-3-ultra-free or minimax/m3 via OpenCode Zen.
+            "
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
+          OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+
+  # Cron to monitor issues every 30 minutes
+  monitor-issues:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Find new auto-fix issues
+        id: find-issues
+        run: |
+          # Find issues with auto-fix label that don't have a linked PR yet
+          ISSUES=$(gh issue list --repo ${{ github.repository }} --label auto-fix --state open --json number,title --jq '.[] | select(.title | test("auto-fix"; "i")) | .number')
+          echo "issues=$ISSUES" >> $GITHUB_OUTPUT
+
+      - name: Trigger workflow for each new issue
+        if: steps.find-issues.outputs.issues != ''
+        run: |
+          for ISSUE_NUM in ${{ steps.find-issues.outputs.issues }}; do
+            # Check if already processed (has linked PR)
+            PR_EXISTS=$(gh pr list --repo ${{ github.repository }} --search "fixes #$ISSUE_NUM" --json number --jq '.[0].number')
+            if [[ -z "$PR_EXISTS" || "$PR_EXISTS" == "null" ]]; then
+              echo "Triggering auto-fix for issue #$ISSUE_NUM"
+              gh workflow run auto-fix.yml --repo ${{ github.repository }} -f issue_number=$ISSUE_NUM
+            else
+              echo "Issue #$ISSUE_NUM already has PR #$PR_EXISTS, skipping"
+            fi
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
