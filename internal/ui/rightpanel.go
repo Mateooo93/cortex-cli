@@ -303,6 +303,12 @@ type RightPanelInfoView struct {
 	WorkflowStatus   string        // "planning" | "running" | "synthesizing"
 	WorkflowElapsed  time.Duration
 	WorkflowCurrent  string
+
+	// Todos is the structured todo list emitted by the
+	// AI via the todo_write tool. Shown as a separate
+	// block in the right panel so the user can see what
+	// the agent is working on without leaving the chat.
+	Todos []protocol.TodoItem
 }
 
 // View renders the right panel as a bordered, full-height string.
@@ -604,6 +610,15 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 		conn = errStyle.Render("● disconnected")
 	}
 	lines = append(lines, dimStyle.Width(innerWidth).Render(conn))
+
+	// ── Todos (only when the AI has emitted a todo list) ──
+	if len(info.Todos) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Todos"))
+		for _, t := range info.Todos {
+			lines = append(lines, renderTodoOrStepLine(t.Content, string(t.Status), innerWidth))
+		}
+	}
 
 	// ── Workflow running block (only when a workflow is active) ──
 	if info.WorkflowName != "" {

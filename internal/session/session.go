@@ -366,6 +366,23 @@ func stripToolCallBlocks(content string) string {
 }
 
 func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
+	// Special-case the structured UI tools (todo_write,
+	// ask_user_question) BEFORE the generic Run() path. The
+	// generic path still runs (so the result is recorded
+	// and the model can see it in its history), but we also
+	// emit a typed event so the TUI can update the right
+	// panel / question overlay directly. Previously these
+	// tools were registered as stubs that returned text, and
+	// the user reported the AI 'fails to make a todo list
+	// when asked' because nothing was actually rendering.
+	switch call.Name {
+	case "todo_write":
+		s.handleTodoWrite(call)
+		return
+	case "ask_user_question":
+		s.handleAskUserQuestion(call)
+		return
+	}
 	tool, ok := s.tools.Get(call.Name)
 	if !ok {
 		s.emitToolCall(call.ID, call.Name, call.Arguments, "")
@@ -405,6 +422,121 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 	// turn loop exits cleanly and the UI sends the queued
 	// follow-up message.
 	s.maybeFireDelayedCancel()
+}
+
+// handleTodoWrite parses a todo_write tool call and emits a
+// structured EventTodoListUpdated. The TUI listens for that
+// event and renders the todo list in the right panel. Without
+// this hook the AI's todo list never reached the UI and the
+// user reported 'the AI never makes a todo list when asked'.
+func (s *Session) handleTodoWrite(call provider.ToolCall) {
+	summary := summarizeArgs(call.Arguments)
+	s.emitToolCall(call.ID, call.Name, call.Arguments, summary)
+
+	var parsed []map[string]any
+	switch v := call.Arguments["todos"].(type) {
+	case string:
+		if err := json.Unmarshal([]byte(v), &parsed); err != nil {
+			s.emitToolResult(call.ID, call.Name, "", true, "todos: invalid JSON: "+err.Error())
+			return
+		}
+	case []any:
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				parsed = append(parsed, m)
+			}
+		}
+	default:
+		s.emitToolResult(call.ID, call.Name, "", true, "todos: unsupported type")
+		return
+	}
+	if len(parsed) == 0 {
+		s.emitToolResult(call.ID, call.Name, "", true, "todos: empty list")
+		return
+	}
+
+	items := make([]protocol.TodoItem, 0, len(parsed))
+	for i, p := range parsed {
+		content, _ := p["content"].(string)
+		if content == "" {
+			content, _ = p["activeForm"].(string)
+		}
+		status, _ := p["status"].(string)
+		id, _ := p["id"].(string)
+		if id == "" {
+			id = fmt.Sprintf("todo-%d", i+1)
+		}
+		items = append(items, protocol.TodoItem{
+			ID:      id,
+			Content: content,
+			Status:  protocol.TodoStatus(status),
+		})
+	}
+	s.events <- protocol.SessionEvent{
+		Type: "todo_list_updated",
+		Data: protocol.EventTodoListUpdated{Todos: items},
+	}
+	s.emitToolResult(call.ID, call.Name, fmt.Sprintf("updated %d todo(s)", len(items)), false, "")
+}
+
+// handleAskUserQuestion parses an ask_user_question tool
+// call and emits a structured EventUserQuestion. The TUI
+// opens the question panel overlay so the user can pick
+// one of the options interactively. Without this hook the
+// AI fell back to typing the question in chat as plain
+// text and the user had no way to answer it.
+func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
+	summary := summarizeArgs(call.Arguments)
+	s.emitToolCall(call.ID, call.Name, call.Arguments, summary)
+
+	question, _ := call.Arguments["question"].(string)
+	if question == "" {
+		s.emitToolResult(call.ID, call.Name, "", true, "question is required")
+		return
+	}
+	raw, _ := call.Arguments["options"].(string)
+	if raw == "" {
+		s.emitToolResult(call.ID, call.Name, "", true, "options is required")
+		return
+	}
+	header, _ := call.Arguments["header"].(string)
+	if header == "" {
+		header = "Question"
+	}
+
+	var options []struct {
+		Label       string `json:"label"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(raw), &options); err != nil {
+		s.emitToolResult(call.ID, call.Name, "", true, "options: invalid JSON: "+err.Error())
+		return
+	}
+	if len(options) < 2 {
+		s.emitToolResult(call.ID, call.Name, "", true, "options: need at least 2 options")
+		return
+	}
+	if len(options) > 4 {
+		options = options[:4]
+	}
+
+	opts := make([]protocol.EventQuestionOption, 0, len(options))
+	for _, o := range options {
+		opts = append(opts, protocol.EventQuestionOption{
+			Title:       o.Label,
+			Description: o.Description,
+		})
+	}
+	s.events <- protocol.SessionEvent{
+		Type: "user_question",
+		Data: protocol.EventUserQuestion{
+			Question:    question,
+			Options:     nil,
+			RichOptions: opts,
+			Category:    header,
+		},
+	}
+	s.emitToolResult(call.ID, call.Name, "question shown in the TUI; awaiting user answer", false, "")
 }
 
 // maybeFireDelayedCancel cancels the running turn's context if the

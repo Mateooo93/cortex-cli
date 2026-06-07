@@ -5,6 +5,7 @@
 package cortexconfig
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -565,6 +566,22 @@ func Load() (*Config, error) {
 	cfg := Default()
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	// Re-apply defaults for "true-by-default" toggles if the
+	// field is absent from the YAML. yaml.Unmarshal leaves
+	// missing bool fields as false even if the default is
+	// true, which silently turned streaming / showUsage /
+	// autoCompact OFF for users who had a config from before
+	// those settings existed. We detect the absence by
+	// checking the raw YAML for the key.
+	if !bytes.Contains(data, []byte("\nstreaming:")) && !bytes.Contains(data, []byte("streaming:")) {
+		cfg.Streaming = true
+	}
+	if !bytes.Contains(data, []byte("\nshowUsage:")) && !bytes.Contains(data, []byte("showUsage:")) {
+		cfg.ShowUsage = true
+	}
+	if !bytes.Contains(data, []byte("\nautoCompact:")) && !bytes.Contains(data, []byte("autoCompact:")) {
+		cfg.AutoCompact = true
 	}
 	cfg.EnsureProviderPresets()
 	return cfg, nil

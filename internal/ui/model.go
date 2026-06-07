@@ -478,6 +478,12 @@ func (m *Model) buildRightPanelInfoView(sess *SessionState) RightPanelInfoView {
 		info.OutputTokens = sess.outputTokens
 		info.CacheRead = sess.cacheReadTokens
 		info.Elapsed = sess.TurnElapsed()
+		// Surface the AI's todo list in the right panel so
+		// the user can see what the agent is working on
+		// (the user reported 'the AI never makes a todo
+		// list when asked' — that was because nothing was
+		// rendering in the right panel).
+		info.Todos = sess.todos
 		if sess.pendingInput != nil && sess.pendingInput.Queued {
 			info.QueuedMsgs = 1
 		}
@@ -1902,6 +1908,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		// Ctrl+V in the settings text input: not every
+		// terminal sends a tea.PasteMsg when the user hits
+		// Ctrl+V, so we also handle the key directly and
+		// pull from the system clipboard. (The user
+		// reported paste failing in the API-key form.)
+		if msg.String() == "ctrl+v" && m.activeTab == TabKindSettings && m.settingsInKeyInput {
+			if txt, err := clipboard.ReadAll(); err == nil && txt != "" {
+				m.settingsKeyInput.SetValue(m.settingsKeyInput.Value() + txt)
+			}
+			return m, nil
+		}
 		// --- Codex "waiting for auth" overlay ---
 		// Esc dismisses the overlay; the OAuth flow keeps
 		// running in the background and will surface its

@@ -333,8 +333,13 @@ type SettingsWizardView struct {
 func renderSettingsView(width, height int, s Styles, activeSection, providerSel, modelSel, modelColumn int, activeModel, activeProviderName string, providers []ProviderInfo, selectedModels []ModelInfo, keys []ProviderSettingsView, keySel int, otherSel int, other SettingsOtherView, inspect SettingsInspectView, inKeyInput bool, keyInputLabel, keyInputView string, wizard SettingsWizardView) string {
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
 	mutedStyle := lipgloss.NewStyle().Foreground(colorDim)
-	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
-	activeStyle := lipgloss.NewStyle().Foreground(colorSecondary)
+	// selectedStyle is the cursor highlight in the provider
+	// list. The user reported the cursor was hard to see; we
+	// make it bright + bold + bracketed so the user can tell
+	// exactly which row is selected regardless of which
+	// provider is currently active.
+	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(colorPrimary)
+	activeStyle := lipgloss.NewStyle().Foreground(colorDim)
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
 	innerWidth := width - 4
 	if innerWidth < 0 {
