@@ -137,6 +137,25 @@ stage_platform windows-amd64
 stage_platform windows-arm64
 
 TARBALLS=("$DIST_DIR"/cortex-*.tar.gz)
+# Bare binaries (no .tar.gz) are also published
+# alongside the tarballs. The user reported
+# 'curl -L -o cortex .../cortex-linux-amd64
+# gets 9 bytes' — the GitHub 'latest/download/<asset>'
+# URL only works for assets that actually exist in
+# the release. TARBALLS_ONLY is the array we upload
+# to gh release create; BARES is a separate list of
+# the bare executables we add to the same upload.
+# Both are added to UPLOAD_FILES below.
+BARES=()
+for f in "$DIST_DIR"/cortex-darwin-arm64 \
+         "$DIST_DIR"/cortex-linux-amd64 \
+         "$DIST_DIR"/cortex-linux-arm64 \
+         "$DIST_DIR"/cortex-windows-amd64.exe \
+         "$DIST_DIR"/cortex-windows-arm64.exe; do
+  if [[ -f "$f" ]]; then
+    BARES+=("$f")
+  fi
+done
 
 # --- Per-tarball SHA256 for the Homebrew formula ---
 echo "==> Computing tarball checksums for Homebrew formula..."
@@ -294,7 +313,7 @@ echo "==> Creating GitHub release $VERSION..."
 # we didn't skip GPG; if it doesn't exist (CI runs),
 # `gh` errors with "no matches found for ...". Filter
 # it out of the upload list when absent.
-UPLOAD_FILES=("${TARBALLS[@]}" "$DIST_DIR/checksums.txt")
+UPLOAD_FILES=("${TARBALLS[@]}" "${BARES[@]}" "$DIST_DIR/checksums.txt")
 if [[ -f "$DIST_DIR/checksums.txt.asc" ]]; then
   UPLOAD_FILES+=("$DIST_DIR/checksums.txt.asc")
 fi
