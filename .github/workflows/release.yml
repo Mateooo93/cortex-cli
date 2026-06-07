@@ -169,5 +169,20 @@ jobs:
           echo "==> Tagging $VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$VERSION" -m "Release $VERSION"
-          git push origin "$VERSION"
+          # `gh release create` already creates the
+          # tag on the remote as part of the publish
+          # step. Re-running `git tag` would just
+          # create a duplicate local tag and
+          # `git push origin $VERSION` would fail
+          # with "tag already exists". The safe
+          # pattern: check if the remote tag exists
+          # already; if so, just fetch it locally.
+          # If not, create + push as the original
+          # code did.
+          if git ls-remote --tags origin "refs/tags/$VERSION" | grep -q "refs/tags/$VERSION"; then
+            echo "    Tag $VERSION already exists on remote — skipping create/push."
+            git fetch origin "refs/tags/$VERSION:refs/tags/$VERSION" || true
+          else
+            git tag -a "$VERSION" -m "Release $VERSION"
+            git push origin "$VERSION"
+          fi
