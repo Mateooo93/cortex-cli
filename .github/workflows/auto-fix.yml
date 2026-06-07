@@ -111,7 +111,7 @@ jobs:
           git config user.email "opencode-bot@users.noreply.github.com"
           git checkout -b auto-fix/issue-$ISSUE_NUM
           # Use free model via OpenCode Zen
-          opencode --model minimax/m3 run "Fix issue #$ISSUE_NUM from the GitHub repository. Read the issue body, understand the problem, implement the fix in the code, and commit the changes. Do NOT create a PR - just commit the changes to the current branch." 2>&1 || true
+          opencode --model minimax-m3-free run "Fix issue #$ISSUE_NUM from the GitHub repository. Read the issue body, understand the problem, implement the fix in the code, and commit the changes. Do NOT create a PR - just commit the changes to the current branch." 2>&1 || true
 
       - name: Push branch
         run: |
