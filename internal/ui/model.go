@@ -442,6 +442,15 @@ func (m *Model) buildStatusBarInfo(sess *SessionState) StatusBarInfo {
 	if sess == nil {
 		return info
 	}
+	// Goal indicator
+	if sess.goalManager != nil {
+		if g := sess.goalManager.Active(); g != nil {
+			info.GoalActive = true
+			info.GoalTurns = g.Turns
+		}
+	}
+	// Effort level
+	info.EffortLevel = sess.effortLevel
 	info.InputTokens = sess.inputTokens
 	// If a workflow is running, surface it in the
 	// slim footer so the user knows the orchestrator
@@ -5116,6 +5125,10 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 			cmds = append(cmds, sess.thinkingAnim.Start())
 			sess.client.SendInput("/skills", nil)
 		}
+	case "slash_goal":
+		cmds = append(cmds, m.handleGoalCommand(sess, arg)...)
+	case "slash_effort":
+		cmds = append(cmds, m.handleEffortCommand(sess, arg)...)
 	case "history":
 		if sess != nil && len(sess.history.entries) > 0 {
 			sess.historyPanel.Open(len(sess.history.entries), m.height)

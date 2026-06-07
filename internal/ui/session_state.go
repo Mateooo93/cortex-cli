@@ -9,6 +9,7 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/config"
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 	"github.com/Mateooo93/cortex-cli/internal/daemon"
+	"github.com/Mateooo93/cortex-cli/internal/goal"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
 	"github.com/Mateooo93/cortex-cli/internal/workflow"
 )
@@ -145,6 +146,12 @@ type SessionState struct {
 	workflows      []protocol.WorkflowInfo
 	activePlan     *protocol.Plan
 	todos          []protocol.TodoItem
+
+	// Goal state
+	goalManager *goal.Manager
+
+	// Effort level: "low", "medium", "high", "ultracode"
+	effortLevel string
 
 	// Token accounting
 	inputTokens                  int64

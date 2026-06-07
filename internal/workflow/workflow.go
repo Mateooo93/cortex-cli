@@ -169,29 +169,33 @@ type Step struct {
 
 // Snapshot is a point-in-time view of a workflow for the UI.
 type Snapshot struct {
-	ID         string
-	Name       string
-	Goal       string
-	Status     string    // "planning" | "running" | "synthesizing" | "done" | "failed" | "cancelled"
-	StartedAt  time.Time
-	EndedAt    time.Time
-	Duration   time.Duration
-	Steps      []Step
-	Summary    string
-	CurrentMsg string // what the active step is currently doing
-	DoneSteps  int    // count of steps whose Status == StepDone
-	TotalSteps int    // total steps the workflow will execute
+	ID           string
+	Name         string
+	Goal         string
+	Status       string // "planning" | "running" | "synthesizing" | "done" | "failed" | "cancelled"
+	StartedAt    time.Time
+	EndedAt      time.Time
+	Duration     time.Duration
+	Steps        []Step
+	Summary      string
+	CurrentMsg   string // what the active step is currently doing
+	DoneSteps    int    // count of steps whose Status == StepDone
+	TotalSteps   int    // total steps the workflow will execute
+	BudgetSpent  int64  // tokens spent in this run
+	BudgetTotal  int64  // token cap (0 = unlimited)
 }
 
 // Engine runs workflows. The engine is goroutine-safe; multiple
 // workflows can run concurrently (e.g. one orchestrated by the
 // main agent, one dispatched as a background sub-agent).
 type Engine struct {
-	cfg    *cortexconfig.Config
-	mu     sync.RWMutex
-	flows  map[string]*Workflow
-	hooks  Hooks
-	cancel map[string]context.CancelFunc
+	cfg     *cortexconfig.Config
+	mu      sync.RWMutex
+	flows   map[string]*Workflow
+	hooks   Hooks
+	cancel  map[string]context.CancelFunc
+	journal *Journal        // per-run journal for resume support
+	budget  *Budget         // token budget (may be nil = unlimited)
 }
 
 // Hooks is the callback set the UI registers. All fields are
@@ -208,17 +212,19 @@ type Hooks struct {
 // these in memory (no persistence yet \u2014 the user can re-run
 // from the goal in the Workflows tab).
 type Workflow struct {
-	ID         string
-	Name       string
-	Goal       string
-	Strategy   string
-	MaxAgents  int
-	Status     string
-	StartedAt  time.Time
-	EndedAt    time.Time
-	Steps      []*Step
-	Summary    string
-	cancel     context.CancelFunc
+	ID        string
+	Name      string
+	Goal      string
+	Strategy  string
+	MaxAgents int
+	Status    string
+	StartedAt time.Time
+	EndedAt   time.Time
+	Steps     []*Step
+	Summary   string
+	Budget    *Budget          // token budget for this run
+	Journal   *Journal         // call journal for resume
+	cancel    context.CancelFunc
 	currentMsg atomic.Value // string
 }
 
@@ -233,6 +239,19 @@ func NewEngine(cfg *cortexconfig.Config) *Engine {
 
 // SetHooks installs the UI callbacks.
 func (e *Engine) SetHooks(h Hooks) { e.hooks = h }
+
+// SetBudget sets the token budget for the engine. When set,
+// agents check remaining budget before making calls.
+func (e *Engine) SetBudget(b *Budget) { e.budget = b }
+
+// Budget returns the engine's current budget (may be nil).
+func (e *Engine) Budget() *Budget { return e.budget }
+
+// SetJournal sets the call journal for resume support.
+func (e *Engine) SetJournal(j *Journal) { e.journal = j }
+
+// Journal returns the engine's call journal (may be nil).
+func (e *Engine) Journal() *Journal { return e.journal }
 
 // Workflows returns a copy of the current workflow list, newest
 // first. Safe to call from the UI thread.
@@ -304,19 +323,26 @@ func (e *Engine) Snapshot(id string) Snapshot {
 		total = total + 1
 	}
 	currentMsg, _ := w.currentMsg.Load().(string)
+	var budgetSpent, budgetTotal int64
+	if w.Budget != nil {
+		budgetSpent = w.Budget.Spent()
+		budgetTotal = w.Budget.Total()
+	}
 	return Snapshot{
-		ID:         w.ID,
-		Name:       w.Name,
-		Goal:       w.Goal,
-		Status:     w.Status,
-		StartedAt:  w.StartedAt,
-		EndedAt:    w.EndedAt,
-		Duration:   time.Since(w.StartedAt),
-		Steps:      steps,
-		Summary:    w.Summary,
-		CurrentMsg: currentMsg,
-		DoneSteps:  done,
-		TotalSteps: total,
+		ID:          w.ID,
+		Name:        w.Name,
+		Goal:        w.Goal,
+		Status:      w.Status,
+		StartedAt:   w.StartedAt,
+		EndedAt:     w.EndedAt,
+		Duration:    time.Since(w.StartedAt),
+		Steps:       steps,
+		Summary:     w.Summary,
+		CurrentMsg:  currentMsg,
+		DoneSteps:   done,
+		TotalSteps:  total,
+		BudgetSpent: budgetSpent,
+		BudgetTotal: budgetTotal,
 	}
 }
 
@@ -359,6 +385,11 @@ func (e *Engine) Start(ctx context.Context, name, goal, strategy string, maxAgen
 		MaxAgents: maxAgents,
 		Status:    "planning",
 		StartedAt: time.Now(),
+		Budget:    &Budget{}, // per-run budget
+	}
+	// Inherit engine budget total if set
+	if e.budget != nil && e.budget.Total() > 0 {
+		wf.Budget.SetTotal(e.budget.Total())
 	}
 	rctx, cancel := context.WithCancel(ctx)
 	wf.cancel = cancel

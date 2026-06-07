@@ -28,6 +28,12 @@ type StatusBarInfo struct {
 	WorkflowName    string
 	WorkflowStatus  string
 	WorkflowElapsed time.Duration
+	// GoalActive is true when a /goal is running.
+	GoalActive    bool
+	GoalTurns     int
+	GoalCondition string
+	// EffortLevel shows the current effort setting.
+	EffortLevel string
 }
 
 // renderStatusBar renders the slim single-line status bar.
@@ -120,6 +126,20 @@ func renderStatusBar(
 		}
 		wfStyle := lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
 		centerParts = append(centerParts, wfStyle.Render(wfSeg))
+	}
+	if info.GoalActive {
+		goalSeg := fmt.Sprintf("◎ goal (%d turns)", info.GoalTurns)
+		goalStyle := lipgloss.NewStyle().Foreground(colorSecondary)
+		centerParts = append(centerParts, goalStyle.Render(goalSeg))
+	}
+	if info.EffortLevel != "" && info.EffortLevel != "high" {
+		effSeg := "⚡ " + info.EffortLevel
+		effStyle := lipgloss.NewStyle().Foreground(colorWarning)
+		if info.EffortLevel == "ultracode" {
+			effStyle = lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
+			effSeg = "⚡ ultracode"
+		}
+		centerParts = append(centerParts, effStyle.Render(effSeg))
 	}
 
 	// ── Right: nothing (F1-F4 moved to the top tab bar) ──────────
