@@ -18,6 +18,24 @@ func lighten(hex string, factor float64) color.Color {
 	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", int(blended.R*255), int(blended.G*255), int(blended.B*255)))
 }
 
+// lightenBanner brightens a theme color for the welcome-logo gradient while
+// keeping hue and saturation. Lab blends toward white desaturate and shift
+// hue on amber, rose, and other accents — the top banner rows looked grey.
+func lightenBanner(hex string, factor float64) color.Color {
+	c, err := colorful.Hex(hex)
+	if err != nil {
+		return lipgloss.Color(hex)
+	}
+	h, s, v := c.Hsv()
+	newV := v + (1-v)*factor*0.85
+	newS := s * (1 - factor*0.22)
+	if minS := s * 0.62; newS < minS {
+		newS = minS
+	}
+	out := colorful.Hsv(h, newS, newV)
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", int(out.R*255), int(out.G*255), int(out.B*255)))
+}
+
 // darken blends a hex color toward black by the given factor (0.0 = unchanged, 1.0 = black).
 func darken(hex string, factor float64) color.Color {
 	c, _ := colorful.Hex(hex)
@@ -30,10 +48,10 @@ func darken(hex string, factor float64) color.Color {
 // derived from the active theme primary color.
 func cortexBannerRamp() []color.Color {
 	return []color.Color{
-		lighten(primaryHex, 0.50),
-		lighten(primaryHex, 0.35),
-		lighten(primaryHex, 0.20),
-		lighten(primaryHex, 0.08),
+		lightenBanner(primaryHex, 0.50),
+		lightenBanner(primaryHex, 0.35),
+		lightenBanner(primaryHex, 0.20),
+		lightenBanner(primaryHex, 0.08),
 		lipgloss.Color(primaryHex),
 		darken(primaryHex, 0.30),
 	}

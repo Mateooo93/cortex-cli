@@ -50,6 +50,28 @@ func TestCortexBannerFollowsPrimaryColor(t *testing.T) {
 	}
 }
 
+func TestCortexBannerTopLayersPreserveWarmHue(t *testing.T) {
+	oldPrimary := primaryHex
+	t.Cleanup(func() { primaryHex = oldPrimary })
+
+	tests := []struct {
+		hex    string
+		substr string // true-color SGR fragment expected on the top banner row
+	}{
+		// Amber top row should stay orange-gold, not Lab-shift to grey/green.
+		{"#F59E0B", "249;170;"},
+		// Rose top row should stay red-pink, not cyan-grey.
+		{"#F43F5E", "248;84;"},
+	}
+	for _, tc := range tests {
+		primaryHex = tc.hex
+		top := renderCortexBanner()[0]
+		if !strings.Contains(top, tc.substr) {
+			t.Fatalf("primary %s: top banner row should contain %q, got %q", tc.hex, tc.substr, stripANSI(top))
+		}
+	}
+}
+
 func TestRenderWelcomeInlineNarrowWidthUsesCompactBanner(t *testing.T) {
 	s := NewStyles(true)
 	lines := buildWelcomeLines(40, s)
