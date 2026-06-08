@@ -78,6 +78,11 @@ type Session struct {
 	// injected as a follow-up user message after the current tool
 	// batch completes (Pi-style steering / mid-turn redirect).
 	pendingSteer string
+
+	// toolBatchConcurrent is true while a multi-call tool batch is
+	// executing in parallel. The UI uses this to prefix concurrent
+	// tool results with the tool name (Grok Build / Claude Code style).
+	toolBatchConcurrent bool
 }
 
 // Config is the input for New().
@@ -426,13 +431,10 @@ func (s *Session) runTurn(parent context.Context, text string, attachments []pro
 		})
 		s.mu.Unlock()
 
-		// Execute each tool call
-		for _, call := range allCalls {
-			if ctx.Err() != nil {
-				return
-			}
-			s.executeToolCall(ctx, call)
-		}
+		// Execute tool calls — independent calls in a batch run in
+		// parallel (reads, greps, bash probes, etc.) while history
+		// is still recorded in the model's original call order.
+		s.executeToolCalls(ctx, allCalls)
 
 		// Pi-style steering: if a Steer() arrived during the tool
 		// batch, inject it now as the next user message before the
@@ -526,7 +528,62 @@ func stripToolCallBlocks(content string) string {
 	return inlineToolCallRE.ReplaceAllString(content, "")
 }
 
-func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
+// executeToolCalls runs one or more tool calls from a single assistant
+// turn. Independent calls execute concurrently; results are appended to
+// history in the model's original call order so provider APIs stay valid.
+func (s *Session) executeToolCalls(ctx context.Context, calls []provider.ToolCall) {
+	if len(calls) == 0 {
+		return
+	}
+	if len(calls) == 1 {
+		if msg := s.runToolCall(ctx, calls[0]); msg != nil {
+			s.mu.Lock()
+			s.history = append(s.history, *msg)
+			s.mu.Unlock()
+		}
+		s.maybeFireDelayedCancel()
+		return
+	}
+
+	s.mu.Lock()
+	s.toolBatchConcurrent = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.toolBatchConcurrent = false
+		s.mu.Unlock()
+		s.maybeFireDelayedCancel()
+	}()
+
+	msgs := make([]*provider.Message, len(calls))
+	var wg sync.WaitGroup
+	for i, call := range calls {
+		wg.Add(1)
+		go func(idx int, c provider.ToolCall) {
+			defer wg.Done()
+			if ctx.Err() != nil {
+				return
+			}
+			msgs[idx] = s.runToolCall(ctx, c)
+		}(i, call)
+	}
+	wg.Wait()
+
+	s.mu.Lock()
+	for _, msg := range msgs {
+		if msg != nil {
+			s.history = append(s.history, *msg)
+		}
+	}
+	s.mu.Unlock()
+}
+
+// runToolCall executes a single tool call and returns the history message
+// to record (nil when the turn context is already cancelled).
+func (s *Session) runToolCall(ctx context.Context, call provider.ToolCall) *provider.Message {
+	if ctx.Err() != nil {
+		return nil
+	}
 	// Special-case the structured UI tools (todo_write,
 	// ask_user_question) BEFORE the generic Run() path. The
 	// generic path still runs (so the result is recorded
@@ -538,24 +595,15 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 	// when asked' because nothing was actually rendering.
 	switch call.Name {
 	case "todo_write":
-		s.handleTodoWrite(call)
-		return
+		return s.handleTodoWrite(call)
 	case "ask_user_question":
-		s.handleAskUserQuestion(call)
-		return
+		return s.handleAskUserQuestion(call)
 	}
 	tool, ok := s.tools.Get(call.Name)
 	if !ok {
 		s.emitToolCall(call.ID, call.Name, call.Arguments, "")
 		s.emitToolResult(call.ID, call.Name, "", true, "unknown tool", nil)
-		s.mu.Lock()
-		s.history = append(s.history, provider.Message{
-			Role: "tool", Content: fmt.Sprintf("[tool %s] error: unknown tool", call.Name),
-			ToolName: call.Name, ToolCallID: call.ID,
-		})
-		s.mu.Unlock()
-		s.maybeFireDelayedCancel()
-		return
+		return toolHistoryMessage(call.ID, call.Name, "", true, "unknown tool")
 	}
 	// If the LLM produced a tool call whose JSON was
 	// truncated (common for very large content the model
@@ -568,7 +616,7 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 	if raw, ok := call.Arguments["_raw"].(string); ok {
 		call.Arguments = recoverArgsFromRaw(call.Name, call.Arguments, raw)
 	}
-	summary := summarizeArgs(call.Arguments)
+	summary := summarizeToolCall(call.Name, call.Arguments)
 	s.emitToolCall(call.ID, call.Name, call.Arguments, summary)
 	tctx := tools.Context{
 		CWD:        s.workdir,
@@ -578,22 +626,10 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 	}
 	res, _ := tool.Run(tctx, call.Arguments)
 	s.emitToolResult(call.ID, call.Name, res.Output, !res.OK, res.Error, res.Details)
-	formatted := res.Output
 	if !res.OK {
-		formatted = fmt.Sprintf("[tool %s] error: %s\n%s", call.Name, res.Error, res.Output)
-	} else {
-		formatted = fmt.Sprintf("[tool %s] ok\n%s", call.Name, res.Output)
+		return toolHistoryMessage(call.ID, call.Name, res.Output, true, res.Error)
 	}
-	s.mu.Lock()
-	s.history = append(s.history, provider.Message{
-		Role: "tool", Content: formatted, ToolName: call.Name, ToolCallID: call.ID,
-	})
-	s.mu.Unlock()
-	// If the user requested a "cancel after current edit" while
-	// this tool call was running, fire the cancel now so the
-	// turn loop exits cleanly and the UI sends the queued
-	// follow-up message.
-	s.maybeFireDelayedCancel()
+	return toolHistoryMessage(call.ID, call.Name, res.Output, false, "")
 }
 
 // handleTodoWrite parses a todo_write tool call and emits a
@@ -601,7 +637,7 @@ func (s *Session) executeToolCall(ctx context.Context, call provider.ToolCall) {
 // event and renders the todo list in the right panel. Without
 // this hook the AI's todo list never reached the UI and the
 // user reported 'the AI never makes a todo list when asked'.
-func (s *Session) handleTodoWrite(call provider.ToolCall) {
+func (s *Session) handleTodoWrite(call provider.ToolCall) *provider.Message {
 	summary := summarizeArgs(call.Arguments)
 	s.emitToolCall(call.ID, call.Name, call.Arguments, summary)
 
@@ -609,9 +645,9 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) {
 	switch v := call.Arguments["todos"].(type) {
 	case string:
 		if err := json.Unmarshal([]byte(v), &parsed); err != nil {
-			s.emitToolResult(call.ID, call.Name, "", true, "todos: invalid JSON: "+err.Error(), nil)
-			s.recordToolResult(call.ID, call.Name, "", true, "todos: invalid JSON: "+err.Error())
-			return
+			errMsg := "todos: invalid JSON: " + err.Error()
+			s.emitToolResult(call.ID, call.Name, "", true, errMsg, nil)
+			return toolHistoryMessage(call.ID, call.Name, "", true, errMsg)
 		}
 	case []any:
 		for _, item := range v {
@@ -621,13 +657,11 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) {
 		}
 	default:
 		s.emitToolResult(call.ID, call.Name, "", true, "todos: unsupported type", nil)
-		s.recordToolResult(call.ID, call.Name, "", true, "todos: unsupported type")
-		return
+		return toolHistoryMessage(call.ID, call.Name, "", true, "todos: unsupported type")
 	}
 	if len(parsed) == 0 {
 		s.emitToolResult(call.ID, call.Name, "", true, "todos: empty list", nil)
-		s.recordToolResult(call.ID, call.Name, "", true, "todos: empty list")
-		return
+		return toolHistoryMessage(call.ID, call.Name, "", true, "todos: empty list")
 	}
 
 	items := make([]protocol.TodoItem, 0, len(parsed))
@@ -653,7 +687,7 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) {
 	})
 	out := fmt.Sprintf("updated %d todo(s)", len(items))
 	s.emitToolResult(call.ID, call.Name, out, false, "", nil)
-	s.recordToolResult(call.ID, call.Name, out, false, "")
+	return toolHistoryMessage(call.ID, call.Name, out, false, "")
 }
 
 // handleAskUserQuestion parses an ask_user_question tool
@@ -687,21 +721,19 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) {
 // In all three cases we end up with a normalised
 // []protocol.EventQuestionOption that the question panel
 // can render.
-func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
+func (s *Session) handleAskUserQuestion(call provider.ToolCall) *provider.Message {
 	summary := summarizeArgs(call.Arguments)
 	s.emitToolCall(call.ID, call.Name, call.Arguments, summary)
 
 	question, _ := call.Arguments["question"].(string)
 	if question == "" {
 		s.emitToolResult(call.ID, call.Name, "", true, "question is required", nil)
-		s.recordToolResult(call.ID, call.Name, "", true, "question is required")
-		return
+		return toolHistoryMessage(call.ID, call.Name, "", true, "question is required")
 	}
 	opts := parseAskUserQuestionOptions(call.Arguments["options"])
 	if len(opts) < 2 {
 		s.emitToolResult(call.ID, call.Name, "", true, "options: need at least 2 options", nil)
-		s.recordToolResult(call.ID, call.Name, "", true, "options: need at least 2 options")
-		return
+		return toolHistoryMessage(call.ID, call.Name, "", true, "options: need at least 2 options")
 	}
 	if len(opts) > 4 {
 		opts = opts[:4]
@@ -735,8 +767,7 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 		// answer of "skip" so the LLM can keep going.
 		out := "skipped (TUI unavailable)"
 		s.emitToolResult(call.ID, call.Name, out, false, "", nil)
-		s.recordToolResult(call.ID, call.Name, out, false, "")
-		return
+		return toolHistoryMessage(call.ID, call.Name, out, false, "")
 	}
 	_ = sent
 
@@ -756,8 +787,7 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 		// Session was closed while we were waiting.
 		out := "skipped (session closed)"
 		s.emitToolResult(call.ID, call.Name, out, false, "", nil)
-		s.recordToolResult(call.ID, call.Name, out, false, "")
-		return
+		return toolHistoryMessage(call.ID, call.Name, out, false, "")
 	}
 
 	// Build the tool result from the user's response.
@@ -793,16 +823,7 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) {
 		}
 	}
 	s.emitToolResult(call.ID, call.Name, result, false, "", nil)
-	// Record the tool result in history so the LLM
-	// sees the answer on the next turn. The generic
-	// executeToolCall path does this itself, but the
-	// special-case handlers return early and need to
-	// do it explicitly. Without this, the LLM's prior
-	// tool-call has no matching tool-result in its
-	// history, and providers like MiniMax reject the
-	// next request with HTTP 400 "tool call and
-	// result not match".
-	s.recordToolResult(call.ID, call.Name, result, false, "")
+	return toolHistoryMessage(call.ID, call.Name, result, false, "")
 }
 
 // parseAskUserQuestionOptions normalises the `options`
@@ -1026,6 +1047,33 @@ func recoverArgsFromRaw(toolName string, args map[string]any, raw string) map[st
 	return args
 }
 
+func summarizeToolCall(name string, args map[string]any) string {
+	switch name {
+	case "write_file", "write_minified_file":
+		path, _ := args["path"].(string)
+		content, _ := args["content"].(string)
+		if path != "" {
+			lines := countArgLines(content)
+			if lines == 1 {
+				return fmt.Sprintf("%s (1 line)", path)
+			}
+			return fmt.Sprintf("%s (%d lines)", path, lines)
+		}
+	}
+	return summarizeArgs(args)
+}
+
+func countArgLines(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := strings.Count(s, "\n")
+	if !strings.HasSuffix(s, "\n") {
+		n++
+	}
+	return n
+}
+
 func summarizeArgs(args map[string]any) string {
 	if len(args) == 0 {
 		return ""
@@ -1233,6 +1281,12 @@ func (s *Session) emitToolCall(id, name string, args map[string]any, summary str
 	})
 }
 
+const writePreviewDetailPrefix = "@@cortex-write:"
+
+func formatWritePreviewDetail(lineCount int, preview string) string {
+	return fmt.Sprintf("%s%d@@\n%s", writePreviewDetailPrefix, lineCount, preview)
+}
+
 func (s *Session) emitToolResult(id, name, output string, isErr bool, errMsg string, details map[string]any) {
 	if isErr {
 		output = errMsg
@@ -1241,46 +1295,51 @@ func (s *Session) emitToolResult(id, name, output string, isErr bool, errMsg str
 	if details != nil {
 		if d, ok := details["diff"].(string); ok && d != "" {
 			detail = d
+		} else if name == "write_file" || name == "write_minified_file" {
+			if preview, ok := details["preview"].(string); ok && preview != "" {
+				lineCount := 0
+				switch n := details["lines"].(type) {
+				case int:
+					lineCount = n
+				case float64:
+					lineCount = int(n)
+				}
+				detail = formatWritePreviewDetail(lineCount, preview)
+			}
 		}
 	}
+	s.mu.Lock()
+	showToolName := s.toolBatchConcurrent
+	s.mu.Unlock()
 	s.safeEmit(protocol.SessionEvent{
 		Type: "tool_result",
 		Data: protocol.EventToolResult{
-			ToolID:  id,
-			Name:    name,
-			Output:  output,
-			IsError: isErr,
-			Detail:  detail,
-			Details: details,
+			ToolID:       id,
+			Name:         name,
+			Output:       output,
+			IsError:      isErr,
+			Detail:       detail,
+			Details:      details,
+			ShowToolName: showToolName,
 		},
 	})
 }
 
-// recordToolResult appends a tool message to the
-// conversation history so the LLM sees the result on the
-// next turn. The generic executeToolCall path does this
-// itself, but the special-case handlers (handleTodoWrite,
-// handleAskUserQuestion) return early and need to record
-// the result themselves. Without this, the LLM's
-// tool-call has no matching tool-result in history and
-// providers like MiniMax reject the next request with
-// HTTP 400 "tool call and result not match".
-func (s *Session) recordToolResult(id, name, output string, isErr bool, errMsg string) {
+// toolHistoryMessage builds the provider history entry for a tool result.
+func toolHistoryMessage(id, name, output string, isErr bool, errMsg string) *provider.Message {
+	formatted := output
 	if isErr {
-		output = errMsg
+		formatted = fmt.Sprintf("[tool %s] error: %s\n%s", name, errMsg, output)
+	} else {
+		formatted = fmt.Sprintf("[tool %s] ok\n%s", name, output)
 	}
-	content := fmt.Sprintf("[tool %s] %s", name, output)
-	if isErr {
-		content = fmt.Sprintf("[tool %s] error: %s", name, output)
-	}
-	s.mu.Lock()
-	s.history = append(s.history, provider.Message{
+	msg := provider.Message{
 		Role:       "tool",
-		Content:    content,
+		Content:    formatted,
 		ToolName:   name,
 		ToolCallID: id,
-	})
-	s.mu.Unlock()
+	}
+	return &msg
 }
 
 // resolveAPIKey returns the API key for the model, falling back to

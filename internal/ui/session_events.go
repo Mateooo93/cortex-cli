@@ -138,7 +138,7 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 			detail = ""
 			sess.confirmDetailShown = false
 		}
-		result := renderToolResultWithContext(tr.Name, tr.Output, tr.IsError, false, detail, m.styles, m.mdRenderer, m.mdRenderer.width)
+		result := renderToolResultWithContext(tr.Name, tr.Output, tr.IsError, tr.ShowToolName, detail, m.styles, m.mdRenderer, m.mdRenderer.width)
 
 		if tr.ToolID != "" && sess.pendingTools != nil {
 			if callIdx, ok := sess.pendingTools[tr.ToolID]; ok {

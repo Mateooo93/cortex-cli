@@ -61,7 +61,7 @@ func TestSendCancelAfterEdit_FiresAfterTool(t *testing.T) {
 	}
 
 	// Simulate: the tool call has just finished. The session
-	// calls maybeFireDelayedCancel at the end of executeToolCall.
+	// calls maybeFireDelayedCancel at the end of a tool batch.
 	sess.maybeFireDelayedCancel()
 
 	// Now the cancel should have fired.
@@ -237,15 +237,22 @@ func TestHandleAskUserQuestion_BlocksOnUserAnswer(t *testing.T) {
 	// Start the question handler in a goroutine. The
 	// arguments use a JSON-encoded string for options
 	// (the format the previous version expected).
-	go sess.handleAskUserQuestion(provider.ToolCall{
-		ID:   "call-1",
-		Name: "ask_user_question",
-		Arguments: map[string]any{
-			"question": "What kind of site?",
-			"header":   "Website type",
-			"options":  `[{"label":"Portfolio","description":"A site to showcase your work"},{"label":"Blog","description":"Long-form writing"}]`,
-		},
-	})
+	go func() {
+		call := provider.ToolCall{
+			ID:   "call-1",
+			Name: "ask_user_question",
+			Arguments: map[string]any{
+				"question": "What kind of site?",
+				"header":   "Website type",
+				"options":  `[{"label":"Portfolio","description":"A site to showcase your work"},{"label":"Blog","description":"Long-form writing"}]`,
+			},
+		}
+		if msg := sess.handleAskUserQuestion(call); msg != nil {
+			sess.mu.Lock()
+			sess.history = append(sess.history, *msg)
+			sess.mu.Unlock()
+		}
+	}()
 
 	// Drain events until we see user_question. The
 	// handler emits a "tool_call" event first (with the
@@ -275,7 +282,7 @@ gotQuestion:
 	// shown in the TUI; awaiting user answer" instead.
 	var found bool
 	deadline2 := time.Now().Add(2 * time.Second)
-	want := "[tool ask_user_question] Portfolio"
+	want := "[tool ask_user_question] ok\nPortfolio"
 	for time.Now().Before(deadline2) {
 		h := sess.History()
 		for _, m := range h {
@@ -326,11 +333,18 @@ func TestHandleAskUserQuestion_AcceptsArrayOptions(t *testing.T) {
 		},
 	}
 
-	go sess.handleAskUserQuestion(provider.ToolCall{
-		ID:        "call-2",
-		Name:      "ask_user_question",
-		Arguments: args,
-	})
+	go func() {
+		call := provider.ToolCall{
+			ID:        "call-2",
+			Name:      "ask_user_question",
+			Arguments: args,
+		}
+		if msg := sess.handleAskUserQuestion(call); msg != nil {
+			sess.mu.Lock()
+			sess.history = append(sess.history, *msg)
+			sess.mu.Unlock()
+		}
+	}()
 
 	deadline2 := time.After(2 * time.Second)
 	var gotEv protocol.SessionEvent

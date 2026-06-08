@@ -182,6 +182,9 @@ type EventToolResult struct {
 	// Details carries full structured sidecar (diff, patch, etc). UI layers
 	// can use this for advanced rendering.
 	Details map[string]any `json:"details,omitempty"`
+	// ShowToolName prefixes the rendered result with the tool name when
+	// multiple tools from the same assistant turn ran concurrently.
+	ShowToolName bool `json:"show_tool_name,omitempty"`
 }
 
 // EventConfirmRequest asks the user to approve a tool execution.

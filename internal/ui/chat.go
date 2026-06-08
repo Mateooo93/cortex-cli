@@ -192,6 +192,71 @@ func visualRows(line string, innerWidth int) int {
 // bashReasonLabelStyle is applied to the "Reason for not using X:" prefix in bash tool calls.
 var bashReasonLabelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD080")).Bold(true)
 
+const writePreviewDetailPrefix = "@@cortex-write:"
+
+// writeFileSuccessStyle highlights successful file writes in green.
+var writeFileSuccessStyle = lipgloss.NewStyle().Foreground(colorSuccess).Bold(true)
+
+// writeFilePreviewStyle styles the first lines of written file content.
+var writeFilePreviewStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#8B949E"))
+
+// parseWritePreviewDetail extracts line count and preview text from the
+// structured detail emitted by the session layer for write_file results.
+func parseWritePreviewDetail(detail string) (lineCount int, preview string, ok bool) {
+	if !strings.HasPrefix(detail, writePreviewDetailPrefix) {
+		return 0, "", false
+	}
+	rest := detail[len(writePreviewDetailPrefix):]
+	end := strings.Index(rest, "@@")
+	if end < 0 {
+		return 0, "", false
+	}
+	lineCount, err := strconv.Atoi(rest[:end])
+	if err != nil {
+		return 0, "", false
+	}
+	preview = strings.TrimPrefix(rest[end+2:], "\n")
+	return lineCount, preview, true
+}
+
+// renderWriteFileSuccess renders a green success line plus up to five preview lines.
+func renderWriteFileSuccess(lineCount int, preview string, prefix string) string {
+	plural := "s"
+	if lineCount == 1 {
+		plural = ""
+	}
+	shown := lineCount
+	if shown > 5 {
+		shown = 5
+	}
+	msg := fmt.Sprintf("%s✓ %d line%s written successfully", prefix, lineCount, plural)
+	var sb strings.Builder
+	sb.WriteString(writeFileSuccessStyle.Render(msg))
+	sb.WriteString("\n")
+	if preview != "" {
+		for _, line := range strings.Split(preview, "\n") {
+			if line == "" && shown == 1 {
+				// Preserve a single blank written line in the preview.
+				sb.WriteString(writeFilePreviewStyle.Render("      "))
+				sb.WriteString("\n")
+				continue
+			}
+			sb.WriteString(writeFilePreviewStyle.Render("      " + line))
+			sb.WriteString("\n")
+		}
+	}
+	if lineCount > 5 {
+		extra := lineCount - 5
+		extraPlural := "s"
+		if extra == 1 {
+			extraPlural = ""
+		}
+		sb.WriteString(writeFilePreviewStyle.Render(fmt.Sprintf("      … and %d more line%s", extra, extraPlural)))
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
 // renderToolCall creates a rendered tool call indicator.
 // bashReasons is an optional [4]string of {notReadFile, notEditFile, notGlobFiles, increaseTimeout} justifications;
 // empty or "N/A" entries are omitted.
@@ -388,17 +453,18 @@ func renderToolResultWithContext(name, output string, isError bool, showToolName
 		}
 	}
 
-	// write_file / write_minified_file with a preview: skip the summary line entirely and render
-	// only the code box, trimming any leading newline glamour adds.
-	if (name == "write_file" || name == "write_minified_file") && detail != "" && md != nil {
-		detailRendered := strings.TrimLeft(md.Render(detail), "\n")
-		return ChatMessage{
-			Type:         MsgToolResult,
-			Text:         output,
-			Rendered:     detailRendered,
-			ToolName:     name,
-			Detail:       detail,
-			ShowToolName: showToolName,
+	// write_file: green success banner + first five lines of written content.
+	if name == "write_file" || name == "write_minified_file" {
+		if lineCount, preview, ok := parseWritePreviewDetail(detail); ok {
+			rendered := "  " + renderWriteFileSuccess(lineCount, preview, "    ↳ ")
+			return ChatMessage{
+				Type:         MsgToolResult,
+				Text:         output,
+				Rendered:     rendered + "\n",
+				ToolName:     name,
+				Detail:       detail,
+				ShowToolName: showToolName,
+			}
 		}
 	}
 
@@ -972,6 +1038,12 @@ func renderGroupedItem(msg ChatMessage, s Styles, width int) string {
 				short = short[:1000] + "..."
 			}
 			return "      " + errorStyle.Render("ERROR: "+short) + "\n"
+		}
+
+		if msg.ToolName == "write_file" || msg.ToolName == "write_minified_file" {
+			if lineCount, preview, ok := parseWritePreviewDetail(msg.Detail); ok {
+				return "  " + renderWriteFileSuccess(lineCount, preview, "    ↳ ") + "\n"
+			}
 		}
 
 		// Mirror the ungrouped rendering: summary line + optional diff detail

@@ -601,17 +601,12 @@ func Load() (*Config, error) {
 	if !hasField("autoCompact") {
 		cfg.AutoCompact = true
 	}
-	// Shell is always forced enabled ("enable shell in config just in case
-	// the model wants to use it"). Write/git respect explicit false (via
-	// hasField check on raw YAML after unmarshal, which otherwise leaves
-	// bools false).
+	// Tool permissions are always on; deny_list in settings.json is the
+	// security boundary. YAML may still list allowWrite/allowGit for
+	// documentation, but explicit false is ignored (same as allowShell).
 	cfg.Tools.AllowShell = true
-	if !hasField("allowWrite") {
-		cfg.Tools.AllowWrite = true
-	}
-	if !hasField("allowGit") {
-		cfg.Tools.AllowGit = true
-	}
+	cfg.Tools.AllowWrite = true
+	cfg.Tools.AllowGit = true
 	cfg.EnsureProviderPresets()
 	return cfg, nil
 }

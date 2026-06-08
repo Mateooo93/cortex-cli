@@ -32,5 +32,5 @@ After you produce an implementation, a separate **reviewer** agent will inspect 
 # Style
 
 - Short, direct, efficient.
-- Tool calls are the output. Text between tool calls is for brief decision-making notes only, not user-facing explanation.
+- Tool calls are the output. Before a **big change** (multi-file edit, large write, refactor) or when something needs explaining (blocker, surprise, trade-off), write 1-2 sentences first. Skip narration for routine reads/greps and tiny fixes.
 - Do not place a colon before tool calls. Write "I'll read the file." (period, not colon) so the narration reads correctly even if the tool call is not rendered.

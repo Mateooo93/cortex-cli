@@ -210,6 +210,34 @@ func TestRenderGroupedItem(t *testing.T) {
 	}
 }
 
+func TestRenderWriteFileSuccess(t *testing.T) {
+	detail := "@@cortex-write:8@@\nline one\nline two\nline three\nline four\nline five"
+	lineCount, preview, ok := parseWritePreviewDetail(detail)
+	if !ok {
+		t.Fatal("parseWritePreviewDetail failed")
+	}
+	if lineCount != 8 {
+		t.Fatalf("lineCount = %d, want 8", lineCount)
+	}
+	if preview != "line one\nline two\nline three\nline four\nline five" {
+		t.Fatalf("preview = %q", preview)
+	}
+
+	rendered := renderWriteFileSuccess(lineCount, preview, "    ↳ ")
+	plain := ansiRe.ReplaceAllString(rendered, "")
+	if !strings.Contains(plain, "✓ 8 lines written successfully") {
+		t.Errorf("expected green success banner, got %q", plain)
+	}
+	for _, want := range []string{"line one", "line two", "line five"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("preview missing %q in %q", want, plain)
+		}
+	}
+	if !strings.Contains(plain, "… and 3 more lines") {
+		t.Errorf("expected truncation hint, got %q", plain)
+	}
+}
+
 func TestRenderDiffDetailSideBySide(t *testing.T) {
 	// Build a detail string in the structured tag format produced by FormatEditDiff.
 	// One removed line and one added line should appear on the same output line.

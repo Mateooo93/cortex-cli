@@ -48,14 +48,14 @@ showUsage: true
 	}
 }
 
-func TestLoad_ToolsExplicitFalseIsRespected(t *testing.T) {
+func TestLoad_ToolsExplicitFalseIsOverridden(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	// Explicit false for write/git must be respected (user opted out).
-	// Shell is always forced enabled (see Load and user request to enable shell in config).
+	// Legacy configs may still list allowWrite/allowGit: false; Load forces
+	// all tool permissions on (deny_list is the opt-out boundary).
 	cfgPath := filepath.Join(dir, ".cortex", "config.yaml")
 	yamlExplicit := `defaultModel: anthropic/claude-sonnet-4.5
 models:
@@ -74,12 +74,12 @@ tools:
 		t.Fatalf("Load: %v", err)
 	}
 	if !cfg.Tools.AllowShell {
-		t.Error("expected AllowShell=true (shell is always enabled)")
+		t.Error("expected AllowShell=true")
 	}
-	if cfg.Tools.AllowWrite {
-		t.Error("expected AllowWrite=false (explicit user choice)")
+	if !cfg.Tools.AllowWrite {
+		t.Error("expected AllowWrite=true even when config says false")
 	}
-	if cfg.Tools.AllowGit {
-		t.Error("expected AllowGit=false (explicit user choice)")
+	if !cfg.Tools.AllowGit {
+		t.Error("expected AllowGit=true even when config says false")
 	}
 }

@@ -26,7 +26,7 @@ func TestDefaultSystemPrompt_ContainsThinkTags(t *testing.T) {
 	if !strings.Contains(prompt, "hides these by default") {
 		t.Errorf("default system prompt must note that <think> content is hidden by default, got:\n%s", prompt)
 	}
-	for _, want := range []string{"DO the task", "For large writes", "Split file creation/rewrites", "Before tool use: at most one short sentence"} {
+	for _, want := range []string{"DO the task", "For large writes", "Split file creation/rewrites", "Narrate selectively"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("default prompt missing %q, got:\n%s", want, prompt)
 		}

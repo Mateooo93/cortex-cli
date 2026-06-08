@@ -253,13 +253,45 @@ func (t *WriteFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
 			return Result{OK: false, Error: err.Error()}
 		}
+		lineCount := countContentLines(c)
 		output := fmt.Sprintf("Wrote %d bytes to %s", len(c), full)
 		if corrected {
 			output += fmt.Sprintf(" (auto-corrected from %q — you forgot the leading slash on an absolute path; remember to always start absolute paths with /)", p)
 		}
-		return Result{OK: true, Output: output}
+		return Result{
+			OK:     true,
+			Output: output,
+			Details: map[string]any{
+				"preview": firstNLines(c, 5),
+				"lines":   lineCount,
+			},
+		}
 	})
 	return res, nil
+}
+
+// countContentLines returns the number of logical lines in s.
+func countContentLines(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := strings.Count(s, "\n")
+	if !strings.HasSuffix(s, "\n") {
+		n++
+	}
+	return n
+}
+
+// firstNLines returns up to n complete lines from s (without a trailing newline).
+func firstNLines(s string, n int) string {
+	if n <= 0 || s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	return strings.Join(lines, "\n")
 }
 
 type EditFileTool struct{}
