@@ -8,7 +8,7 @@
 //
 // The entrypoint lives under cmd/cortex/ following standard Go layout.
 // This makes it easier to add future subcommands (e.g. `cortex config`)
-// and keeps the root clean.
+// and keeps the root clean. Single-binary distribution — no sidecar daemon.
 package main
 
 import (

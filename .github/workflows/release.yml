@@ -117,6 +117,17 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
+      - name: Detect optional publish tokens
+        id: opt
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          echo "homebrew=$([ -n "$HOMEBREW_TAP_TOKEN" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "npm=$([ -n "$NPM_TOKEN" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "winget=$([ -n "$WINGET_TOKEN" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
       - name: Skip if already released
         if: steps.version.outputs.skip == 'true'
         run: |
@@ -160,7 +171,7 @@ jobs:
             --skip-gpg
 
       - name: Update Homebrew tap
-        if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+        if: steps.opt.outputs.homebrew == 'true' && steps.version.outputs.skip != 'true'
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -172,7 +183,7 @@ jobs:
             echo "!! Tap update failed; the GitHub release is still published."
 
       - name: Publish npm package
-        if: ${{ secrets.NPM_TOKEN != '' }}
+        if: steps.opt.outputs.npm == 'true' && steps.version.outputs.skip != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -182,7 +193,7 @@ jobs:
           ./script/publish-npm.sh "$VERSION" --yes
 
       - name: Submit winget manifest PR
-        if: ${{ secrets.WINGET_TOKEN != '' }}
+        if: steps.opt.outputs.winget == 'true' && steps.version.outputs.skip != 'true'
         uses: vedantmgoyal2009/winget-releaser@main
         with:
           identifier: Mateooo93.Cortex

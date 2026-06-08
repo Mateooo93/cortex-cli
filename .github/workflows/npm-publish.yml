@@ -18,7 +18,6 @@ jobs:
   publish:
     name: Publish mateooo93-cortex
     runs-on: ubuntu-latest
-    if: ${{ secrets.NPM_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,15 +29,12 @@ jobs:
       - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: ./script/publish-npm.sh "${{ inputs.release-tag }}" --yes
-
-  missing-token:
-    name: NPM_TOKEN not configured
-    runs-on: ubuntu-latest
-    if: ${{ secrets.NPM_TOKEN == '' }}
-    steps:
-      - run: |
-          echo "::error::NPM_TOKEN secret is not set."
-          echo "Create an Automation token at https://www.npmjs.com/settings/~youruser/tokens"
-          echo "Add it as NPM_TOKEN in repo secrets, then re-run this workflow."
-          exit 1
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error::NPM_TOKEN secret is not set."
+            echo "Create an Automation token at https://www.npmjs.com/settings/~youruser/tokens"
+            echo "Add it as NPM_TOKEN in repo secrets, then re-run this workflow."
+            exit 1
+          fi
+          ./script/publish-npm.sh "${{ inputs.release-tag }}" --yes
