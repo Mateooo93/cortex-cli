@@ -2844,7 +2844,7 @@ func (m Model) View() tea.View {
 			inputSection = renderInputBox("Chat", false, "", m.width, false, m.styles.ColorBlurBorder)
 		}
 		if inputHintRows > 0 {
-			inputSection += "\n" + renderInputKeybindHint(m.width)
+			inputSection += "\n\n" + renderInputKeybindHint(m.width)
 		}
 
 		uv.NewStyledString(inputSection).Draw(canvas, image.Rect(0, y, m.width, y+layout.InputHeight))
@@ -3017,7 +3017,7 @@ func (m *Model) flushSessionBuf(sess *SessionState) {
 	sess.thinkingRendered = ""
 }
 
-// inputKeybindHintRows returns 1 when the Enter/Tab/Esc hint row is shown under chat input.
+// inputKeybindHintRows returns 2 (spacer + hint) when Enter/Tab/Esc is shown under chat input.
 func (m *Model) inputKeybindHintRows(sess *SessionState) int {
 	if m.activeTab != TabKindChat || sess == nil || m.state == StateQuitConfirm {
 		return 0
@@ -3025,7 +3025,7 @@ func (m *Model) inputKeybindHintRows(sess *SessionState) int {
 	if (sess.agentState == StateUserQuestion || sess.agentState == StateConfirmPending) && sess.questionPanel.IsVisible() {
 		return 0
 	}
-	return 1
+	return 2
 }
 
 // visualLineCount returns the display line count for the current session's input.

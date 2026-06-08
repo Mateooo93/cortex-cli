@@ -20,7 +20,7 @@ type Layout struct {
 
 // computeLayout calculates the vertical space allocation.
 // activityStripRows is 0 or 1 for the compact tool-activity footer.
-// inputHintRows is 0 or 1 for the Enter/Tab/Esc row under the input box.
+// inputHintRows is 0 or 2 for the spacer + Enter/Tab/Esc row under input.
 // panelHeights are optional heights for attachment panel, history panel, etc.
 func computeLayout(width, height, inputLineCount, activityStripRows, inputHintRows int, panelHeights ...int) Layout {
 	// Status bar: 1 line (slim footer with connection ·
@@ -60,11 +60,11 @@ func computeLayout(width, height, inputLineCount, activityStripRows, inputHintRo
 	if inputHintRows < 0 {
 		inputHintRows = 0
 	}
-	if inputHintRows > 1 {
-		inputHintRows = 1
+	if inputHintRows > 2 {
+		inputHintRows = 2
 	}
 
-	chatHeight := height - inputHeight - statusBarHeight - tabBarHeight - panelHeight - activityStripRows - inputHintRows
+	chatHeight := height - inputHeight - statusBarHeight - tabBarHeight - panelHeight - activityStripRows
 	if chatHeight < 3 {
 		chatHeight = 3
 	}

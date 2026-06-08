@@ -413,36 +413,26 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 		// OpenCode-style info panel. Shows a compact
 		// dashboard of: active model, context window
 		// usage, elapsed time, and a quick keybind
-		// legend. Read-only.
-		//
-		// `info` is a parameterised view-model built by
-		// the View() caller so we don't have to depend
-		// on the live SessionState here.
+		// legend pinned to the bottom. Read-only.
 		infoLines, procIdx := rp.renderInfoView(innerWidth, info, s)
-		lines = append(lines, infoLines...)
+		keyLines := renderInfoKeybindLines(innerWidth)
 		rp.processLineIdx = procIdx
+		innerHeight := height - 2
+		if innerHeight < 1 {
+			innerHeight = 1
+		}
+		lines = appendFooterPinned(infoLines, keyLines, innerHeight, 2)
 	}
 
 	// Pad to fill height (subtract 2 for border top+bottom).
 	// Each element in lines may contain embedded newlines from word-wrapping, so
 	// we count actual terminal lines rather than slice elements.
-	innerHeight := height - 2
-	if innerHeight < 1 {
-		innerHeight = 1
-	}
-	termLines := func(ss []string) int {
-		n := 0
-		for _, s := range ss {
-			n += strings.Count(s, "\n") + 1
+	if rp.mode != rpModeInfo {
+		innerHeight := height - 2
+		if innerHeight < 1 {
+			innerHeight = 1
 		}
-		return n
-	}
-	for termLines(lines) < innerHeight {
-		lines = append(lines, "")
-	}
-	// Trim from the end until we are within innerHeight terminal lines.
-	for len(lines) > 0 && termLines(lines) > innerHeight {
-		lines = lines[:len(lines)-1]
+		lines = padLinesToHeight(lines, innerHeight)
 	}
 
 	content := strings.Join(lines, "\n")
@@ -480,7 +470,6 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
 	primaryStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
 	whiteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	badgeStyle := lipgloss.NewStyle().Background(colorSecondary).Foreground(lipgloss.Color("0")).Bold(true)
 	warnStyle := lipgloss.NewStyle().Foreground(colorWarning)
 	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	okStyle := lipgloss.NewStyle().Foreground(colorSuccess)
@@ -621,14 +610,89 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 		}
 	}
 
-	lines = append(lines, "")
-	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Keys"))
+	return lines, processLineIdx
+}
+
+func renderInfoKeybindLines(innerWidth int) []string {
+	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
+	whiteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+	badgeStyle := lipgloss.NewStyle().Background(colorSecondary).Foreground(lipgloss.Color("0")).Bold(true)
+
+	lines := []string{
+		whiteStyle.Bold(true).Width(innerWidth).Render("Keys"),
+	}
 	for _, row := range rightPanelKeybindRows {
 		lines = append(lines, renderKeybindLegendRow(badgeStyle, dimStyle, row[0], row[1], innerWidth))
 	}
 	lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("Esc close panel"))
+	return lines
+}
 
-	return lines, processLineIdx
+func countTermLines(ss []string) int {
+	n := 0
+	for _, s := range ss {
+		n += strings.Count(s, "\n") + 1
+	}
+	return n
+}
+
+func padLinesToHeight(lines []string, height int) []string {
+	for countTermLines(lines) < height {
+		lines = append(lines, "")
+	}
+	for len(lines) > 0 && countTermLines(lines) > height {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+// appendFooterPinned keeps footer lines at the bottom of height,
+// inserting spacer lines above. Body lines are trimmed from the
+// end first when the combined content overflows.
+func appendFooterPinned(body, footer []string, height, minGap int) []string {
+	if minGap < 0 {
+		minGap = 0
+	}
+	bodyH := countTermLines(body)
+	footerH := countTermLines(footer)
+	gap := height - bodyH - footerH
+	if gap < minGap {
+		gap = minGap
+	}
+	if bodyH+gap+footerH > height {
+		trim := bodyH + gap + footerH - height
+		body = trimTermLinesFromEnd(body, trim)
+		bodyH = countTermLines(body)
+		gap = height - bodyH - footerH
+		if gap < 0 {
+			gap = 0
+		}
+	}
+	out := append([]string{}, body...)
+	for i := 0; i < gap; i++ {
+		out = append(out, "")
+	}
+	return append(out, footer...)
+}
+
+func trimTermLinesFromEnd(lines []string, trim int) []string {
+	if trim <= 0 || len(lines) == 0 {
+		return lines
+	}
+	for trim > 0 && len(lines) > 0 {
+		last := lines[len(lines)-1]
+		lineCount := strings.Count(last, "\n") + 1
+		if trim >= lineCount {
+			trim -= lineCount
+			lines = lines[:len(lines)-1]
+			continue
+		}
+		parts := strings.Split(last, "\n")
+		parts = parts[:len(parts)-trim]
+		lines[len(lines)-1] = strings.Join(parts, "\n")
+		trim = 0
+	}
+	return lines
 }
 
 // rightPanelKeybindRows is the compact legend shown at the bottom of the
