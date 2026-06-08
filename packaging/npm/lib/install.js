@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { downloadBinary } = require("./download");
+const { warnIfShadowed } = require("./path-check");
 const { resolveAsset } = require("./platform");
 const { cacheDir, readPackageVersion, releaseBase } = require("./paths");
 
@@ -51,6 +52,7 @@ async function main() {
     if (dest) {
       console.log(`cortex-cli: installed native binary to ${dest}`);
     }
+    warnIfShadowed();
   } catch (err) {
     console.error(`cortex-cli: postinstall failed: ${err.message}`);
     process.exit(1);

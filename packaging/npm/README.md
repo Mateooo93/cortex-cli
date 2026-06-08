@@ -6,8 +6,14 @@ Cross-platform npm wrapper for the [Mateooo93 cortex-cli](https://github.com/Mat
 
 ```bash
 npm uninstall -g cortex-cli
+bun remove -g cortex-cli    # if you previously installed via bun
 npm install -g mateooo93-cortex
+hash -r                     # bash: refresh command cache
 cortex
 ```
+
+If `cortex` still shows CognitiveScale commands (`actions`, `agents`, …), another
+install is ahead of npm on your `PATH`. Run `which -a cortex` — the first entry
+must point at `.../mateooo93-cortex/shims/cortex.js`.
 
 Set `CORTEX_SKIP_POSTINSTALL=1` to skip the binary download (for CI or offline mirrors).
