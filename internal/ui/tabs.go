@@ -277,6 +277,17 @@ func settingsTruncate(text string, width int) string {
 	return string(runes[:width-1]) + "…"
 }
 
+// renderSettingsSelectLine highlights only the row text, not trailing
+// padding to the viewport edge.
+func renderSettingsSelectLine(style lipgloss.Style, text string, innerWidth int) string {
+	return style.Render(settingsTruncate(text, innerWidth))
+}
+
+// renderSettingsLine renders a full-width settings row without selection fill.
+func renderSettingsLine(style lipgloss.Style, text string, innerWidth int) string {
+	return style.Width(innerWidth).Render(settingsTruncate(text, innerWidth))
+}
+
 // normalizedSettingsValue turns empty/blank string into "auto" for display.
 func normalizedSettingsValue(v string) string {
 	v = strings.TrimSpace(v)
@@ -477,7 +488,11 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		} else if isActiveProvider {
 			rowStyle = activeStyle
 		}
-		lines = append(lines, rowStyle.Width(innerWidth).Render(settingsTruncate(row, innerWidth)))
+		if isCursor {
+			lines = append(lines, renderSettingsSelectLine(rowStyle, row, innerWidth))
+		} else {
+			lines = append(lines, renderSettingsLine(rowStyle, row, innerWidth))
+		}
 	}
 	if keyEnd < len(keys) {
 		lines = append(lines, mutedStyle.Width(innerWidth).Render(fmt.Sprintf("  ↓ %d more providers", len(keys)-keyEnd)))
@@ -510,14 +525,21 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 			}
 			return marker + label
 		}
+		inspectFieldLine := func(idx int, label string) string {
+			text := fieldLabel(idx, label)
+			if inspect.Field == idx {
+				return renderSettingsSelectLine(selectedStyle, text, innerWidth)
+			}
+			return renderSettingsLine(mutedStyle, text, innerWidth)
+		}
 		lines = append(lines,
-			mutedStyle.Width(innerWidth).Render("  ── "+inspect.DisplayName+" ──"),
-			selectedStyle.Width(innerWidth).Render(fieldLabel(0, "Name")),
-			mutedStyle.Width(innerWidth).Render(settingsTruncate("    "+inspect.DisplayName, innerWidth)),
-			selectedStyle.Width(innerWidth).Render(fieldLabel(1, "Base URL")),
-			mutedStyle.Width(innerWidth).Render(settingsTruncate("    "+baseURLValue, innerWidth)),
-			selectedStyle.Width(innerWidth).Render(fieldLabel(2, keyField)),
-			mutedStyle.Width(innerWidth).Render(settingsTruncate("    "+keyValue, innerWidth)),
+			renderSettingsLine(mutedStyle, "  ── "+inspect.DisplayName+" ──", innerWidth),
+			inspectFieldLine(0, "Name"),
+			renderSettingsLine(mutedStyle, "    "+inspect.DisplayName, innerWidth),
+			inspectFieldLine(1, "Base URL"),
+			renderSettingsLine(mutedStyle, "    "+baseURLValue, innerWidth),
+			inspectFieldLine(2, keyField),
+			renderSettingsLine(mutedStyle, "    "+keyValue, innerWidth),
 		)
 		// Show the auth kind as a one-line badge so the user knows
 		// whether the row expects an API key, an OAuth subscription
@@ -599,7 +621,11 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		if isActive {
 			rowStyle = selectedStyle
 		}
-		lines = append(lines, rowStyle.Width(innerWidth).Render(rowText))
+		if isActive {
+			lines = append(lines, renderSettingsSelectLine(rowStyle, rowText, innerWidth))
+		} else {
+			lines = append(lines, renderSettingsLine(rowStyle, rowText, innerWidth))
+		}
 	}
 	lines = append(lines, divider, dimStyle.Width(innerWidth).Render(settingsTruncate("Section: "+sectionName, innerWidth)))
 	content := strings.Join(lines, "\n")
@@ -623,7 +649,7 @@ func renderSettingsWizardView(width, height int, s Styles, dimStyle, selectedSty
 		// The wizard is always opened from the Providers section; render
 		// it as the active section title (with the ▸ marker) without
 		// depending on the enclosing sectionTitle closure.
-		selectedStyle.Width(innerWidth).Render("▸ Providers"),
+		renderSettingsSelectLine(selectedStyle, "▸ Providers", innerWidth),
 	}
 
 	// Heading showing the provider being edited.
@@ -671,7 +697,11 @@ func renderSettingsWizardView(width, height int, s Styles, dimStyle, selectedSty
 		if fv.Focused {
 			labelLineStyle = selectedStyle
 		}
-		lines = append(lines, labelLineStyle.Width(innerWidth).Render(settingsTruncate(label, innerWidth)))
+		if fv.Focused {
+			lines = append(lines, renderSettingsSelectLine(labelLineStyle, label, innerWidth))
+		} else {
+			lines = append(lines, renderSettingsLine(labelLineStyle, label, innerWidth))
+		}
 
 		// Detail line: current value (or placeholder when empty).
 		var detail string

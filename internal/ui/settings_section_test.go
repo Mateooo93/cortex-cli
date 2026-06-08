@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
 // TestSettingsSectionOtherSettings_HighlightedWhenActive is
@@ -148,6 +150,24 @@ func TestSettingsSectionProviders_HighlightedWhenActive(t *testing.T) {
 	}
 	if strings.Contains(otherSettingsLine, "\u25b8") {
 		t.Errorf("expected 'Other Settings' to NOT have ▸ when inactive, got %q", otherSettingsLine)
+	}
+}
+
+func TestSettingsSelectedRowHighlightsTextOnly(t *testing.T) {
+	s := NewStyles(true)
+	innerWidth := 80
+	short := "▸ Theme                      auto"
+	full := renderSettingsLine(s.TabInactiveStyle, short, innerWidth)
+	textOnly := renderSettingsSelectLine(
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(colorPrimary),
+		short,
+		innerWidth,
+	)
+	if lipgloss.Width(textOnly) >= innerWidth {
+		t.Fatalf("selected row should not span full width, got width %d", lipgloss.Width(textOnly))
+	}
+	if lipgloss.Width(full) < innerWidth-2 {
+		t.Fatalf("non-selected row should still use full line width, got %d", lipgloss.Width(full))
 	}
 }
 
