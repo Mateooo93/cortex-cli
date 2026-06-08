@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/atotto/clipboard"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/Mateooo93/cortex-cli/internal/config"
@@ -90,11 +89,10 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 		} else {
 			text := formatConversationPlainText(sess.chatMessages)
 			count := len(sess.chatMessages)
-			if err := clipboard.WriteAll(text); err != nil {
-				sess.chatMessages = append(sess.chatMessages, renderErrorMessage(fmt.Errorf("failed to copy to clipboard: %w", err)))
-			} else {
-				sess.chatMessages = append(sess.chatMessages, renderSystemMessage(fmt.Sprintf("Copied %d messages to clipboard.", count), m.styles))
+			if cmd := copyToClipboardCmd(text); cmd != nil {
+				cmds = append(cmds, cmd)
 			}
+			sess.chatMessages = append(sess.chatMessages, renderSystemMessage(fmt.Sprintf("Copied %d messages to clipboard.", count), m.styles))
 		}
 	case "slash_clear":
 		if sess != nil && sess.client != nil {

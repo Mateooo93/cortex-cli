@@ -12,7 +12,6 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/atotto/clipboard"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/ultraviolet/screen"
 
@@ -920,29 +919,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
-		// Ctrl+V in the settings text input: not every
-		// terminal sends a tea.PasteMsg when the user hits
-		// Ctrl+V, so we also handle the key directly and
-		// pull from the system clipboard. (The user
-		// reported paste failing in the API-key form and
-		// in the provider edit wizard.)
-		if msg.String() == "ctrl+v" && m.activeTab == TabKindSettings {
-			if m.settingsWizard.active {
-				// Provider edit wizard has its own
-				// text input bound to the active field.
-				// Paste there.
-				if txt, err := clipboard.ReadAll(); err == nil && txt != "" {
-					w := &m.settingsWizard
-					w.input.SetValue(w.input.Value() + txt)
-				}
-				return m, nil
-			}
-			if m.settingsInKeyInput {
-				if txt, err := clipboard.ReadAll(); err == nil && txt != "" {
-					m.settingsKeyInput.SetValue(m.settingsKeyInput.Value() + txt)
-				}
-				return m, nil
-			}
+		// Ctrl+V: not every terminal sends tea.PasteMsg for
+		// Ctrl+V, and Linux often lacks xclip/wl-clipboard.
+		// Route paste to the focused input and fall back to
+		// OSC52 when the OS clipboard is unavailable.
+		if msg.String() == "ctrl+v" && m.pasteTarget() != pasteTargetNone {
+			return m.handlePasteKey()
 		}
 		// --- Codex "waiting for auth" overlay ---
 		// Esc dismisses the overlay; the OAuth flow keeps
@@ -2171,6 +2153,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, sess := m.findSessionByDaemonID(msg.daemonSessionID)
 		if sess != nil && sess.reconnecting {
 			return m, m.reconnectSession(sess, m.forceInit)
+		}
+		return m, nil
+
+	case tea.ClipboardMsg:
+		if msg.Content != "" && m.pasteTarget() != pasteTargetNone {
+			return m.applyPasteText(msg.Content)
 		}
 		return m, nil
 

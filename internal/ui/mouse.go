@@ -2,7 +2,6 @@ package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/atotto/clipboard"
 )
 
 // viewMouseMode keeps mouse capture on so the tab bar stays clickable.
@@ -163,8 +162,9 @@ func (m *Model) copyChatSelectionCmd() tea.Cmd {
 	if text == "" {
 		return nil
 	}
-	if err := clipboard.WriteAll(text); err != nil {
-		return m.emitStatusMsg("copy failed: "+err.Error(), StatusMsgError)
+	status := m.emitStatusMsg("copied selection", StatusMsgInfo)
+	if cmd := copyToClipboardCmd(text); cmd != nil {
+		return tea.Batch(cmd, status)
 	}
-	return m.emitStatusMsg("copied selection", StatusMsgInfo)
+	return status
 }
