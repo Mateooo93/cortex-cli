@@ -480,7 +480,6 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
 	primaryStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
 	whiteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	badgeStyle := lipgloss.NewStyle().Background(colorSecondary).Foreground(lipgloss.Color("0")).Bold(true)
 	warnStyle := lipgloss.NewStyle().Foreground(colorWarning)
 	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	okStyle := lipgloss.NewStyle().Foreground(colorSuccess)
@@ -588,11 +587,6 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 			"%d queued", info.QueuedMsgs,
 		)))
 	}
-	conn := okStyle.Render("● connected")
-	if !info.Connected {
-		conn = errStyle.Render("● disconnected")
-	}
-	lines = append(lines, dimStyle.Width(innerWidth).Render(conn))
 
 	// ── Background processes (dev servers, detached shells) ──
 	if len(info.Processes) > 0 {
@@ -624,29 +618,6 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 		for _, t := range info.Todos {
 			lines = append(lines, renderTodoOrStepLine(t.Content, string(t.Status), innerWidth))
 		}
-	}
-
-	lines = append(lines, "")
-
-	// ── Keybind legend ──────────────────────────────────────────
-	// F1-F4 are now in the tab bar at the top of the screen
-	// (the user asked for them there so the right panel
-	// could dedicate its space to todo data).
-	// Only the panel-specific shortcuts live here: Ctrl+T
-	// to start a new session, Ctrl+B to hide the panel, and
-	// `/` to open the slash menu. The per-input keys (Tab
-	// queue, Enter send, Esc cancel) sit in a hint row
-	// directly under the input box so they're visible while
-	// the user is typing.
-	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Keys"))
-	for _, row := range [][2]string{
-		{"Ctrl+T", "new session"},
-		{"Ctrl+B", "hide panel"},
-		{"/", "slash menu"},
-	} {
-		// 8 chars for the badge column, rest for the action.
-		badge := badgeStyle.Render(fmt.Sprintf(" %-5s", row[0]))
-		lines = append(lines, badge+" "+dimStyle.Render(truncateRight(row[1], innerWidth-8)))
 	}
 
 	return lines, processLineIdx

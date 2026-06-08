@@ -101,52 +101,30 @@ func TestF3OnSessionsTabOpensSettings(t *testing.T) {
 	}
 }
 
-// TestRenderTabBar_FKeysAfterName verifies the tab bar renders
-// each tab as "Name (F-key)" with the F-keybind in parentheses
-// after the name, not as a highlighted badge before it. The
-// user asked for plain text "(F1)" style with no special boxes
-// or coloring — just quiet text that says what key to press.
-//
-// Because the name and the (F-key) suffix are rendered with
-// different ANSI styles, we strip the escape sequences before
-// checking the layout. We also check the order in the raw
-// output to confirm the F-key comes AFTER the name.
-func TestRenderTabBar_FKeysAfterName(t *testing.T) {
+func TestRenderTabBar_TabNamesOnly(t *testing.T) {
 	s := NewStyles(true)
 	bar := renderTabBar(TabKindChat, 120, s, true, false, -1)
-	// Strip ANSI escape sequences so the substring check
-	// works regardless of style.
 	plain := stripANSI(bar)
-	// The entire workflows feature (tab, /workflow,
-	// dispatch_workflow tool, engine, etc.) was removed per
-	// user request. Tab bar now has exactly the 3 tabs.
-	for _, want := range []string{"Sessions (F1)", "Chat (F2)", "Settings (F3)"} {
+	for _, want := range []string{"Sessions", "Chat", "Settings"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("tab bar missing %q, got:\n%s", want, plain)
 		}
 	}
-	// The Workflows tab should NOT appear in the tab bar.
 	if strings.Contains(plain, "Workflows") {
-		t.Errorf("tab bar should not contain 'Workflows' (tab removed from UI), got:\n%s", plain)
+		t.Errorf("tab bar should not contain 'Workflows', got:\n%s", plain)
 	}
-	// The old F-key badge style (" F1 " with surrounding
-	// spaces) is gone — make sure we don't have any of
-	// those lingering.
-	for _, unwanted := range []string{"[F1]", "[F2]", "[F3]", "[F4]", " F1 ", " F2 ", " F3 ", " F4 "} {
+	for _, unwanted := range []string{"(F1)", "(F2)", "(F3)", "[F1]", " F1 "} {
 		if strings.Contains(plain, unwanted) {
-			t.Errorf("tab bar should not contain %q (old badge style), got:\n%s", unwanted, plain)
+			t.Errorf("tab bar should not contain %q, got:\n%s", unwanted, plain)
 		}
 	}
 }
 
-// TestRenderTabBar_AllThreeTabs verifies the bar shows exactly
-// three tabs (Sessions, Chat, Settings) with the correct F-key
-// for each. The workflows feature was removed completely.
 func TestRenderTabBar_AllThreeTabs(t *testing.T) {
 	s := NewStyles(true)
 	bar := renderTabBar(TabKindSettings, 120, s, true, false, -1)
 	plain := stripANSI(bar)
-	for _, want := range []string{"Sessions", "Chat", "Settings", "(F1)", "(F2)", "(F3)"} {
+	for _, want := range []string{"Sessions", "Chat", "Settings"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("tab bar missing %q, got:\n%s", want, plain)
 		}

@@ -1605,14 +1605,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					case 0: // Theme — cycle auto → dark → light → auto
 						m.setConfiguredTheme(nextTheme(m.configuredTheme()))
 						cmds = append(cmds, m.emitStatusMsg("Theme: "+m.configuredTheme(), StatusMsgInfo))
-					case 1, 2: // Primary / secondary color — cycle preset pairs
+					case 1: // Primary color — cycle presets (secondary stays default blue)
 						if err := m.cycleThemeColors(); err != nil {
-							cmds = append(cmds, m.emitStatusMsg("Colors: "+err.Error(), StatusMsgError))
+							cmds = append(cmds, m.emitStatusMsg("Color: "+err.Error(), StatusMsgError))
 						} else {
-							name := config.ThemeColorPresetName(m.themeColors.Primary, m.themeColors.Secondary)
-							cmds = append(cmds, m.emitStatusMsg("Colors: "+name, StatusMsgInfo))
+							name := config.ThemeColorPresetName(m.themeColors.Primary)
+							cmds = append(cmds, m.emitStatusMsg("Color: "+name, StatusMsgInfo))
 						}
-					case 3: // Show extended thinking — toggle
+					case 2: // Show extended thinking — toggle
 						if sess := m.currentSession(); sess != nil {
 							sess.showThinking = !sess.showThinking
 							if sess.showThinking && sess.thinkingBuf != "" {
@@ -1622,17 +1622,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 							_ = config.SetShowThinking(sess.showThinking)
 						}
-					case 4: // Reasoning effort — cycle auto → low → medium → high
+					case 3: // Reasoning effort — cycle auto → low → medium → high
 						m.setActiveReasoningEffort(nextReasoningEffort(m.currentReasoningEffort()))
 						cmds = append(cmds, m.emitStatusMsg("Reasoning effort: "+m.currentReasoningEffort(), StatusMsgInfo))
-					case 5: // Show token usage — toggle
+					case 4: // Show token usage — toggle
 						m.setConfiguredShowUsage(!m.configuredShowUsage())
 						state := "on"
 						if !m.configuredShowUsage() {
 							state = "off"
 						}
 						cmds = append(cmds, m.emitStatusMsg("Show token usage: "+state, StatusMsgInfo))
-					case 6: // Auto-compact context — toggle
+					case 5: // Auto-compact context — toggle
 						m.setConfiguredAutoCompact(!m.configuredAutoCompact())
 						state := "on"
 						if !m.configuredAutoCompact() {
@@ -2858,8 +2858,7 @@ func (m Model) View() tea.View {
 		selectedModels := m.selectedSettingsModels()
 		otherView := SettingsOtherView{
 			Theme:           m.configuredTheme(),
-			PrimaryColor:   config.ThemePrimaryDisplayName(m.themeColors.Primary),
-			SecondaryColor: config.ThemeSecondaryDisplayName(m.themeColors.Secondary),
+			PrimaryColor: config.ThemePrimaryDisplayName(m.themeColors.Primary),
 			ShowThinking:    settingsShowThinking,
 			ReasoningEffort: m.currentReasoningEffort(),
 			ShowUsage:       m.configuredShowUsage(),

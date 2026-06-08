@@ -302,7 +302,6 @@ func settingsKeyStatus(pk ProviderSettingsView) string {
 type SettingsOtherView struct {
 	Theme           string
 	PrimaryColor    string
-	SecondaryColor  string
 	ShowThinking    bool
 	ReasoningEffort string
 	ShowUsage       bool
@@ -456,17 +455,6 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	lines = append(lines,
 		sectionTitle(0, "Providers"),
 	)
-	if activeSection == 0 {
-		// Show the section's keybindings as a small right-aligned
-		// hint line so the user can see what to press without
-		// scrolling to the bottom. This addresses the user's
-		// complaint that the section headers were ambiguous:
-		// pairing the section title with its keymap makes the
-		// context explicit.
-		hintLine := dimStyle.Italic(true).Width(innerWidth).Render(
-			"  ↑/↓ move · Enter configure · a add · r refresh · Tab → Other")
-		lines = append(lines, hintLine)
-	}
 	apiRowsLimit := clampRows(height/6, 3, 6)
 	keyStart, keyEnd := settingsWindow(keySel, len(keys), apiRowsLimit)
 	// Provider names are bold and bright white so they read as headings.
@@ -493,9 +481,6 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	}
 	if keyEnd < len(keys) {
 		lines = append(lines, mutedStyle.Width(innerWidth).Render(fmt.Sprintf("  ↓ %d more providers", len(keys)-keyEnd)))
-	}
-	if activeSection == 0 && inspect.Provider == "" {
-		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  Enter configure (OAuth providers open browser sign-in) · r refresh models · a add provider"))
 	}
 	if activeSection == 0 && inspect.Provider != "" {
 		// Inline detail panel for the selected provider.
@@ -559,7 +544,6 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		if inspect.HelpURL != "" {
 			lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("    "+settingsTruncate(inspect.HelpURL, innerWidth)))
 		}
-		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  ↑/↓ field · Enter edit · k edit key · b edit base URL · Del clear key · r refresh · Esc back"))
 	}
 	lines = append(lines, divider)
 
@@ -595,7 +579,6 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	}{
 		{label: "Theme", value: normalizedSettingsValue(other.Theme)},
 		{label: "Primary color", value: other.PrimaryColor},
-		{label: "Secondary color", value: other.SecondaryColor},
 		{label: "Show extended thinking", value: thinkingToggle + " " + thinkingStatus},
 		{label: "Reasoning effort", value: normalizedSettingsValue(other.ReasoningEffort)},
 		{label: "Show token usage", value: usageToggle + " " + usageStatus},
@@ -618,11 +601,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		}
 		lines = append(lines, rowStyle.Width(innerWidth).Render(rowText))
 	}
-	if activeSection == sectionIdx("Other Settings") {
-		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  ↑/↓ move · Enter toggle/cycle · Tab switch to Providers"))
-	}
-
-	lines = append(lines, divider, dimStyle.Width(innerWidth).Render(settingsTruncate("Section: "+sectionName+" · F1 Sessions · F2 Workspace · F3 Settings", innerWidth)))
+	lines = append(lines, divider, dimStyle.Width(innerWidth).Render(settingsTruncate("Section: "+sectionName, innerWidth)))
 	content := strings.Join(lines, "\n")
 	return s.ViewportFocusedStyle.Width(width).Height(height).Render(content)
 }
@@ -732,27 +711,19 @@ func renderSettingsWizardView(width, height int, s Styles, dimStyle, selectedSty
 // alertBlink is true when some session needs user attention (shown on Chat tab label).
 func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, alertBlink bool, hoverTab int) string {
 	type tabDef struct {
-		name string // "Sessions" | "Chat" | "Settings"
-		key  string // "F1" | "F2" | "F3" | "F4"
+		name string
 		kind TabKind
 	}
 	defs := []tabDef{
-		{"Sessions", "F1", TabKindSessions},
-		{"Chat", "F2", TabKindChat},
-		{"Settings", "F3", TabKindSettings},
+		{"Sessions", TabKindSessions},
+		{"Chat", TabKindChat},
+		{"Settings", TabKindSettings},
 	}
 
 	// Use a consistent outline color for the tab "frames" (╭ ─ │ ╯ etc.)
 	// across all tabs (F1, F2, F3). The active tab is distinguished by
 	// its label style (TabActiveStyle), not by changing the border/sep color.
 	var sepStyle = lipgloss.NewStyle().Foreground(s.ColorWhite)
-
-	// Key style: plain dim text in parentheses after the
-	// tab name. The user asked for "(F1)" without boxes or
-	// inverse colors — just quiet text that says what
-	// key to press.
-	keyStyle := lipgloss.NewStyle().Foreground(colorDim)
-	keyStyleActive := lipgloss.NewStyle().Foreground(s.ColorDimGray)
 
 	var top, mid, bot strings.Builder
 	top.WriteString(" ")
@@ -761,10 +732,7 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 	visPos := 1
 
 	for i, d := range defs {
-		// Tab label: " Sessions (F1) " — name first,
-		// keybind in parens after. Pad with a space on
-		// each side so the border line is balanced.
-		full := " " + d.name + " (" + d.key + ") "
+		full := " " + d.name + " "
 		lw := len(full)
 		topLine := "╭" + strings.Repeat("─", lw) + "╮"
 		var botLine string
@@ -786,21 +754,7 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 		default:
 			nameStyle = s.TabInactiveStyle
 		}
-		ks := keyStyle
-		if d.kind == activeTab {
-			ks = keyStyleActive
-		}
-		// Split the label so we can render the name
-		// with the active/inactive/alert style and the
-		// "(F1)" suffix with the dim key style. The
-		// separator (a single space) goes with the
-		// key style so the parens are visually grouped.
-		namePart := d.name
-		keyPart := " (" + d.key + ")"
-		// Reconstruct the full label from the two
-		// styled parts plus the leading and trailing
-		// padding spaces.
-		label := " " + nameStyle.Render(namePart) + ks.Render(keyPart) + " "
+		label := " " + nameStyle.Render(d.name) + " "
 
 		if i > 0 {
 			top.WriteString(" ")

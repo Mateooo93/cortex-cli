@@ -46,38 +46,56 @@ func TestSetThemeColors_PersistsToHomeSettings(t *testing.T) {
 	if cfg.Theme.Primary != "#FF00AA" {
 		t.Errorf("primary = %q", cfg.Theme.Primary)
 	}
-	if cfg.Theme.Secondary != "#00FFAA" {
-		t.Errorf("secondary = %q", cfg.Theme.Secondary)
+	if cfg.Theme.Secondary != "" {
+		t.Errorf("secondary = %q, want cleared", cfg.Theme.Secondary)
 	}
 
 	paths := NewCortexPaths("", filepath.Join(home, ".cortex"), t.TempDir())
 	tc := LoadThemeConfig(paths)
-	if tc.Primary != "#FF00AA" || tc.Secondary != "#00FFAA" {
+	if tc.Primary != "#FF00AA" || tc.Secondary != "" {
 		t.Errorf("LoadThemeConfig() = %+v", tc)
 	}
 }
 
 func TestNextThemeColorPreset_CyclesPresets(t *testing.T) {
-	p, s := NextThemeColorPreset("", "")
-	if p != "#8B5CF6" || s != "#A78BFA" {
-		t.Fatalf("default -> violet = %q, %q", p, s)
+	p := NextThemeColorPreset("")
+	if p != "#8B5CF6" {
+		t.Fatalf("default -> violet = %q", p)
 	}
-	p, s = NextThemeColorPreset(p, s)
-	if p != "#10B981" || s != "#34D399" {
-		t.Fatalf("violet -> emerald = %q, %q", p, s)
+	p = NextThemeColorPreset(p)
+	if p != "#10B981" {
+		t.Fatalf("violet -> emerald = %q", p)
 	}
-	p, s = NextThemeColorPreset("#6366F1", "#818CF8")
-	if p != "" || s != "" {
-		t.Fatalf("indigo -> default = %q, %q", p, s)
+	p = NextThemeColorPreset("#6366F1")
+	if p != "" {
+		t.Fatalf("indigo -> default = %q", p)
 	}
 }
 
 func TestThemeColorPresetName(t *testing.T) {
-	if got := ThemeColorPresetName("#8B5CF6", "#A78BFA"); got != "violet" {
+	if got := ThemeColorPresetName("#8B5CF6"); got != "violet" {
 		t.Fatalf("got %q, want violet", got)
 	}
-	if got := ThemeColorPresetName("", ""); got != "default" {
+	if got := ThemeColorPresetName(""); got != "default" {
 		t.Fatalf("got %q, want default", got)
+	}
+}
+
+func TestSetThemeColors_ClearsSecondaryOverride(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	if err := SetThemeColors("#FF00AA", "#00FFAA"); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(home, ".cortex", "settings.json")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"secondary"`) {
+		t.Errorf("expected secondary override cleared, got %s", string(data))
 	}
 }
 

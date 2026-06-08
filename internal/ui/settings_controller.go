@@ -855,19 +855,15 @@ func (m *Model) applyConfiguredTheme() {
 	m.mdRenderer = NewMarkdownRenderer(width, m.hasDarkBG, m.styles.CodeBoxBorderStyle)
 }
 
-func (m *Model) setThemeColors(primary, secondary string) error {
+func (m *Model) setThemePrimaryColor(primary string) error {
 	p, err := config.NormalizeHexColor(primary)
-	if err != nil {
-		return err
-	}
-	s, err := config.NormalizeHexColor(secondary)
 	if err != nil {
 		return err
 	}
 	tc := m.themeColors
 	tc.Primary = p
-	tc.Secondary = s
-	if err := config.SetThemeColors(tc.Primary, tc.Secondary); err != nil {
+	tc.Secondary = ""
+	if err := config.SetThemeColors(tc.Primary, ""); err != nil {
 		return err
 	}
 	m.themeColors = tc
@@ -876,8 +872,8 @@ func (m *Model) setThemeColors(primary, secondary string) error {
 }
 
 func (m *Model) cycleThemeColors() error {
-	nextPrimary, nextSecondary := config.NextThemeColorPreset(m.themeColors.Primary, m.themeColors.Secondary)
-	return m.setThemeColors(nextPrimary, nextSecondary)
+	nextPrimary := config.NextThemeColorPreset(m.themeColors.Primary)
+	return m.setThemePrimaryColor(nextPrimary)
 }
 
 func (m *Model) currentReasoningEffort() string {
@@ -950,7 +946,7 @@ func (m *Model) setConfiguredShowUsage(v bool) {
 
 // settingsOtherOptionCount matches the row count rendered in renderSettingsView
 // for the "Other Settings" section. Keep in sync with tabs.go.
-const settingsOtherOptionCount = 7
+const settingsOtherOptionCount = 6
 
 func (m *Model) setAllSessionsShowThinking(show bool) {
 	for _, sess := range m.sessions {

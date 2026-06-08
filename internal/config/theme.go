@@ -16,23 +16,23 @@ const (
 	DefaultThemeSecondary = "#60A5FA"
 )
 
-// ThemeColorPreset is a named primary/secondary pair cycled in Settings.
+// ThemeColorPreset is a named primary accent cycled in Settings.
 type ThemeColorPreset struct {
-	Name      string
-	Primary   string // empty = built-in default
-	Secondary string
+	Name    string
+	Primary string // empty = built-in default blue
 }
 
-// ThemeColorPresets are the accent palettes users cycle with Enter in Settings.
+// ThemeColorPresets are the primary accent colors users cycle with Enter.
+// Secondary always stays the default sky blue.
 var ThemeColorPresets = []ThemeColorPreset{
-	{Name: "default", Primary: "", Secondary: ""},
-	{Name: "violet", Primary: "#8B5CF6", Secondary: "#A78BFA"},
-	{Name: "emerald", Primary: "#10B981", Secondary: "#34D399"},
-	{Name: "amber", Primary: "#F59E0B", Secondary: "#FBBF24"},
-	{Name: "rose", Primary: "#F43F5E", Secondary: "#FB7185"},
-	{Name: "cyan", Primary: "#06B6D4", Secondary: "#22D3EE"},
-	{Name: "orange", Primary: "#F97316", Secondary: "#FB923C"},
-	{Name: "indigo", Primary: "#6366F1", Secondary: "#818CF8"},
+	{Name: "default", Primary: ""},
+	{Name: "violet", Primary: "#8B5CF6"},
+	{Name: "emerald", Primary: "#10B981"},
+	{Name: "amber", Primary: "#F59E0B"},
+	{Name: "rose", Primary: "#F43F5E"},
+	{Name: "cyan", Primary: "#06B6D4"},
+	{Name: "orange", Primary: "#F97316"},
+	{Name: "indigo", Primary: "#6366F1"},
 }
 
 func normalizeStoredColor(raw string) string {
@@ -47,27 +47,26 @@ func normalizeStoredColor(raw string) string {
 	return strings.ToUpper(c.Hex())
 }
 
-func themeColorPresetIndex(primary, secondary string) int {
+func themeColorPresetIndex(primary string) int {
 	p := normalizeStoredColor(primary)
-	s := normalizeStoredColor(secondary)
 	for i, preset := range ThemeColorPresets {
-		if preset.Primary == p && preset.Secondary == s {
+		if preset.Primary == p {
 			return i
 		}
 	}
 	return -1
 }
 
-// NextThemeColorPreset returns the next preset pair after the current colors.
-func NextThemeColorPreset(primary, secondary string) (string, string) {
-	idx := themeColorPresetIndex(primary, secondary)
+// NextThemeColorPreset returns the next primary preset after the current value.
+func NextThemeColorPreset(primary string) string {
+	idx := themeColorPresetIndex(primary)
 	next := ThemeColorPresets[(idx+1)%len(ThemeColorPresets)]
-	return next.Primary, next.Secondary
+	return next.Primary
 }
 
-// ThemeColorPresetName returns the display name for a stored primary/secondary pair.
-func ThemeColorPresetName(primary, secondary string) string {
-	idx := themeColorPresetIndex(primary, secondary)
+// ThemeColorPresetName returns the display name for a stored primary color.
+func ThemeColorPresetName(primary string) string {
+	idx := themeColorPresetIndex(primary)
 	if idx < 0 {
 		return "custom"
 	}
@@ -87,20 +86,6 @@ func ThemePrimaryDisplayName(stored string) string {
 	}
 	if stored == "" {
 		return "default (" + DefaultThemePrimary + ")"
-	}
-	return stored
-}
-
-// ThemeSecondaryDisplayName formats the secondary color row in Settings.
-func ThemeSecondaryDisplayName(stored string) string {
-	stored = normalizeStoredColor(stored)
-	if stored == "" {
-		return "default (" + DefaultThemeSecondary + ")"
-	}
-	for _, preset := range ThemeColorPresets {
-		if preset.Secondary == stored {
-			return preset.Name + " (" + stored + ")"
-		}
 	}
 	return stored
 }
@@ -141,16 +126,14 @@ func (tc ThemeConfig) EffectiveSecondary() string {
 	return DefaultThemeSecondary
 }
 
-// SetThemeColors writes primary/secondary colors to ~/.cortex/settings.json so
-// they survive binary updates and reinstalls. Empty strings remove overrides and
-// restore the built-in defaults on next launch.
+// SetThemeColors writes the primary color to ~/.cortex/settings.json.
+// Secondary is always cleared so the built-in default blue is used.
 func SetThemeColors(primary, secondary string) error {
 	primary, err := NormalizeHexColor(primary)
 	if err != nil {
 		return err
 	}
-	secondary, err = NormalizeHexColor(secondary)
-	if err != nil {
+	if _, err := NormalizeHexColor(secondary); err != nil {
 		return err
 	}
 
@@ -177,11 +160,7 @@ func SetThemeColors(primary, secondary string) error {
 	} else {
 		theme["primary"] = primary
 	}
-	if secondary == "" {
-		delete(theme, "secondary")
-	} else {
-		theme["secondary"] = secondary
-	}
+	delete(theme, "secondary")
 	if len(theme) == 0 {
 		delete(raw, "theme")
 	} else {

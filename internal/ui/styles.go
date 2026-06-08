@@ -355,11 +355,7 @@ func ApplyTheme(tc config.ThemeConfig) {
 	} else {
 		primaryHex = config.DefaultThemePrimary
 	}
-	if tc.Secondary != "" {
-		secondaryHex = tc.Secondary
-	} else {
-		secondaryHex = config.DefaultThemeSecondary
-	}
+	secondaryHex = config.DefaultThemeSecondary
 
 	// Rebuild all brand-derived colors
 	colorPrimary = lipgloss.Color(primaryHex)

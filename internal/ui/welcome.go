@@ -76,40 +76,7 @@ func buildWelcomeLines(width int, s Styles) []string {
 	lines = append(lines, centerDisplayLine(version, width), "")
 
 	subtitle := lipgloss.NewStyle().Foreground(s.ColorWhite).Italic(true).Render("AI coding assistant")
-	lines = append(lines, centerDisplayLine(subtitle, width), "")
-
-	shortcutStyle := lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
-	descStyle := lipgloss.NewStyle().Foreground(s.ColorWhite)
-	shortcuts := []struct {
-		key  string
-		desc string
-	}{
-		{"Enter", "Send (interrupt after current edit)"},
-		{"Tab", "Queue message for next turn"},
-		{"Shift+Tab", "Cycle mode"},
-		{"Ctrl+N", "Next session"},
-		{"Ctrl+P", "Previous session"},
-		{"Ctrl+R", "Search history"},
-		{"Ctrl+C", "Quit"},
-		{"Esc", "Cancel current operation"},
-	}
-	maxKeyWidth := 0
-	maxDescWidth := 0
-	for _, sc := range shortcuts {
-		if len(sc.key) > maxKeyWidth {
-			maxKeyWidth = len(sc.key)
-		}
-		if len(sc.desc) > maxDescWidth {
-			maxDescWidth = len(sc.desc)
-		}
-	}
-	rowWidth := maxKeyWidth + 2 + maxDescWidth
-	for _, sc := range shortcuts {
-		key := shortcutStyle.Width(maxKeyWidth).AlignHorizontal(lipgloss.Right).Render(sc.key)
-		desc := descStyle.Width(maxDescWidth).Render(sc.desc)
-		row := lipgloss.NewStyle().Width(rowWidth).Render(key + "  " + desc)
-		lines = append(lines, centerDisplayLine(row, width))
-	}
+	lines = append(lines, centerDisplayLine(subtitle, width))
 	return lines
 }
 

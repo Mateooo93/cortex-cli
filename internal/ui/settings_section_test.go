@@ -17,8 +17,7 @@ import (
 //   - "Other Settings" appears as a section title with the ▸
 //     chevron (active marker)
 //   - the cursor on the highlighted row is rendered (▸ marker)
-//   - the help line "Tab → Other" is NOT shown (we're in
-//     Other Settings, not Providers)
+//   - Providers is visible but not highlighted
 func TestSettingsSectionOtherSettings_HighlightedWhenActive(t *testing.T) {
 	s := NewStyles(true)
 	other := SettingsOtherView{
@@ -150,19 +149,13 @@ func TestSettingsSectionProviders_HighlightedWhenActive(t *testing.T) {
 	if strings.Contains(otherSettingsLine, "\u25b8") {
 		t.Errorf("expected 'Other Settings' to NOT have ▸ when inactive, got %q", otherSettingsLine)
 	}
-	// Section-specific hint line should appear for active
-	// Providers section.
-	if !strings.Contains(view, "Tab \u2192 Other") {
-		t.Errorf("expected 'Tab → Other' hint when Providers is active, got:\n%s", view)
-	}
 }
 
 func TestSettingsOtherSettings_IncludesColorRows(t *testing.T) {
 	s := NewStyles(true)
 	other := SettingsOtherView{
-		Theme:          "auto",
-		PrimaryColor:   "default (#3B82F6)",
-		SecondaryColor: "#60A5FA",
+		Theme:        "auto",
+		PrimaryColor: "default (#3B82F6)",
 	}
 	view := renderSettingsView(120, 40, s,
 		1, 0, 0, 0,
@@ -176,8 +169,8 @@ func TestSettingsOtherSettings_IncludesColorRows(t *testing.T) {
 	if !strings.Contains(view, "Primary color") {
 		t.Errorf("expected Primary color row, got:\n%s", view)
 	}
-	if !strings.Contains(view, "Secondary color") {
-		t.Errorf("expected Secondary color row, got:\n%s", view)
+	if strings.Contains(view, "Secondary color") {
+		t.Errorf("unexpected Secondary color row, got:\n%s", view)
 	}
 }
 
