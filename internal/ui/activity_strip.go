@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
@@ -19,6 +20,68 @@ import (
 // braille dot rotations to keep the look consistent
 // with the other spinners in the app.
 var activityStripSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸"}
+
+const toolActivityFPS = 4
+
+// toolActivityTickMsg drives the spinner/timer refresh for in-flight
+// shell commands and the bottom activity strip.
+type toolActivityTickMsg struct {
+	gen  int
+	anim *ToolActivityAnim
+}
+
+// ToolActivityAnim ticks while any tool in the session is still pending.
+type ToolActivityAnim struct {
+	step   int
+	active bool
+	gen    int
+}
+
+// NewToolActivityAnim creates a tool-activity animation controller.
+func NewToolActivityAnim() ToolActivityAnim {
+	return ToolActivityAnim{}
+}
+
+// Start begins the tick loop when at least one tool is pending.
+func (a *ToolActivityAnim) Start() tea.Cmd {
+	if a.active {
+		return nil
+	}
+	a.active = true
+	a.step = 0
+	return a.tick()
+}
+
+// Stop invalidates in-flight ticks.
+func (a *ToolActivityAnim) Stop() {
+	a.active = false
+	a.gen++
+}
+
+// Advance moves to the next spinner frame.
+func (a *ToolActivityAnim) Advance(msg toolActivityTickMsg) tea.Cmd {
+	if msg.anim != a || !a.active || msg.gen != a.gen {
+		return nil
+	}
+	a.step++
+	return a.tick()
+}
+
+// Frame returns the current spinner frame index.
+func (a *ToolActivityAnim) Frame() int {
+	if !a.active {
+		return 0
+	}
+	return a.step
+}
+
+func (a *ToolActivityAnim) tick() tea.Cmd {
+	gen := a.gen
+	anim := a
+	return tea.Tick(time.Second/toolActivityFPS, func(time.Time) tea.Msg {
+		return toolActivityTickMsg{gen: gen, anim: anim}
+	})
+}
 
 // activityStripMaxSummaryLen is the maximum length
 // we render for a tool's Summary field in the strip.

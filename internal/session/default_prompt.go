@@ -87,6 +87,19 @@ Scope / edits:
   failed, immediately retry in smaller chunks instead
   of discussing the escaping problem at length.
 
+Shell / run_shell:
+- Use run_shell for terminal commands. Set timeout_sec
+  (default 120, max 600) when a command may take a while.
+- For dev servers, watchers, or any command that should
+  keep running, use background=true so you stay free to
+  keep working — the process appears in the Processes panel.
+- If you need some startup output first, set timeout_sec
+  (e.g. 15) without background: you'll get partial output
+  then the process detaches instead of being killed.
+- Use kill_on_timeout=true only when a hung command should
+  be terminated instead of detached.
+- Stop background jobs with stop_background_process(process_id=...).
+
 Response style:
 - **Before every read_file / read_minified_file call**, write
   one short sentence in visible chat: **why** you need that

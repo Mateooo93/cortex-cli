@@ -87,6 +87,40 @@ func (s *SessionState) markRecentToolDone(toolID string, isError bool) {
 	}
 }
 
+// hasPendingRecentTools reports whether any tool in the activity strip
+// is still running.
+func (s *SessionState) hasPendingRecentTools() bool {
+	for _, e := range s.RecentTools {
+		if e.Status == RecentToolPending {
+			return true
+		}
+	}
+	return false
+}
+
+// activityStripRows returns how many terminal rows the bottom activity
+// strip should occupy (0 or 1).
+func runningBackgroundProcesses(procs []protocol.BackgroundProcessItem) []protocol.BackgroundProcessItem {
+	var out []protocol.BackgroundProcessItem
+	for _, p := range procs {
+		if p.Running {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (s *SessionState) hasRunningBackgroundProcesses() bool {
+	return len(runningBackgroundProcesses(s.backgroundProcesses)) > 0
+}
+
+func (s *SessionState) activityStripRows() int {
+	if s == nil || len(s.RecentTools) == 0 {
+		return 0
+	}
+	return 1
+}
+
 // SessionState holds all accumulated UI state for a single agent session.
 // Sessions are independent objects — the Chat tab renders whichever session
 // is currently selected. Messages accumulate continuously from daemon events
@@ -126,6 +160,10 @@ type SessionState struct {
 	thinkingBuf           string
 	thinkingRendered      string
 	showThinking          bool
+
+	// backgroundProcesses lists shell commands still running (or
+	// recently exited) that the agent started via run_shell.
+	backgroundProcesses []protocol.BackgroundProcessItem
 
 	// RecentTools is a compact FIFO of the last few
 	// tool calls made by the main agent. The UI
@@ -181,7 +219,8 @@ type SessionState struct {
 	slashMenu     SlashMenu
 
 	// Animation
-	thinkingAnim ThinkingAnim
+	thinkingAnim     ThinkingAnim
+	toolActivityAnim ToolActivityAnim
 
 	// Input recall history (.cortex/history.txt)
 	history *History
@@ -230,7 +269,8 @@ func newSessionState(cfg *config.Config, client *daemon.SessionClient) *SessionS
 	s := &SessionState{
 		agentState:    StateWaitingForInput,
 		input:         newInput(),
-		thinkingAnim:   NewThinkingAnim(),
+		thinkingAnim:       NewThinkingAnim(),
+		toolActivityAnim:   NewToolActivityAnim(),
 		streamPlayback: NewStreamPlayback(),
 		questionPanel: NewQuestionPanel(),
 		focus:         FocusEditor,

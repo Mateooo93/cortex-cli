@@ -187,6 +187,22 @@ type EventToolResult struct {
 	ShowToolName bool `json:"show_tool_name,omitempty"`
 }
 
+// BackgroundProcessItem describes one tracked background shell process.
+type BackgroundProcessItem struct {
+	ID        string `json:"id"`
+	PID       int    `json:"pid"`
+	Command   string `json:"command"`
+	CWD       string `json:"cwd"`
+	StartedAt int64  `json:"started_at_unix"`
+	Running   bool   `json:"running"`
+	ExitCode  int    `json:"exit_code,omitempty"`
+}
+
+// EventBackgroundProcessesUpdated carries the session's background processes.
+type EventBackgroundProcessesUpdated struct {
+	Processes []BackgroundProcessItem `json:"processes"`
+}
+
 // EventConfirmRequest asks the user to approve a tool execution.
 type EventConfirmRequest struct {
 	ToolName      string         `json:"tool_name"`

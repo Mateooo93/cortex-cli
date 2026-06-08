@@ -44,6 +44,16 @@ const (
 	MsgPlanSummary
 )
 
+// ToolRunStatus tracks lifecycle of a shell command shown inline in chat.
+type ToolRunStatus int
+
+const (
+	ToolRunNone ToolRunStatus = iota
+	ToolRunPending
+	ToolRunDone
+	ToolRunFailed
+)
+
 // ChatMessage represents a single rendered message in the chat.
 type ChatMessage struct {
 	Type       ChatMessageType
@@ -63,6 +73,16 @@ type ChatMessage struct {
 	TurnModel        string // model name passed to renderTurnInfo
 	TurnElapsed  time.Duration // elapsed duration passed to renderTurnInfo
 	TurnCost     float64       // cost value passed to renderTurnInfo
+
+	// Shell command lifecycle (run_shell / bash). Drives the inline
+	// spinner, elapsed timer, and succeeded/failed suffix on the
+	// tool-call line while the command runs.
+	ToolID          string
+	ToolStatus      ToolRunStatus
+	ToolReason      string
+	ToolBashReasons [4]string
+	StartedAt       time.Time
+	EndedAt         time.Time
 }
 
 // renderUserMessage creates a rendered user message.
@@ -256,6 +276,80 @@ func renderWriteFileSuccess(lineCount int, preview string, prefix string) string
 		sb.WriteString("\n")
 	}
 	return sb.String()
+}
+
+// isShellTool reports whether name is a shell execution tool.
+func isShellTool(name string) bool {
+	return name == "run_shell" || name == "bash"
+}
+
+// shellToolDisplayName returns the label shown for shell tools in chat.
+func shellToolDisplayName(name string) string {
+	if name == "run_shell" {
+		return "shell"
+	}
+	return name
+}
+
+// renderShellToolCallDisplay renders a shell command line with a live
+// spinner/timer while pending and a succeeded/failed suffix when done.
+func renderShellToolCallDisplay(name, summary, reason string, bashReasons [4]string, status ToolRunStatus, started, ended time.Time, animFrame int, s Styles) string {
+	if lipgloss.Width(summary) > 90 {
+		summary = lipgloss.NewStyle().MaxWidth(90).Render(summary) + "…"
+	}
+	displayName := shellToolDisplayName(name)
+	text := toolCallStyle.Render(fmt.Sprintf("%s — %s", displayName, summary))
+
+	var icon, iconStyle, suffix string
+	switch status {
+	case ToolRunPending:
+		icon = activityStripSpinnerFrames[animFrame%len(activityStripSpinnerFrames)]
+		iconStyle = "14"
+		elapsed := time.Since(started)
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		suffix = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).
+			Render(fmt.Sprintf("(running %s)", formatActivityStripElapsed(elapsed)))
+	case ToolRunDone:
+		icon = "✓"
+		iconStyle = "10"
+		dur := ended.Sub(started)
+		if dur < 0 {
+			dur = 0
+		}
+		suffix = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("10")).
+			Render(fmt.Sprintf("(succeeded · %s)", formatActivityStripElapsed(dur)))
+	case ToolRunFailed:
+		icon = "✗"
+		iconStyle = "9"
+		dur := ended.Sub(started)
+		if dur < 0 {
+			dur = 0
+		}
+		suffix = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("9")).
+			Render(fmt.Sprintf("(failed · %s)", formatActivityStripElapsed(dur)))
+	default:
+		return renderToolCall(name, summary, reason, bashReasons, s).Rendered
+	}
+
+	iconStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(iconStyle)).Bold(true).Render(icon)
+	rendered := fmt.Sprintf("\n  %s %s%s\n", iconStyled, text, suffix)
+	if reason != "" {
+		rendered += s.ToolCallReasonStyle.Render("    ↳ "+reason) + "\n"
+	}
+	labels := [4]string{
+		"Reason for not using read_file: ",
+		"Reason for not using edit_file: ",
+		"Reason for not using glob_files: ",
+		"Reason for increasing timeout: ",
+	}
+	for i, r := range bashReasons {
+		if r != "" && r != "N/A" {
+			rendered += "    ↳ " + bashReasonLabelStyle.Render(labels[i]) + s.ToolCallReasonStyle.Render(r) + "\n"
+		}
+	}
+	return rendered
 }
 
 // renderToolCall creates a rendered tool call indicator.

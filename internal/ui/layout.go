@@ -12,14 +12,16 @@ type Layout struct {
 	ChatHeight      int
 	InputHeight     int
 	StatusBarHeight int
-	TabBarHeight    int
-	PanelHeight     int
-	ChatWidth       int // same as Width; kept for call-site compatibility
+	TabBarHeight        int
+	ActivityStripHeight int
+	PanelHeight         int
+	ChatWidth           int // same as Width; kept for call-site compatibility
 }
 
 // computeLayout calculates the vertical space allocation.
+// activityStripRows is 0 or 1 for the compact tool-activity footer.
 // panelHeights are optional heights for attachment panel, history panel, etc.
-func computeLayout(width, height, inputLineCount int, panelHeights ...int) Layout {
+func computeLayout(width, height, inputLineCount, activityStripRows int, panelHeights ...int) Layout {
 	// Status bar: 1 line (slim footer with connection ·
 	// model · ctx% · ⏱). The status bar is ALWAYS 1
 	// line tall, even when a transient message is
@@ -52,19 +54,27 @@ func computeLayout(width, height, inputLineCount int, panelHeights ...int) Layou
 		panelHeight += h
 	}
 
-	chatHeight := height - inputHeight - statusBarHeight - tabBarHeight - panelHeight
+	if activityStripRows < 0 {
+		activityStripRows = 0
+	}
+	if activityStripRows > 1 {
+		activityStripRows = 1
+	}
+
+	chatHeight := height - inputHeight - statusBarHeight - tabBarHeight - panelHeight - activityStripRows
 	if chatHeight < 3 {
 		chatHeight = 3
 	}
 
 	return Layout{
-		Width:           width,
-		ChatHeight:      chatHeight,
-		InputHeight:     inputHeight,
-		StatusBarHeight: statusBarHeight,
-		TabBarHeight:    tabBarHeight,
-		PanelHeight:     panelHeight,
-		ChatWidth:       width,
+		Width:               width,
+		ChatHeight:          chatHeight,
+		InputHeight:         inputHeight,
+		StatusBarHeight:     statusBarHeight,
+		TabBarHeight:        tabBarHeight,
+		ActivityStripHeight: activityStripRows,
+		PanelHeight:         panelHeight,
+		ChatWidth:           width,
 	}
 }
 

@@ -119,14 +119,36 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var tc protocol.EventToolCall
 		json.Unmarshal(data, &tc)
+		bashReasons := [4]string{tc.ReasonNotReadFile, tc.ReasonNotEditFile, tc.ReasonNotGlobFiles, tc.ReasonToIncreaseTimeout}
 		chatIdx := len(sess.chatMessages)
-		sess.chatMessages = append(sess.chatMessages, renderToolCall(tc.Name, tc.Summary, tc.Reason,
-			[4]string{tc.ReasonNotReadFile, tc.ReasonNotEditFile, tc.ReasonNotGlobFiles, tc.ReasonToIncreaseTimeout}, m.styles))
+		msg := renderToolCall(tc.Name, tc.Summary, tc.Reason, bashReasons, m.styles)
+		if isShellTool(tc.Name) {
+			now := time.Now()
+			msg.ToolID = tc.ToolID
+			msg.ToolStatus = ToolRunPending
+			msg.ToolReason = tc.Reason
+			msg.ToolBashReasons = bashReasons
+			msg.StartedAt = now
+			msg.Rendered = renderShellToolCallDisplay(tc.Name, tc.Summary, tc.Reason, bashReasons, ToolRunPending, now, time.Time{}, sess.toolActivityAnim.Frame(), m.styles)
+		}
+		sess.chatMessages = append(sess.chatMessages, msg)
 		if tc.ToolID != "" {
 			if sess.pendingTools == nil {
 				sess.pendingTools = make(map[string]int)
 			}
 			sess.pendingTools[tc.ToolID] = chatIdx
+		}
+		if !isOrchestrationTool(tc.Name) {
+			sess.pushRecentTool(RecentToolEntry{
+				ToolID:    tc.ToolID,
+				Name:      tc.Name,
+				Summary:   tc.Summary,
+				StartedAt: time.Now(),
+				Status:    RecentToolPending,
+			})
+		}
+		if cmd := sess.toolActivityAnim.Start(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 
 	case "event.tool_result":
@@ -141,10 +163,28 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		var toolCallSummary string
 		if tr.ToolID != "" && sess.pendingTools != nil {
 			if callIdx, ok := sess.pendingTools[tr.ToolID]; ok && callIdx < len(sess.chatMessages) {
-				toolCallSummary = sess.chatMessages[callIdx].Text
+				call := &sess.chatMessages[callIdx]
+				toolCallSummary = call.Text
+				if isShellTool(call.ToolName) && call.ToolStatus == ToolRunPending {
+					ended := time.Now()
+					status := ToolRunDone
+					if tr.IsError {
+						status = ToolRunFailed
+					}
+					call.ToolStatus = status
+					call.EndedAt = ended
+					call.Rendered = renderShellToolCallDisplay(call.ToolName, call.Text, call.ToolReason, call.ToolBashReasons, status, call.StartedAt, ended, 0, m.styles)
+				}
 			}
 		}
 		result := renderToolResultWithContext(tr.Name, tr.Output, tr.IsError, tr.ShowToolName, detail, toolCallSummary, m.styles, m.mdRenderer, m.mdRenderer.width)
+
+		if tr.ToolID != "" {
+			sess.markRecentToolDone(tr.ToolID, tr.IsError)
+			if !sess.hasPendingRecentTools() {
+				sess.toolActivityAnim.Stop()
+			}
+		}
 
 		if tr.ToolID != "" && sess.pendingTools != nil {
 			if callIdx, ok := sess.pendingTools[tr.ToolID]; ok {
@@ -200,6 +240,23 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		sess.thinkingAnim.Stop()
 		sess.focus = FocusEditor
 		sess.input.Blur()
+
+	case "event.background_processes_updated":
+		data := marshalData(event.Data)
+		var bp protocol.EventBackgroundProcessesUpdated
+		json.Unmarshal(data, &bp)
+		sess.backgroundProcesses = bp.Processes
+		if len(runningBackgroundProcesses(bp.Processes)) > 0 {
+			if !sess.rightPanel.IsVisible() {
+				sess.rightPanel.OpenInfo(m.height)
+				m.updateChatWidth()
+			}
+			if cmd := sess.toolActivityAnim.Start(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		} else {
+			sess.toolActivityAnim.Stop()
+		}
 
 	case "event.todo_list_updated":
 		data := marshalData(event.Data)

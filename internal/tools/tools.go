@@ -48,6 +48,8 @@ type Context struct {
 	AllowShell bool
 	AllowWrite bool
 	AllowGit   bool
+	// Processes tracks background shell commands for this session.
+	Processes *ProcessRegistry
 }
 
 // Result is the output of a tool execution.
@@ -866,11 +868,26 @@ type ShellTool struct{}
 
 func (t *ShellTool) Name() string { return "run_shell" }
 func (t *ShellTool) Description() string {
-	return "Run a shell command. Defaults to bash, falls back to sh if bash is not installed. Requires allowShell."
+	return "Run a shell command. Defaults to bash, falls back to sh if bash is not installed. Requires allowShell. " +
+		"Use background=true to start long-running commands (dev servers, watchers) without blocking — you stay free to keep working. " +
+		"Use timeout_sec (default 120, max 600) to wait up to N seconds for output; if the command is still running when the timeout elapses it is detached to the background (not killed) unless kill_on_timeout=true. " +
+		"Detached/background processes appear in the Processes panel; stop them with stop_background_process(process_id=...)."
 }
 func (t *ShellTool) Parameters() map[string]Param {
 	return map[string]Param{
 		"command": {Type: "string", Description: "Shell command to execute", Required: true},
+		"timeout_sec": {
+			Type:        "number",
+			Description: "Seconds to wait for the command to finish (default 120, max 600). After this, detach to background unless kill_on_timeout is true.",
+		},
+		"background": {
+			Type:        "boolean",
+			Description: "If true, start the command and return immediately without waiting. Use for dev servers and other long-running processes.",
+		},
+		"kill_on_timeout": {
+			Type:        "boolean",
+			Description: "If true and timeout_sec elapses while the command is still running, kill it instead of detaching to the background.",
+		},
 	}
 }
 func (t *ShellTool) Run(ctx Context, args map[string]any) (Result, error) {
@@ -881,30 +898,150 @@ func (t *ShellTool) Run(ctx Context, args map[string]any) (Result, error) {
 	if cmd == "" {
 		return Result{OK: false, Error: "command is required"}, nil
 	}
-	c := exec.CommandContext(context.Background(), shellCommand(), "-c", cmd)
+	timeoutSec := parseTimeoutSec(args)
+	background := parseBoolArg(args, "background")
+	killOnTimeout := parseBoolArg(args, "kill_on_timeout")
+
+	sh := shellCommand()
+	c := exec.Command(sh, "-c", cmd)
 	c.Dir = ctx.CWD
-	done := make(chan struct{})
 	var stdout, stderr strings.Builder
 	c.Stdout = &stdout
 	c.Stderr = &stderr
 	if err := c.Start(); err != nil {
 		return Result{OK: false, Error: err.Error()}, nil
 	}
+	pid := c.Process.Pid
+
+	waitDone := make(chan error, 1)
 	go func() {
-		_ = c.Wait()
-		close(done)
+		waitDone <- c.Wait()
 	}()
-	select {
-	case <-done:
+
+	finish := func(waitErr error) Result {
 		out := stdout.String()
 		if stderr.Len() > 0 {
-			out += "\nSTDERR:\n" + stderr.String()
+			if out != "" {
+				out += "\n"
+			}
+			out += "STDERR:\n" + stderr.String()
 		}
-		return Result{OK: true, Output: out}, nil
-	case <-time.After(60 * time.Second):
-		_ = c.Process.Kill()
-		return Result{OK: false, Error: "command timed out after 60s", Output: stdout.String()}, nil
+		if waitErr != nil {
+			return Result{OK: false, Error: waitErr.Error(), Output: out}
+		}
+		return Result{OK: true, Output: out}
 	}
+
+	if background {
+		procID := ""
+		if ctx.Processes != nil {
+			procID = ctx.Processes.Register(pid, cmd, ctx.CWD)
+			go t.watchBackgroundProcess(ctx, procID, c, waitDone)
+		} else {
+			go func() { _ = <-waitDone }()
+		}
+		msg := fmt.Sprintf("Started in background (pid %d)", pid)
+		if procID != "" {
+			msg += fmt.Sprintf(", process_id=%s", procID)
+		}
+		msg += ". The command keeps running — check the Processes panel or use stop_background_process to stop it."
+		return Result{
+			OK:     true,
+			Output: msg,
+			Details: map[string]any{
+				"background":   true,
+				"process_id":   procID,
+				"pid":          pid,
+				"timeout_sec":  0,
+			},
+		}, nil
+	}
+
+	select {
+	case waitErr := <-waitDone:
+		return finish(waitErr), nil
+	case <-time.After(time.Duration(timeoutSec) * time.Second):
+		out := stdout.String()
+		if stderr.Len() > 0 {
+			if out != "" {
+				out += "\n"
+			}
+			out += "STDERR:\n" + stderr.String()
+		}
+		if killOnTimeout {
+			_ = c.Process.Kill()
+			<-waitDone
+			return Result{
+				OK:     false,
+				Error:  fmt.Sprintf("command timed out after %ds and was killed", timeoutSec),
+				Output: out,
+			}, nil
+		}
+		procID := ""
+		if ctx.Processes != nil {
+			procID = ctx.Processes.Register(pid, cmd, ctx.CWD)
+			go t.watchBackgroundProcess(ctx, procID, c, waitDone)
+		} else {
+			go func() { _ = <-waitDone }()
+		}
+		msg := fmt.Sprintf("Detached after %ds (still running, pid %d)", timeoutSec, pid)
+		if procID != "" {
+			msg += fmt.Sprintf(", process_id=%s", procID)
+		}
+		msg += ". Partial output above; process continues in background."
+		if out != "" {
+			msg = out + "\n\n" + msg
+		}
+		return Result{
+			OK:     true,
+			Output: msg,
+			Details: map[string]any{
+				"detached":     true,
+				"process_id":   procID,
+				"pid":          pid,
+				"timeout_sec":  timeoutSec,
+			},
+		}, nil
+	}
+}
+
+func (t *ShellTool) watchBackgroundProcess(ctx Context, procID string, c *exec.Cmd, waitDone <-chan error) {
+	err := <-waitDone
+	exitCode := 0
+	if err != nil {
+		exitCode = -1
+		if c.ProcessState != nil {
+			exitCode = c.ProcessState.ExitCode()
+		}
+	} else if c.ProcessState != nil {
+		exitCode = c.ProcessState.ExitCode()
+	}
+	if ctx.Processes != nil && procID != "" {
+		ctx.Processes.MarkExited(procID, exitCode)
+	}
+}
+
+// StopBackgroundProcessTool stops a detached/background shell process.
+type StopBackgroundProcessTool struct{}
+
+func (t *StopBackgroundProcessTool) Name() string { return "stop_background_process" }
+func (t *StopBackgroundProcessTool) Description() string {
+	return "Stop a background shell process started by run_shell. Pass process_id from the tool result."
+}
+func (t *StopBackgroundProcessTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"process_id": {Type: "string", Description: "process_id returned by run_shell", Required: true},
+	}
+}
+func (t *StopBackgroundProcessTool) Run(ctx Context, args map[string]any) (Result, error) {
+	if ctx.Processes == nil {
+		return Result{OK: false, Error: "no background processes in this session"}, nil
+	}
+	id, _ := args["process_id"].(string)
+	if id == "" {
+		return Result{OK: false, Error: "process_id is required"}, nil
+	}
+	return ctx.Processes.Stop(id)
 }
 
 // shellCommand returns the shell to use for run_shell. We prefer
@@ -927,6 +1064,7 @@ func defaultTools() []Tool {
 		&ListDirTool{},
 		&SearchTool{},
 		&ShellTool{},
+		&StopBackgroundProcessTool{},
 		&WebFetchTool{},
 		&WebSearchTool{},
 		&SpawnAgentTool{},

@@ -83,6 +83,8 @@ type Session struct {
 	// executing in parallel. The UI uses this to prefix concurrent
 	// tool results with the tool name (Grok Build / Claude Code style).
 	toolBatchConcurrent bool
+
+	processes *tools.ProcessRegistry
 }
 
 // Config is the input for New().
@@ -130,6 +132,7 @@ func New(cfg Config) (*Session, error) {
 		userAnswerCh: make(chan userAnswer, 1),
 		done:         make(chan struct{}),
 	}
+	s.processes = tools.NewProcessRegistry(s.emitBackgroundProcesses)
 	return s, nil
 }
 
@@ -634,6 +637,7 @@ func (s *Session) runToolCall(ctx context.Context, call provider.ToolCall) *prov
 		AllowShell: s.cfg.Tools.AllowShell,
 		AllowWrite: s.cfg.Tools.AllowWrite,
 		AllowGit:   s.cfg.Tools.AllowGit,
+		Processes:  s.processes,
 	}
 	res, _ := tool.Run(tctx, call.Arguments)
 	s.emitToolResult(call.ID, call.Name, res.Output, !res.OK, res.Error, res.Details)
@@ -1214,6 +1218,23 @@ func recoverArgsFromRaw(toolName string, args map[string]any, raw string) map[st
 
 func summarizeToolCall(name string, args map[string]any) string {
 	switch name {
+	case "run_shell", "bash":
+		cmd, _ := args["command"].(string)
+		cmd = strings.TrimSpace(cmd)
+		if cmd == "" {
+			break
+		}
+		if len(cmd) > 60 {
+			cmd = cmd[:57] + "..."
+		}
+		label := "$ " + cmd
+		if parseBoolArg(args, "background") {
+			return label + " (background)"
+		}
+		if sec := shellTimeoutFromArgs(args); sec > 0 {
+			return fmt.Sprintf("%s (timeout %ds)", label, sec)
+		}
+		return label
 	case "web_fetch":
 		if u, _ := args["url"].(string); u != "" {
 			return u
@@ -1439,14 +1460,61 @@ func (s *Session) emitStreamDone(u provider.Usage, finish provider.FinishReason)
 }
 
 func (s *Session) emitToolCall(id, name string, args map[string]any, summary string) {
+	ev := protocol.EventToolCall{
+		ToolID:    id,
+		Name:      name,
+		Arguments: args,
+		Summary:   summary,
+	}
+	if name == "run_shell" || name == "bash" {
+		ev.TimeoutSec = shellTimeoutFromArgs(args)
+		if r, ok := args["reason_to_increase_timeout"].(string); ok {
+			ev.ReasonToIncreaseTimeout = r
+		}
+	}
+	s.safeEmit(protocol.SessionEvent{Type: "tool_call", Data: ev})
+}
+
+func shellTimeoutFromArgs(args map[string]any) int {
+	if v, ok := args["timeout_sec"]; ok {
+		switch n := v.(type) {
+		case float64:
+			if n > 0 {
+				return int(n)
+			}
+		case int:
+			if n > 0 {
+				return n
+			}
+		}
+	}
+	if parseBoolArg(args, "background") {
+		return 0
+	}
+	return 120
+}
+
+func parseBoolArg(args map[string]any, key string) bool {
+	v, ok := args[key].(bool)
+	return ok && v
+}
+
+func (s *Session) emitBackgroundProcesses(procs []tools.BackgroundProcess) {
+	items := make([]protocol.BackgroundProcessItem, 0, len(procs))
+	for _, p := range procs {
+		items = append(items, protocol.BackgroundProcessItem{
+			ID:        p.ID,
+			PID:       p.PID,
+			Command:   p.Command,
+			CWD:       p.CWD,
+			StartedAt: p.StartedAt.Unix(),
+			Running:   p.Running,
+			ExitCode:  p.ExitCode,
+		})
+	}
 	s.safeEmit(protocol.SessionEvent{
-		Type: "tool_call",
-		Data: protocol.EventToolCall{
-			ToolID:    id,
-			Name:      name,
-			Arguments: args,
-			Summary:   summary,
-		},
+		Type: "background_processes_updated",
+		Data: protocol.EventBackgroundProcessesUpdated{Processes: items},
 	})
 }
 

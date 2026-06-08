@@ -28,7 +28,11 @@ func (m *Model) currentLayout() Layout {
 		inputLines = sess.questionPanel.Height()
 	}
 
-	layout := computeLayout(m.width, m.height, inputLines, panelHeights...)
+	activityStripRows := 0
+	if sess != nil {
+		activityStripRows = sess.activityStripRows()
+	}
+	layout := computeLayout(m.width, m.height, inputLines, activityStripRows, panelHeights...)
 	if sess != nil && sess.rightPanel.IsVisible() {
 		layout.ChatWidth = m.width - sess.rightPanel.PanelWidth()
 		if layout.ChatWidth < 10 {

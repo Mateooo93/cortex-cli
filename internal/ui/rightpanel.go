@@ -298,6 +298,9 @@ type RightPanelInfoView struct {
 	// block in the right panel so the user can see what
 	// the agent is working on without leaving the chat.
 	Todos []protocol.TodoItem
+
+	// Processes lists background shell commands the agent started.
+	Processes []protocol.BackgroundProcessItem
 }
 
 // View renders the right panel as a bordered, full-height string.
@@ -568,6 +571,23 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 		conn = errStyle.Render("● disconnected")
 	}
 	lines = append(lines, dimStyle.Width(innerWidth).Render(conn))
+
+	// ── Background processes (dev servers, detached shells) ──
+	if len(info.Processes) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Processes"))
+		for _, p := range info.Processes {
+			cmd := truncateRight(p.Command, innerWidth-8)
+			if p.Running {
+				elapsed := time.Since(time.Unix(p.StartedAt, 0)).Truncate(time.Second)
+				line := fmt.Sprintf("● pid %d  %s  %s", p.PID, cmd, formatDurationShort(elapsed))
+				lines = append(lines, warnStyle.Width(innerWidth).Render(truncateRight(line, innerWidth)))
+			} else {
+				line := fmt.Sprintf("○ %s  exited %d", cmd, p.ExitCode)
+				lines = append(lines, dimStyle.Width(innerWidth).Render(truncateRight(line, innerWidth)))
+			}
+		}
+	}
 
 	// ── Todos (only when the AI has emitted a todo list) ──
 	if len(info.Todos) > 0 {

@@ -338,6 +338,21 @@ func (m *Model) currentSession() *SessionState {
 	return m.sessions[m.selectedSession]
 }
 
+// refreshPendingShellToolCalls re-renders in-flight shell commands so the
+// inline spinner and elapsed timer update on each activity tick.
+func (m *Model) refreshPendingShellToolCalls(sess *SessionState, animFrame int) {
+	if sess == nil {
+		return
+	}
+	for i := range sess.chatMessages {
+		msg := &sess.chatMessages[i]
+		if msg.Type != MsgToolCall || msg.ToolStatus != ToolRunPending || !isShellTool(msg.ToolName) {
+			continue
+		}
+		msg.Rendered = renderShellToolCallDisplay(msg.ToolName, msg.Text, msg.ToolReason, msg.ToolBashReasons, ToolRunPending, msg.StartedAt, time.Time{}, animFrame, m.styles)
+	}
+}
+
 // buildStatusBarInfo projects the slim-footer readouts from the
 // current session state. The footer shows: model, ctx%, elapsed.
 // If the session is nil (no chat yet) the values are zeroed and
@@ -403,6 +418,7 @@ func (m *Model) buildRightPanelInfoView(sess *SessionState) RightPanelInfoView {
 		// list when asked' — that was because nothing was
 		// rendering in the right panel).
 		info.Todos = sess.todos
+		info.Processes = sess.backgroundProcesses
 		if sess.pendingInput != nil && sess.pendingInput.Queued {
 			info.QueuedMsgs = 1
 		}
@@ -2338,6 +2354,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case toolActivityTickMsg:
+		for _, sess := range m.sessions {
+			if cmd := sess.toolActivityAnim.Advance(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			if sess.toolActivityAnim.active {
+				m.refreshPendingShellToolCalls(sess, sess.toolActivityAnim.Frame())
+			}
+		}
+		return m, tea.Batch(cmds...)
+
 	case streamPlaybackMsg:
 		for _, sess := range m.sessions {
 			if msg.anim != &sess.streamPlayback || !sess.streamPlayback.active || msg.gen != sess.streamPlayback.gen {
@@ -2716,7 +2743,11 @@ func (m Model) View() tea.View {
 	if sess != nil && (sess.agentState == StateUserQuestion || sess.agentState == StateConfirmPending) && sess.questionPanel.IsVisible() {
 		inputLines = sess.questionPanel.Height()
 	}
-	layout := computeLayout(m.width, m.height, inputLines, panelHeights...)
+	activityStripRows := 0
+	if sess != nil {
+		activityStripRows = sess.activityStripRows()
+	}
+	layout := computeLayout(m.width, m.height, inputLines, activityStripRows, panelHeights...)
 
 	if sess != nil && sess.rightPanel.IsVisible() {
 		layout.ChatWidth = m.width - sess.rightPanel.PanelWidth()
@@ -2800,6 +2831,18 @@ func (m Model) View() tea.View {
 		}
 
 		y += layout.ChatHeight
+
+		if sess != nil && layout.ActivityStripHeight > 0 {
+			strip := renderActivityStrip(sess, layout.ChatWidth, sess.toolActivityAnim.Frame())
+			if strip != "" {
+				stripStyle := lipgloss.NewStyle().
+					Width(layout.ChatWidth).
+					Background(lipgloss.Color("235")).
+					Foreground(lipgloss.Color("245"))
+				uv.NewStyledString(stripStyle.Render(strip)).Draw(canvas, image.Rect(0, y, layout.ChatWidth, y+layout.ActivityStripHeight))
+			}
+			y += layout.ActivityStripHeight
+		}
 
 		// Panels between chat and input
 		if sess != nil && sess.attachmentPanel.IsVisible() {
@@ -3040,7 +3083,7 @@ func (m *Model) visualLineCount() int {
 
 // sessionMaxScrollOffset returns the max scroll offset for a session's chat.
 func (m *Model) sessionMaxScrollOffset(sess *SessionState) int {
-	layout := computeLayout(m.width, m.height, m.visualLineCount())
+	layout := computeLayout(m.width, m.height, m.visualLineCount(), sess.activityStripRows())
 	contentHeight := layout.ChatHeight - 1
 	chatContent := buildRenderedChat(sess.chatMessages, m.styles, m.mdRenderer.width, sess.showThinking)
 	if sess.showThinking && sess.thinkingRendered != "" {
@@ -3084,7 +3127,7 @@ func (m *Model) sessionActiveForkSep(sess *SessionState) (TurnSepInfo, bool) {
 	if sess.chatScrollOffset == 0 || sess.client == nil {
 		return TurnSepInfo{}, false
 	}
-	layout := computeLayout(m.width, m.height, m.visualLineCount())
+	layout := computeLayout(m.width, m.height, m.visualLineCount(), sess.activityStripRows())
 	contentHeight := layout.ChatHeight - 1
 	chatContent := buildRenderedChat(sess.chatMessages, m.styles, m.mdRenderer.width, sess.showThinking)
 	if sess.showThinking && sess.thinkingRendered != "" {
@@ -3231,7 +3274,11 @@ func (m *Model) doCloseSession(sessionIdx int) (Model, tea.Cmd) {
 // updateChatWidth updates the markdown renderer width to match the current effective chat width.
 func (m *Model) updateChatWidth() {
 	sess := m.currentSession()
-	chatWidth := computeLayout(m.width, m.height, m.visualLineCount()).ChatWidth
+	activityStripRows := 0
+	if sess := m.currentSession(); sess != nil {
+		activityStripRows = sess.activityStripRows()
+	}
+	chatWidth := computeLayout(m.width, m.height, m.visualLineCount(), activityStripRows).ChatWidth
 	if sess != nil && sess.rightPanel.IsVisible() {
 		chatWidth = m.width - sess.rightPanel.PanelWidth()
 		if chatWidth < 10 {
