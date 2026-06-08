@@ -160,7 +160,7 @@ jobs:
             --skip-gpg
 
       - name: Update Homebrew tap
-        if: env.HOMEBREW_TAP_TOKEN != ''
+        if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -172,7 +172,7 @@ jobs:
             echo "!! Tap update failed; the GitHub release is still published."
 
       - name: Publish npm package
-        if: env.NPM_TOKEN != ''
+        if: ${{ secrets.NPM_TOKEN != '' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -182,7 +182,7 @@ jobs:
           ./script/publish-npm.sh "$VERSION" --yes
 
       - name: Submit winget manifest PR
-        if: env.WINGET_TOKEN != ''
+        if: ${{ secrets.WINGET_TOKEN != '' }}
         uses: vedantmgoyal2009/winget-releaser@main
         with:
           identifier: Mateooo93.Cortex

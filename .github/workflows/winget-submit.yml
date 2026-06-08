@@ -1,0 +1,42 @@
+name: Submit winget manifest
+
+# Opens a PR to microsoft/winget-pkgs so `winget install Mateooo93.Cortex` works.
+# Requires repo secret WINGET_TOKEN (GitHub PAT with public_repo; fork winget-pkgs first).
+#
+# Run manually after a release is published, or rely on the release workflow step.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: "GitHub release tag (e.g. v0.25.18)"
+        required: true
+        default: "v0.25.18"
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    name: Open winget-pkgs PR
+    runs-on: ubuntu-latest
+    if: ${{ secrets.WINGET_TOKEN != '' }}
+    steps:
+      - name: Submit manifest PR
+        uses: vedantmgoyal2009/winget-releaser@main
+        with:
+          identifier: Mateooo93.Cortex
+          release-tag: ${{ inputs.release-tag }}
+          installers-regex: 'cortex-windows-.*\.exe$'
+          token: ${{ secrets.WINGET_TOKEN }}
+
+  missing-token:
+    name: WINGET_TOKEN not configured
+    runs-on: ubuntu-latest
+    if: ${{ secrets.WINGET_TOKEN == '' }}
+    steps:
+      - run: |
+          echo "::error::WINGET_TOKEN secret is not set."
+          echo "Create a GitHub PAT, fork https://github.com/microsoft/winget-pkgs,"
+          echo "add WINGET_TOKEN to repo secrets, then re-run this workflow."
+          exit 1

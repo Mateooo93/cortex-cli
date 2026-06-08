@@ -18,9 +18,18 @@
 | **npm** (all OS) | `npm install -g @mateooo93/cortex-cli` |
 | **Bun** (all OS) | `bun install -g @mateooo93/cortex-cli` |
 | **Homebrew** | `brew tap Mateooo93/cortex && brew install cortex` |
-| **winget** | `winget install Mateooo93.Cortex` |
+| **Windows** | `irm https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.ps1 \| iex` |
 
 Then run `cortex`. One-shot mode: `cortex -p "your prompt"`.
+
+<details>
+<summary>winget (Windows — after catalog approval)</summary>
+
+`winget install Mateooo93.Cortex` works once the package is merged into [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). Until then, use the PowerShell installer above.
+
+Repo maintainers: add a `WINGET_TOKEN` secret and run the **Submit winget manifest** GitHub Action.
+
+</details>
 
 <details>
 <summary>Direct download (curl)</summary>
@@ -42,9 +51,9 @@ curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/downlo
 chmod +x cortex && sudo mv cortex /usr/local/bin/
 ```
 
-**Windows** (PowerShell — use Windows Terminal; swap `amd64` → `arm64` on ARM)
+**Windows** (PowerShell — use Windows Terminal)
 ```powershell
-mkdir "$env:LOCALAPPDATA\Programs\cortex" -Force; iwr "https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Programs\cortex\cortex.exe"
+irm https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.ps1 | iex
 ```
 
 All binaries: [Releases](https://github.com/Mateooo93/cortex-cli/releases)
