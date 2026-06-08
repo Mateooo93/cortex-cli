@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/cortex.svg" alt="Cortex" width="120" />
+  <img src="assets/Gemini_Generated_Image_d12qhnd12qhnd12q.png" alt="Cortex" width="400" />
 </p>
 
 <p align="center">
