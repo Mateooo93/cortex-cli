@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/Mateooo93/cortex-cli">
-    <img src="assets/cortex-cli-welcome.jpg" alt="cortex-cli welcome screen" width="920" />
+    <img src="assets/cortex-cli-welcome.png" alt="cortex-cli welcome screen — CORTEX splash, status panel, and chat input" />
   </a>
 </p>
 
@@ -26,11 +26,11 @@
 ## See it in action
 
 <p align="center">
-  <img src="assets/cortex-cli-screenshot.jpg" alt="cortex-cli — chat, tool calls, todos, and context panel" width="920" />
+  <img src="assets/cortex-cli-screenshot.png" alt="cortex-cli demo — agent plans a task, runs tools, writes files, and tracks todos in the status panel" />
 </p>
 
 <p align="center">
-  <em>Chat, tool calls, todos, and the context panel in one terminal window.</em>
+  <em>Plans, tool calls, file edits, shell commands, and live todos — all in one terminal window.</em>
 </p>
 
 ## Table of contents
