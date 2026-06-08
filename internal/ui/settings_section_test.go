@@ -207,6 +207,26 @@ func TestRenderSettingsSectionTabBar_ShowsBothSections(t *testing.T) {
 			t.Fatalf("missing %q in %q", want, plain)
 		}
 	}
+	if !strings.Contains(row, lipgloss.NewStyle().Foreground(s.ColorWhite).Render(" Other Settings ")) {
+		t.Fatalf("inactive section tab should be white, got %q", plain)
+	}
+}
+
+func TestRenderSettingsView_UsesShortHeaderDividers(t *testing.T) {
+	s := NewStyles(true)
+	view := renderSettingsView(120, 40, s,
+		0, 0, 0, 0, "", "", nil, nil,
+		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
+		0, 0, SettingsOtherView{}, SettingsInspectView{},
+		false, "", "", SettingsWizardView{},
+	)
+	plain := stripANSI(view)
+	if strings.Count(plain, strings.Repeat("─", settingsTitleDividerLen)) < 1 {
+		t.Fatalf("expected short divider after Settings title, got:\n%s", plain)
+	}
+	if strings.Count(plain, strings.Repeat("─", settingsSectionDividerLen)) < 1 {
+		t.Fatalf("expected shorter divider before section tabs, got:\n%s", plain)
+	}
 }
 
 func TestRenderSettingsSectionSwitchHint_ContextAware(t *testing.T) {

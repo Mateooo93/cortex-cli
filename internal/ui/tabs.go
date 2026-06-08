@@ -230,9 +230,22 @@ func renderSessionsView(sessions []*SessionState, width, height int, s Styles, f
 	return s.ViewportFocusedStyle.Width(width).Height(height).Render(content)
 }
 
+const (
+	settingsTitleDividerLen  = 24 // Settings title → Tab hint
+	settingsSectionDividerLen = 16 // Tab hint → section tabs
+)
+
+func settingsShortDivider(dimStyle lipgloss.Style, length int) string {
+	if length < 1 {
+		length = 1
+	}
+	return dimStyle.Render(strings.Repeat("─", length))
+}
+
 // renderSettingsSectionTabBar draws the Providers | Other Settings section tabs.
 func renderSettingsSectionTabBar(activeSection int, innerWidth int, s Styles) string {
 	sep := lipgloss.NewStyle().Foreground(colorDim).Render(" │ ")
+	inactiveTabStyle := lipgloss.NewStyle().Foreground(s.ColorWhite)
 	names := []string{"Providers", "Other Settings"}
 	var parts []string
 	for i, name := range names {
@@ -240,7 +253,7 @@ func renderSettingsSectionTabBar(activeSection int, innerWidth int, s Styles) st
 		if i == activeSection {
 			parts = append(parts, s.TabActiveStyle.Render(tab))
 		} else {
-			parts = append(parts, s.TabInactiveStyle.Render(tab))
+			parts = append(parts, inactiveTabStyle.Render(tab))
 		}
 		if i == 0 {
 			parts = append(parts, sep)
@@ -426,8 +439,9 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 
 	lines := []string{
 		titleStyle.Width(innerWidth).Render("Settings"),
+		settingsShortDivider(dimStyle, settingsTitleDividerLen),
 		renderSettingsSectionSwitchHint(activeSection, innerWidth),
-		divider,
+		settingsShortDivider(dimStyle, settingsSectionDividerLen),
 		renderSettingsSectionTabBar(activeSection, innerWidth, s),
 	}
 
