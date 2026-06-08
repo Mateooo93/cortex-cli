@@ -16,7 +16,7 @@ var slashCommands = []Command{
 	{Name: "workflow", Description: "Start a multi-agent workflow with a prompt (e.g. /workflow build a CLI todo app in Go)", Action: "open_workflow_picker"},
 	{Name: "effort", Description: "Choose reasoning effort (low, medium, high, ultracode)", Action: "open_effort_picker"},
 	{Name: "compact", Description: "Compress conversation history to free up context window", Action: "compact_context"},
-		{Name: "update", Description: "Self-update (GitHub release; npm installs also run npm update -g @mateooo93/cortex)", Action: "self_update"},
+		{Name: "update", Description: "Self-update from GitHub releases (npm installs download the new binary directly)", Action: "self_update"},
 	{Name: "login", Description: "Sign in to a subscription provider (codex, claude-sub, copilot)", Action: "open_login_picker"},
 	{Name: "copy", Description: "Copy conversation to clipboard", Action: "copy_conversation"},
 	{Name: "clear", Description: "Clear conversation history", Action: "slash_clear"},

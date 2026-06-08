@@ -7,7 +7,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+const npmUpdateTimeout = 90 * time.Second
 
 // NpmPackageName is the GitHub Packages npm wrapper for cortex-cli.
 const NpmPackageName = "@mateooo93/cortex"
@@ -41,16 +44,28 @@ func npmPackageName() string {
 	return NpmPackageName
 }
 
+// shouldTryNpmUpdate reports whether /update should shell out to npm.
+// GitHub Packages (@mateooo93/*) requires registry auth for npm update and
+// commonly hangs in headless installs — we download the GitHub release
+// binary directly into ~/.cortex/npm/ instead.
+func shouldTryNpmUpdate() bool {
+	pkg := npmPackageName()
+	if strings.HasPrefix(pkg, "@mateooo93/") {
+		return false
+	}
+	// Legacy unscoped package on npmjs.org.
+	return pkg == LegacyNpmPackageName
+}
+
 func npmUpdate(ctx context.Context) error {
 	npm, err := exec.LookPath("npm")
 	if err != nil {
 		return fmt.Errorf("updater: npm not found on PATH")
 	}
 	pkg := npmPackageName()
+	ctx, cancel := context.WithTimeout(ctx, npmUpdateTimeout)
+	defer cancel()
 	args := []string{"update", "-g", pkg}
-	if strings.HasPrefix(pkg, "@mateooo93/") {
-		args = append(args, "--registry", NpmPackageRegistry)
-	}
 	cmd := exec.CommandContext(ctx, npm, args...)
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()

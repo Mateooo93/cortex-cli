@@ -77,6 +77,8 @@ func mapUpdateStep(name string) int {
 	switch {
 	case strings.Contains(low, "check"), strings.Contains(low, "fetch"), strings.Contains(low, "metadata"):
 		return 0
+	case strings.Contains(low, "npm"):
+		return 0
 	case strings.Contains(low, "download"):
 		return 1
 	case strings.Contains(low, "verif"), strings.Contains(low, "sha"), strings.Contains(low, "hash"):

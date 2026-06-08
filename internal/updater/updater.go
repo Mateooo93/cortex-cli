@@ -285,13 +285,13 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		return Result{Kind: "error", Error: fmt.Errorf("updater: resolve symlinks: %w", err), NewVersion: rel.TagName}
 	}
 
-	// npm installs: try `npm update -g @mateooo93/cortex` first so the
-	// global package and postinstall binary stay in sync. Fall back to
-	// a direct GitHub download into the cached binary if npm fails
-	// (e.g. package not published yet).
-	if IsNpmInstall(currentExe) {
+	// npm installs: for the legacy npmjs.org package, try `npm update -g`
+	// (bounded timeout). GitHub Packages installs skip npm entirely — npm
+	// update against npm.pkg.github.com hangs without registry auth — and
+	// fall through to a direct GitHub release download into ~/.cortex/npm/.
+	if IsNpmInstall(currentExe) && shouldTryNpmUpdate() {
 		if progress != nil {
-			progress(fmt.Sprintf("Updating %s via npm…", NpmPackageName))
+			progress(fmt.Sprintf("Updating %s via npm…", npmPackageName()))
 		}
 		if npmErr := npmUpdate(ctx); npmErr == nil {
 			restart, rerr := restartPathForNpm()
@@ -310,6 +310,8 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		} else if progress != nil {
 			progress("npm update failed — downloading release directly…")
 		}
+	} else if IsNpmInstall(currentExe) && progress != nil {
+		progress(fmt.Sprintf("Downloading %s…", rel.TagName))
 	}
 
 	// 5. Plan where to install. If the running binary's directory
