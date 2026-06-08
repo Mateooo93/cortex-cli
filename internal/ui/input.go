@@ -135,18 +135,13 @@ func renderQueueIndicator(pending *pendingMsg, width int, styles Styles) string 
 
 // renderInputBox wraps the textarea in a rounded border box with mode title embedded in top border.
 // When focused is false, the border uses a dim grey color instead of the mode color.
-func renderInputBox(modeName string, isWorkflow bool, textareaView string, width int, focused bool, dimColor color.Color) string {
+func renderInputBox(modeName string, textareaView string, width int, focused bool, dimColor color.Color) string {
 	var titleStyle lipgloss.Style
 	var borderColor color.Color
 
 	title := " " + modeName + " "
-	if isWorkflow {
-		titleStyle = planBarStyle
-		borderColor = colorSecondary
-	} else {
-		titleStyle = chatBarStyle
-		borderColor = colorPrimary
-	}
+	titleStyle = chatBarStyle
+	borderColor = colorPrimary
 
 	if !focused {
 		borderColor = dimColor

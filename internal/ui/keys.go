@@ -4,7 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// functionKeyNum returns 1-4 for F1-F4, or 0 if not a function key we handle.
+// functionKeyNum returns 1-3 for F1-F3, or 0 if not a function key we handle.
 func functionKeyNum(msg tea.KeyPressMsg) int {
 	switch msg.Code {
 	case tea.KeyF1:
@@ -13,8 +13,6 @@ func functionKeyNum(msg tea.KeyPressMsg) int {
 		return 2
 	case tea.KeyF3:
 		return 3
-	case tea.KeyF4:
-		return 4
 	}
 	switch msg.String() {
 	case "f1":
@@ -23,15 +21,13 @@ func functionKeyNum(msg tea.KeyPressMsg) int {
 		return 2
 	case "f3":
 		return 3
-	case "f4":
-		return 4
 	}
 	return 0
 }
 
-// handleFunctionKey switches tabs via F1-F4.
+// handleFunctionKey switches tabs via F1-F3.
 func (m Model) handleFunctionKey(n int) (Model, tea.Cmd, bool) {
-	if n < 1 || n > 4 {
+	if n < 1 || n > 3 {
 		return m, nil, false
 	}
 	if m.state == StateQuitConfirm || m.state == StateSessionCloseConfirm {
@@ -75,12 +71,6 @@ func (m Model) handleFunctionKey(n int) (Model, tea.Cmd, bool) {
 		m.sessionsInput.Blur()
 		m.clearChatSelection()
 		return m, m.settingsProviderFilter.Focus(), true
-
-	case 4:
-		m.activeTab = TabKindWorkflows
-		m.sessionsInput.Blur()
-		m.clearChatSelection()
-		return m, nil, true
 	}
 
 	return m, nil, false

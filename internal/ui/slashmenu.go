@@ -13,7 +13,6 @@ const slashMenuMaxVisible = 8
 var slashCommands = []Command{
 	{Name: "model", Description: "Switch model (any configured provider or subscription)", Action: "open_model_picker"},
 	{Name: "goal", Description: "Set a goal condition and work autonomously until it's met (e.g. /goal all tests pass)", Action: "slash_goal"},
-	{Name: "workflow", Description: "Start a multi-agent workflow with a prompt (e.g. /workflow build a CLI todo app in Go)", Action: "open_workflow_picker"},
 	{Name: "effort", Description: "Choose reasoning effort (low, medium, high, ultracode)", Action: "open_effort_picker"},
 	{Name: "compact", Description: "Compress conversation history to free up context window", Action: "compact_context"},
 		{Name: "update", Description: "Self-update from the latest GitHub release", Action: "self_update"},

@@ -24,7 +24,7 @@ var effortLevelViews = []effortLevelView{
 	{ID: "low", Label: "Low", Description: "Faster responses, less thorough. Good for simple questions."},
 	{ID: "medium", Label: "Medium", Description: "Balanced speed and thoroughness."},
 	{ID: "high", Label: "High", Description: "More thorough analysis and planning (default)."},
-	{ID: "ultracode", Label: "Ultracode", Description: "xhigh reasoning + automatic workflow orchestration. Higher token usage."},
+	{ID: "ultracode", Label: "Ultracode", Description: "Maximum reasoning depth for complex tasks. Higher token usage."},
 }
 
 // Open shows the effort picker with the current level pre-selected.

@@ -175,11 +175,6 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 		cmds = append(cmds, m.handleGoalCommand(sess, arg)...)
 	case "open_effort_picker":
 		cmds = append(cmds, m.openEffortPicker(sess)...)
-	case "open_workflow_picker":
-		m.workflowPicker.Open(slashCommandArgs(arg, "workflow"))
-		if sess != nil {
-			sess.input.Blur()
-		}
 	case "open_memory_picker":
 		m.memoryPicker.Open(m.projectMemoryStore(), m.projectMemoryEnabled())
 		if sess != nil {
@@ -237,8 +232,6 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 					}
 				case TabKindSettings:
 					m.openSettingsTab()
-				case TabKindWorkflows:
-					m.activeTab = TabKindWorkflows
 				}
 			}
 		}

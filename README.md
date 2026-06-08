@@ -101,12 +101,36 @@ cortex --list-models
 
 ## Features
 
-- **Instant startup** — single binary, in-process session. No daemon, no Docker.
-- **Stays in flow** — persistent chat, multi-session tabs, context usage in the status bar.
-- **Bring your own model** — OpenAI, Anthropic, Ollama, Groq, OpenRouter, or sign in with ChatGPT / Claude / Copilot subscriptions.
-- **Edits your code** — read, write, precise multi-block edits, bash, grep, web search. Safe by default with deny lists and path confirmation.
-- **Goes deep** — goals, multi-agent workflows, ultracode effort, and `/compact` to fold long threads.
-- **Remembers your project** — optional project-scoped memory under `.cortex/` (see [Project memory](#project-memory)).
+### Terminal experience
+
+- **One native binary** — instant startup, in-process session. No daemon, no Docker, no Node wrapper.
+- **Polished Bubble Tea TUI** — markdown chat, live tool-call cards with diffs, todo list, thinking trace, and a context panel (`Ctrl+B`).
+- **Multi-session workspace** — run parallel chats (`Ctrl+T`), switch with `F1`/`F2`, and resume after restart.
+- **Stay in flow** — queue follow-ups with `Tab`, see context usage and turn timer in the status bar, copy chat with `/copy` or drag-select.
+- **Command palette** — `Ctrl+P` for history search, scroll jumps, and quick actions without memorizing shortcuts.
+
+### Models and auth
+
+- **Bring your own model** — OpenAI, Anthropic, Ollama, Groq, OpenRouter, and more via YAML presets.
+- **Subscription sign-in** — ChatGPT (Codex), Claude, Copilot, and xAI Grok OAuth; tokens live in the OS keychain.
+- **Fast model switching** — `/model` picker, provider search in Settings, `cortex --list-models` for headless use.
+- **Reasoning effort** — `/effort` levels from low through **ultracode** for harder tasks (session-scoped).
+
+### Agent capabilities
+
+- **Full tool belt** — `read_file`, `write_file`, `edit_file` (multi-block patches), `bash`, `grep` / `glob_files`, `web_search`, `web_fetch`, background shells, and `todo_write`.
+- **Sub-agents** — `spawn_agent` + `task_output` dispatch parallel specialists (explore, developer, tester, reviewer) without bloating your main context.
+- **Autonomous goals** — `/goal <condition>` keeps the agent working until a fast evaluator confirms success (e.g. “all tests pass”).
+- **Context management** — `/compact` summarizes long threads; auto-compact at 80% context (toggle in Settings).
+- **Project memory** — durable repo knowledge under `.cortex/`; browse with `/memory`, save via `memory_write` ([details](docs/memory.md)).
+- **Custom agents** — drop specialist prompts in `.cortex/agents/` and `.cortex/skills/`; layered with `~/.cortex` defaults.
+
+### Safety and config
+
+- **Safe by default** — `deny_list` blocks sensitive paths and URLs; out-of-scope reads/writes prompt for confirmation.
+- **Layered config** — `~/.cortex` user defaults + `./.cortex` project overrides (`settings.json`, `AGENTS.md`, agents, skills).
+- **Headless mode** — `cortex -p "…"` runs the same agent stack without the TUI (scripts, CI, one-shots).
+- **Self-update** — `/update` pulls the latest release from GitHub.
 
 ## Authentication
 
@@ -118,7 +142,7 @@ cortex --list-models
 
 ## Using it
 
-**Tabs:** Sessions `F1` · Chat `F2` · Settings `F3` · Workflows `F4`
+**Tabs:** Sessions `F1` · Chat `F2` · Settings `F3`
 
 **Shortcuts:**
 
@@ -131,7 +155,7 @@ cortex --list-models
 | `Tab` | Queue for after the current turn |
 | `/` | Slash menu |
 
-**Slash commands:** `/model` · `/goal` · `/workflow` · `/effort` · `/compact` · `/update` · `/login` · `/memory` · `/copy` · `/clear`
+**Slash commands:** `/model` · `/goal` · `/effort` · `/compact` · `/update` · `/login` · `/memory` · `/copy` · `/clear`
 
 Config lives in `~/.cortex/` (Windows: `%USERPROFILE%\.cortex\`). Project overrides go in `./.cortex/`. See [AGENTS.md](AGENTS.md) for architecture, deny-list semantics, and contributor conventions.
 

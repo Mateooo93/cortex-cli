@@ -78,26 +78,11 @@ func (m *Model) handleGoalCommand(sess *SessionState, arg string) []tea.Cmd {
 	// autonomous loop internally via its Send("/goal ...") path.
 	sess.chatMessages = append(sess.chatMessages, renderUserMessage("/goal "+arg, 0))
 
-	// If the goal looks like a multi-step task, also start a workflow
-	// alongside the goal loop. The workflow handles planning/execution
-	// while the goal evaluator judges the final result.
-	workflowStarted := false
-	lowerGoal := strings.ToLower(arg)
-	if isSubstantivePrompt(lowerGoal) || detectWorkflowIntent(lowerGoal) {
-		preset := pickWorkflowPreset(lowerGoal)
-		if _, err := startSessionWorkflow(sess, m.cortexCfg, arg, preset); err == nil {
-			workflowStarted = true
-		}
-	}
-
 	goalMsg := fmt.Sprintf(
 		"◎ Goal set. The agent will keep working autonomously until:\n\n%s\n\n"+
 			"A fast evaluator checks progress after each turn. /goal to see status, /goal clear to stop.",
 		arg,
 	)
-	if workflowStarted {
-		goalMsg += fmt.Sprintf("\n\n⚡ Workflow started alongside goal. Switch to Workflows tab (F4) to see progress.")
-	}
 	sess.chatMessages = append(sess.chatMessages, renderSystemSuccessMessage(goalMsg))
 
 	if sess.client != nil {
@@ -147,7 +132,7 @@ func (m *Model) applyEffortLevel(sess *SessionState, level string) {
 		"low":       "Low effort — faster responses, less thorough. Good for simple questions.",
 		"medium":    "Medium effort — balanced speed and thoroughness.",
 		"high":      "High effort — more thorough analysis and planning.",
-		"ultracode": "Ultracode — xhigh reasoning + automatic workflow orchestration. Every substantive task spawns a parallel workflow. Significantly higher token usage. Session-scoped.",
+		"ultracode": "Ultracode — maximum reasoning depth for complex, multi-step tasks. Significantly higher token usage. Session-scoped.",
 	}[level]
 
 	sess.chatMessages = append(sess.chatMessages,
