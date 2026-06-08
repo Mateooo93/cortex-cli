@@ -285,6 +285,33 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		return Result{Kind: "error", Error: fmt.Errorf("updater: resolve symlinks: %w", err), NewVersion: rel.TagName}
 	}
 
+	// npm installs: try `npm update -g mateooo93-cortex` first so the
+	// global package and postinstall binary stay in sync. Fall back to
+	// a direct GitHub download into the cached binary if npm fails
+	// (e.g. package not published yet).
+	if IsNpmInstall(currentExe) {
+		if progress != nil {
+			progress(fmt.Sprintf("Updating %s via npm…", NpmPackageName))
+		}
+		if npmErr := npmUpdate(ctx); npmErr == nil {
+			restart, rerr := restartPathForNpm()
+			if rerr != nil {
+				return Result{Kind: "error", Error: rerr, NewVersion: rel.TagName, AssetName: assetName}
+			}
+			return Result{
+				Kind:       "updated",
+				OldVersion: currentVersion,
+				NewVersion: latestVersion,
+				AssetName:  assetName,
+				OldPath:    currentExe,
+				NewPath:    restart,
+				Message:    npmInstallMessage(rel.TagName),
+			}
+		} else if progress != nil {
+			progress("npm update failed — downloading release directly…")
+		}
+	}
+
 	// 5. Plan where to install. If the running binary's directory
 	// isn't writable (system-wide install, read-only mount, etc.)
 	// we fall back to ~/.local/bin on the install step.

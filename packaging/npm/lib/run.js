@@ -16,14 +16,21 @@ async function main() {
 
   if (!binaryPath || !fs.existsSync(binaryPath)) {
     console.error(
-      "cortex-cli: native binary not installed. Re-run: npm install -g cortex-cli"
+      "cortex-cli: native binary not installed. Re-run: npm install -g mateooo93-cortex"
     );
     process.exit(1);
   }
 
+  const env = {
+    ...process.env,
+    CORTEX_NPM_PACKAGE: "mateooo93-cortex",
+    CORTEX_NPM_SHIM: __filename,
+  };
+
   const child = spawn(binaryPath, process.argv.slice(2), {
     stdio: "inherit",
     windowsHide: false,
+    env,
   });
 
   child.on("error", (err) => {
