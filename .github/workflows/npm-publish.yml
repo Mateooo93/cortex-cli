@@ -1,0 +1,44 @@
+name: Publish npm package
+
+# Publishes mateooo93-cortex to the npm registry.
+# Requires repo secret NPM_TOKEN (npm automation token from npmjs.com).
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: "Version to publish (e.g. v0.25.18)"
+        required: true
+        default: "v0.25.18"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish mateooo93-cortex
+    runs-on: ubuntu-latest
+    if: ${{ secrets.NPM_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: ./script/publish-npm.sh "${{ inputs.release-tag }}" --yes
+
+  missing-token:
+    name: NPM_TOKEN not configured
+    runs-on: ubuntu-latest
+    if: ${{ secrets.NPM_TOKEN == '' }}
+    steps:
+      - run: |
+          echo "::error::NPM_TOKEN secret is not set."
+          echo "Create an Automation token at https://www.npmjs.com/settings/~youruser/tokens"
+          echo "Add it as NPM_TOKEN in repo secrets, then re-run this workflow."
+          exit 1

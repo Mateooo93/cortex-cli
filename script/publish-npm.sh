@@ -5,7 +5,7 @@ usage() {
   echo "Usage: $0 <version> [--dry-run] [--yes]"
   echo "  e.g. $0 v0.25.3"
   echo ""
-  echo "  Publishes @mateooo93/cortex-cli to the npm registry."
+  echo "  Publishes mateooo93-cortex to the npm registry."
   echo "  Requires NODE_AUTH_TOKEN or npm login."
   echo "  --dry-run   Prepare package.json version only; do not publish"
   echo "  --yes       Skip confirmation prompt"
@@ -78,21 +78,17 @@ if [[ "$DRY_RUN" == true ]]; then
 fi
 
 if [[ "$YES" != true ]]; then
-  read -r -p "Publish @mateooo93/cortex-cli@$SEMVER to npm? [y/N] " OK || OK=""
+  read -r -p "Publish mateooo93-cortex@$SEMVER to npm? [y/N] " OK || OK=""
   if [[ ! "$OK" =~ ^[Yy]$ ]]; then
     echo "Aborted."
     exit 1
   fi
 fi
 
-echo "==> Publishing @mateooo93/cortex-cli@$SEMVER to npm..."
+echo "==> Publishing mateooo93-cortex@$SEMVER to npm..."
 (
   cd "$NPM_DIR"
-  if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
-    npm publish --access public
-  else
-    npm publish
-  fi
+  npm publish
 )
 
-echo "==> npm publish complete: @mateooo93/cortex-cli@$SEMVER"
+echo "==> npm publish complete: mateooo93-cortex@$SEMVER"

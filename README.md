@@ -17,14 +17,14 @@
 
 ```bash
 npm uninstall -g cortex-cli
-npm install -g @mateooo93/cortex-cli
+npm install -g mateooo93-cortex
 cortex
 ```
 
 ### Bun (macOS, Linux, Windows)
 
 ```bash
-bun install -g @mateooo93/cortex-cli
+bun install -g mateooo93-cortex
 cortex
 ```
 
@@ -87,7 +87,7 @@ go build -o cortex ./cmd/cortex
 
 One-shot prompt (no TUI): `cortex -p "your prompt"`
 
-> **npm note:** The unscoped package `cortex-cli` is a different product (CognitiveScale). If `cortex --help` shows pipelines or missions, uninstall it and use `@mateooo93/cortex-cli`.
+> **npm note:** The package `cortex-cli` on npm is a different product (CognitiveScale). Use `mateooo93-cortex`. If you get a 404, the package has not been published yet — use curl, Homebrew, or the Windows PowerShell installer below.
 
 ## Features
 
