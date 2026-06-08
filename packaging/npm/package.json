@@ -40,7 +40,8 @@
   "files": [
     "shims",
     "lib",
-    "README.md"
+    "README.md",
+    ".npmrc"
   ],
   "scripts": {
     "postinstall": "node lib/install.js"

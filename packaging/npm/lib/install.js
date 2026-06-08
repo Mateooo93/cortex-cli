@@ -7,41 +7,45 @@ const { downloadBinary } = require("./download");
 const { warnIfShadowed } = require("./path-check");
 const { resolveAsset } = require("./platform");
 const { cacheDir, readPackageVersion, releaseBase } = require("./paths");
+const { updateCurrentSymlink } = require("./symlink");
+const { readBinaryVersion, versionsMatch } = require("./version");
 
 async function ensureBinary() {
   if (process.env.CORTEX_SKIP_POSTINSTALL === "1") {
     return null;
   }
 
-  const version = `v${readPackageVersion()}`;
+  const pkgVersion = readPackageVersion();
+  const version = `v${pkgVersion}`;
   const { asset, binaryName } = resolveAsset();
-  const destPath = cacheDir(version.slice(1), asset);
+  const destPath = cacheDir(pkgVersion, asset);
 
-  if (fs.existsSync(destPath)) {
-    return destPath;
+  let needsDownload =
+    process.env.CORTEX_FORCE_REINSTALL === "1" || !fs.existsSync(destPath);
+
+  if (!needsDownload) {
+    const binaryVersion = await readBinaryVersion(destPath);
+    if (!versionsMatch(binaryVersion, pkgVersion)) {
+      console.warn(
+        `cortex-cli: cached binary is ${binaryVersion || "unknown"}, package requires ${pkgVersion}; re-downloading…`
+      );
+      needsDownload = true;
+    }
   }
 
-  await downloadBinary({
-    releaseBase: releaseBase(),
-    version,
-    asset,
-    destPath,
-  });
+  if (needsDownload) {
+    if (fs.existsSync(destPath)) {
+      await fs.promises.unlink(destPath);
+    }
+    await downloadBinary({
+      releaseBase: releaseBase(),
+      version,
+      asset,
+      destPath,
+    });
+  }
 
-  // Convenience symlink: ~/.cortex/npm/current/<binaryName>
-  const currentDir = path.join(path.dirname(path.dirname(destPath)), "current");
-  await fs.promises.mkdir(currentDir, { recursive: true });
-  const linkPath = path.join(currentDir, binaryName);
-  try {
-    await fs.promises.unlink(linkPath);
-  } catch (err) {
-    if (err.code !== "ENOENT") throw err;
-  }
-  try {
-    await fs.promises.symlink(destPath, linkPath);
-  } catch {
-    // Windows may require elevated symlink rights; ignore.
-  }
+  await updateCurrentSymlink(destPath, binaryName);
 
   return destPath;
 }
@@ -50,7 +54,11 @@ async function main() {
   try {
     const dest = await ensureBinary();
     if (dest) {
-      console.log(`cortex-cli: installed native binary to ${dest}`);
+      const binaryVersion = await readBinaryVersion(dest);
+      console.log(
+        `cortex-cli: installed native binary to ${dest}` +
+          (binaryVersion ? ` (${binaryVersion})` : "")
+      );
     }
     warnIfShadowed();
   } catch (err) {

@@ -1109,15 +1109,17 @@ type SpawnAgentTool struct{}
 func (t *SpawnAgentTool) Name() string { return "spawn_agent" }
 func (t *SpawnAgentTool) Description() string {
 	return "Dispatch a sub-agent to work in the background. The sub-agent runs in parallel to your own context and reports back when done. " +
+		"Pass `prompt` to set the sub-agent's system instruction directly (no .cortex/agents config needed), or use `role` to pick a built-in specialist. " +
 		"Use this for tasks that would otherwise blow up your context window — codebase exploration, " +
 		"running a long test suite, refactoring a large file, or any task that produces a lot of intermediate output. " +
 		"Returns a task_id you can poll with task_output. The main conversation stays responsive while the sub-agent works."
 }
 func (t *SpawnAgentTool) Parameters() map[string]Param {
 	return map[string]Param{
-		"task":  {Type: "string", Description: "What the sub-agent should do. Be specific — include file paths, function names, and the success criteria.", Required: true},
-		"role":  {Type: "string", Description: "Specialist role for the sub-agent: 'explore' (read-only investigation), 'developer' (writes code), 'tester' (runs tests), 'reviewer' (code review), 'researcher' (docs lookup). Default: 'developer'.", Required: false},
-		"model": {Type: "string", Description: "Override the model spec (e.g. 'openai:o3'). Default: same as the main agent.", Required: false},
+		"task":   {Type: "string", Description: "What the sub-agent should do. Be specific — include file paths, function names, and the success criteria.", Required: true},
+		"prompt": {Type: "string", Description: "System prompt for the sub-agent. When set, the sub-agent runs with this instruction directly (no .cortex/agents config required).", Required: false},
+		"role":   {Type: "string", Description: "Specialist role when prompt is omitted: 'explore', 'developer', 'tester', 'reviewer', 'researcher', 'general'. Default: 'developer'.", Required: false},
+		"model":  {Type: "string", Description: "Override the model spec (e.g. 'openai:o3'). Default: same as the main agent.", Required: false},
 	}
 }
 func (t *SpawnAgentTool) Run(ctx Context, args map[string]any) (Result, error) {

@@ -222,6 +222,15 @@ func (c *SessionClient) SendSetModel(name string) error {
 	return c.sess.SetActiveModel(name)
 }
 
+// SendSetReasoningEffort sets the session-scoped reasoning effort (/effort).
+func (c *SessionClient) SendSetReasoningEffort(effort string) error {
+	if c.sess == nil {
+		return errClosed
+	}
+	c.sess.SetReasoningEffort(effort)
+	return nil
+}
+
 // SendRestoreHistory seeds the session's conversation history
 // with the given messages. Used to restore a session's chat
 // scrollback across a daemon reconnect.

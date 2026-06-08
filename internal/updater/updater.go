@@ -176,7 +176,8 @@ func findAsset(rel *releaseJSON, name string) (*releaseAsset, error) {
 }
 
 // sha256SUMS parses the SHA256SUMS file. Lines look like:
-//   <hex>  <filename>
+//
+//	<hex>  <filename>
 func parseSHA256SUMS(data []byte, filename string) (string, error) {
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -357,10 +358,17 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		progress(fmt.Sprintf("Downloading %s…", rel.TagName))
 	}
 
-	// 5. Plan where to install. If the running binary's directory
-	// isn't writable (system-wide install, read-only mount, etc.)
-	// we fall back to ~/.local/bin on the install step.
-	plan, err := planInstall(currentExe)
+	// 5. Plan where to install. npm installs always write to the
+	// versioned ~/.cortex/npm/<version>/<asset> cache (matching
+	// postinstall) instead of replacing an older cache directory.
+	// Non-npm installs use the running binary's directory, falling
+	// back to ~/.local/bin when that directory isn't writable.
+	var plan installPlan
+	if IsNpmInstall(currentExe) {
+		plan, err = planNpmInstall(latestVersion, assetName, currentExe)
+	} else {
+		plan, err = planInstall(currentExe)
+	}
 	if err != nil {
 		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
 	}
@@ -436,6 +444,22 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		oldPath = finalPlan.targetPath + ".old"
 	}
 
+	msg := installMessage(rel.TagName, finalPlan)
+	if IsNpmInstall(currentExe) {
+		if symErr := updateNpmCurrentSymlink(finalPlan.targetPath, installBinaryName()); symErr != nil {
+			return Result{Kind: "error", Error: symErr, NewVersion: rel.TagName, AssetName: assetName}
+		}
+		if progress != nil {
+			progress(fmt.Sprintf("Syncing %s npm package…", npmPackageName()))
+		}
+		if npmErr := npmInstallGitHub(ctx, rel.TagName); npmErr == nil {
+			if restart, rerr := restartPathForNpm(); rerr == nil {
+				finalPlan.targetPath = restart
+			}
+			msg = npmInstallMessage(rel.TagName)
+		}
+	}
+
 	return Result{
 		Kind:       "updated",
 		OldVersion: currentVersion,
@@ -443,7 +467,7 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		AssetName:  assetName,
 		OldPath:    oldPath,
 		NewPath:    finalPlan.targetPath,
-		Message:    installMessage(rel.TagName, finalPlan),
+		Message:    msg,
 	}
 }
 
@@ -453,11 +477,11 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 // swap. The helper is itself a copy of the new binary (cortex is
 // a static Go binary, so it doesn't care what it's called).
 //
-//   1. tmpPath = downloaded new binary
-//   2. helperPath = a copy of tmpPath in the same directory
-//   3. Spawn `helperPath <currentExe> <tmpPath>` as a detached
-//      process that waits for currentExe to exit, then moves
-//      tmpPath -> currentExe.
+//  1. tmpPath = downloaded new binary
+//  2. helperPath = a copy of tmpPath in the same directory
+//  3. Spawn `helperPath <currentExe> <tmpPath>` as a detached
+//     process that waits for currentExe to exit, then moves
+//     tmpPath -> currentExe.
 //
 // We pass the helper the same args we'd give the real binary; it
 // just uses argv[1] / argv[2] to know what to do.

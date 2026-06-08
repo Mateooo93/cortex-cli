@@ -15,10 +15,17 @@ import (
 )
 
 func (s *Session) loadAgentCatalog() map[string]agents.Agent {
+	catalog := map[string]agents.Agent{}
+	if defaults, err := config.DefaultAgents(); err == nil {
+		for name, ag := range defaults {
+			catalog[name] = ag
+		}
+	}
 	paths := config.NewCortexPaths(s.configDir, config.HomeCortexDir(), s.workdir)
-	catalog, err := agents.LoadFromDirs(paths.Agents())
-	if err != nil {
-		return map[string]agents.Agent{}
+	if user, err := agents.LoadFromDirs(paths.Agents()); err == nil {
+		for name, ag := range user {
+			catalog[name] = ag
+		}
 	}
 	return catalog
 }
@@ -38,13 +45,22 @@ func (s *Session) handleSpawnAgent(call provider.ToolCall) *provider.Message {
 		role = "developer"
 	}
 	modelOverride, _ := call.Arguments["model"].(string)
+	prompt, _ := call.Arguments["prompt"].(string)
 
 	catalog := s.loadAgentCatalog()
 	ag, ok := agents.Resolve(role, catalog)
 	if !ok {
-		errMsg := "no local agent definitions found in .cortex/agents/"
-		s.emitToolResult(call.ID, call.Name, "", true, errMsg, nil)
-		return toolHistoryMessage(call.ID, call.Name, "", true, errMsg)
+		ag = agents.Agent{
+			Name:     "general",
+			MaxTurns: 25,
+		}
+	}
+	if strings.TrimSpace(prompt) != "" {
+		ag.SystemPrompt = strings.TrimSpace(prompt)
+		ag.Name = role
+		if ag.Name == "" {
+			ag.Name = "subagent"
+		}
 	}
 	if modelOverride != "" {
 		ag.Model = modelOverride
@@ -265,12 +281,13 @@ func (s *Session) callSubagentProvider(ctx context.Context, modelSpec string, me
 		APIKey:           s.resolveAPIKey(mc),
 		Temperature:      mc.Temperature,
 		MaxTokens:        mc.MaxTokens,
-		ReasoningEffort:  mc.ReasoningEffort,
 		CortexPromptMode: mc.CortexPromptMode,
 	})
 	if err != nil {
 		return provider.Response{}, err
 	}
+
+	sessionEffort := s.ReasoningEffort()
 
 	requestModel := mc.Model
 	if canonical != "" && canonical != mc.Provider {
@@ -288,7 +305,7 @@ func (s *Session) callSubagentProvider(ctx context.Context, modelSpec string, me
 		Temperature:      mc.Temperature,
 		MaxTokens:        mc.MaxTokens,
 		Stream:           true,
-		ReasoningEffort:  reasoningEffortForRequest(mc.ReasoningEffort),
+		ReasoningEffort:  provider.RequestReasoningEffort(mc.Provider, requestModel, sessionEffort),
 		CortexPromptMode: mc.CortexPromptMode,
 	}
 	req.Messages = stripOrphanToolResults(req.Messages)

@@ -95,14 +95,11 @@ func Resolve(role string, catalog map[string]Agent) (Agent, bool) {
 	return Agent{}, false
 }
 
-func parseAgentFile(path string) (Agent, error) {
-	data, err := os.ReadFile(path)
+// ParseAgentContent parses agent markdown (frontmatter + body).
+func ParseAgentContent(raw, source string) (Agent, error) {
+	meta, body, err := splitFrontmatter(raw)
 	if err != nil {
-		return Agent{}, fmt.Errorf("agents: read %s: %w", path, err)
-	}
-	meta, body, err := splitFrontmatter(string(data))
-	if err != nil {
-		return Agent{}, fmt.Errorf("agents: %s: %w", path, err)
+		return Agent{}, fmt.Errorf("agents: %s: %w", source, err)
 	}
 	var fm struct {
 		Name     string `yaml:"name"`
@@ -111,7 +108,7 @@ func parseAgentFile(path string) (Agent, error) {
 		MaxTurns int    `yaml:"max_turns"`
 	}
 	if err := yaml.Unmarshal([]byte(meta), &fm); err != nil {
-		return Agent{}, fmt.Errorf("agents: %s frontmatter: %w", path, err)
+		return Agent{}, fmt.Errorf("agents: %s frontmatter: %w", source, err)
 	}
 	tools := splitCSV(fm.Tools)
 	if fm.MaxTurns <= 0 {
@@ -123,8 +120,16 @@ func parseAgentFile(path string) (Agent, error) {
 		Tools:        tools,
 		MaxTurns:     fm.MaxTurns,
 		SystemPrompt: strings.TrimSpace(body),
-		Source:       path,
+		Source:       source,
 	}, nil
+}
+
+func parseAgentFile(path string) (Agent, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Agent{}, fmt.Errorf("agents: read %s: %w", path, err)
+	}
+	return ParseAgentContent(string(data), path)
 }
 
 func splitFrontmatter(raw string) (meta, body string, err error) {

@@ -139,11 +139,8 @@ func (m *Model) applyEffortLevel(sess *SessionState, level string) {
 	}
 
 	sess.effortLevel = level
-	switch level {
-	case "low", "medium", "high":
-		m.setActiveReasoningEffort(level)
-	case "ultracode":
-		m.setActiveReasoningEffort("xhigh")
+	if sess.client != nil {
+		_ = sess.client.SendSetReasoningEffort(level)
 	}
 
 	description := map[string]string{

@@ -45,6 +45,23 @@ function resolveCortexOnPath() {
   return null;
 }
 
+function isOurInstall(target) {
+  if (!target) {
+    return false;
+  }
+  const normalized = target.replace(/\\/g, "/");
+  if (normalized.endsWith("/shims/cortex.js")) {
+    return true;
+  }
+  if (normalized.includes("/mateooo93-cortex/") || normalized.includes("/@mateooo93/cortex/")) {
+    return true;
+  }
+  if (normalized.includes("/.cortex/npm/")) {
+    return true;
+  }
+  return false;
+}
+
 function looksLikeCognitiveScale(target) {
   if (!target) {
     return false;
@@ -53,21 +70,11 @@ function looksLikeCognitiveScale(target) {
   if (CONFLICT_MARKERS.some((marker) => normalized.includes(marker))) {
     return true;
   }
-  if (normalized.endsWith("/shims/cortex.js")) {
-    return false;
-  }
-  if (normalized.includes("/mateooo93-cortex/") || normalized.includes("/@mateooo93/cortex/")) {
-    return false;
-  }
-  if (normalized.includes("/.cortex/npm/")) {
+  if (isOurInstall(target)) {
     return false;
   }
   // Heuristic: CognitiveScale ships a cortex.js launcher, not our shim layout.
-  if (
-    normalized.endsWith("/cortex.js") &&
-    !normalized.includes("mateooo93-cortex") &&
-    !normalized.includes("@mateooo93/cortex")
-  ) {
+  if (normalized.endsWith("/cortex.js")) {
     return true;
   }
   return false;
@@ -88,7 +95,7 @@ function warnIfShadowed() {
     same = shimPath === firstOnPath;
   }
 
-  if (same || !looksLikeCognitiveScale(firstOnPath)) {
+  if (same || isOurInstall(firstOnPath)) {
     return;
   }
 
@@ -97,9 +104,14 @@ function warnIfShadowed() {
   console.warn(`  ${firstOnPath}`);
   console.warn(`@mateooo93/cortex shim: ${shimPath}`);
   console.warn("");
-  console.warn("Remove the conflicting CognitiveScale CLI, then open a new terminal:");
-  console.warn("  npm uninstall -g cortex-cli");
-  console.warn("  bun remove -g cortex-cli   # if installed via bun");
+  if (looksLikeCognitiveScale(firstOnPath)) {
+    console.warn("Remove the conflicting CognitiveScale CLI, then open a new terminal:");
+    console.warn("  npm uninstall -g cortex-cli");
+    console.warn("  bun remove -g cortex-cli   # if installed via bun");
+  } else {
+    console.warn("Remove or move the other binary (often ~/.local/bin/cortex from a prior /update),");
+    console.warn("ensure the npm global bin directory is before ~/.local/bin on PATH, then open a new shell.");
+  }
   console.warn("");
   console.warn("Or run this package directly until PATH is fixed:");
   console.warn(`  ${shimPath}`);

@@ -26,18 +26,32 @@ Built for daily development: sessions survive restarts, you can queue messages a
 
 ## Quick start
 
+**Install script** (macOS, Linux — no npm auth):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.sh | bash
+cortex --version
+```
+
 **npm** (macOS, Linux, Windows):
 
 ```bash
-npm install -g @mateooo93/cortex --registry=https://npm.pkg.github.com
+npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com
 cortex
 ```
 
-**Linux** (amd64 binary):
+If npm returns `E401 Unauthorized`, the GitHub Packages registry needs a read token or the package must be public. Use the install script above, or add to `~/.npmrc`:
+
+```
+@mateooo93:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
+```
+
+**Linux** (manual binary):
 
 ```bash
-curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-amd64
-chmod +x cortex && sudo mv cortex /usr/local/bin/
+curl -fsSL -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-amd64
+chmod +x cortex && mv cortex ~/.local/bin/
 cortex
 ```
 
@@ -52,7 +66,7 @@ Then open any project directory and run `cortex`. One-shot without the TUI: `cor
 
 Other platforms and tarballs are on the [latest release](https://github.com/Mateooo93/cortex-cli/releases/latest). To build from source: `git clone`, `go build -o cortex ./cmd/cortex`, `./cortex`.
 
-> **npm note:** Install `@mateooo93/cortex` from GitHub Packages (command above). The package `cortex-cli` on npmjs.org is a different product (CognitiveScale). If `cortex` opens the wrong CLI, run `npm uninstall -g cortex-cli && bun remove -g cortex-cli`, then `hash -r` and check `which -a cortex`.
+> **npm note:** Install `@mateooo93/cortex@latest` from GitHub Packages (command above). The package `cortex-cli` on npmjs.org is a different product (CognitiveScale). If `cortex` opens the wrong CLI, run `npm uninstall -g cortex-cli && bun remove -g cortex-cli`, remove stale binaries like `~/.local/bin/cortex`, then `hash -r` and check `which -a cortex`.
 
 ## What is cortex-cli?
 

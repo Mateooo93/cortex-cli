@@ -101,6 +101,11 @@ type Session struct {
 
 	// Max turns before the goal loop gives up (safety cap).
 	goalMaxTurns int
+
+	// reasoningEffort is session-scoped (/effort picker). The CLI layer
+	// maps it to provider requests only when the active model supports
+	// reasoning_effort — never persisted to model config.
+	reasoningEffort string
 }
 
 // Config is the input for New().
@@ -191,6 +196,21 @@ func (s *Session) SetActiveModel(name string) error {
 	s.active = name
 	s.mu.Unlock()
 	return nil
+}
+
+// SetReasoningEffort sets the session-scoped reasoning effort (/effort).
+// Values: low, medium, high, ultracode. Empty clears the override.
+func (s *Session) SetReasoningEffort(effort string) {
+	s.mu.Lock()
+	s.reasoningEffort = strings.TrimSpace(effort)
+	s.mu.Unlock()
+}
+
+// ReasoningEffort returns the session-scoped effort level.
+func (s *Session) ReasoningEffort() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reasoningEffort
 }
 
 // RestoreHistory replaces the session's conversation history with
@@ -1649,17 +1669,6 @@ func (s *Session) opengatewayScopedModel(model string) string {
 	}
 }
 
-// reasoningEffortForRequest returns the value to send to the provider.
-// "auto" (and empty) are not valid provider values, so they're dropped.
-func reasoningEffortForRequest(effort string) string {
-	switch strings.ToLower(strings.TrimSpace(effort)) {
-	case "low", "medium", "high", "xhigh", "minimal", "none":
-		return strings.ToLower(strings.TrimSpace(effort))
-	default:
-		return ""
-	}
-}
-
 func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 	active := s.active
 	canonical, mc, err := s.cfg.GetModel(active)
@@ -1673,12 +1682,13 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 		APIKey:           s.resolveAPIKey(mc),
 		Temperature:      mc.Temperature,
 		MaxTokens:        mc.MaxTokens,
-		ReasoningEffort:  mc.ReasoningEffort,
 		CortexPromptMode: mc.CortexPromptMode,
 	})
 	if err != nil {
 		return provider.Response{}, err
 	}
+
+	sessionEffort := s.ReasoningEffort()
 
 	modelSpec := mc.Provider + "/" + mc.Model
 	if strings.Contains(canonical, "/") {
@@ -1708,7 +1718,7 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 		Temperature:      mc.Temperature,
 		MaxTokens:        mc.MaxTokens,
 		Stream:           true,
-		ReasoningEffort:  reasoningEffortForRequest(mc.ReasoningEffort),
+		ReasoningEffort:  provider.RequestReasoningEffort(mc.Provider, requestModel, sessionEffort),
 		CortexPromptMode: mc.CortexPromptMode,
 	}
 
