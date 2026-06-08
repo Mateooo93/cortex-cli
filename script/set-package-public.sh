@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Set @mateooo93/cortex visibility to public on GitHub Packages.
+# npm packages are not supported by GitHub GraphQL — use REST only.
 # Requires GITHUB_TOKEN (or gh auth) with read:packages + write:packages.
 set -euo pipefail
 
@@ -19,52 +20,54 @@ if [[ -z "${GH_TOKEN}" ]]; then
   exit 1
 fi
 
-echo "==> Resolving package id for ${PACKAGE_NAME}"
+echo "==> Checking visibility for ${PACKAGE_NAME}"
 
-PACKAGE_ID="$(gh api graphql -f query='
-query($owner: String!, $name: String!, $pkg: String!) {
-  repository(owner: $owner, name: $name) {
-    packages(first: 20, names: [$pkg], packageType: NPM) {
-      nodes { id name }
-    }
-  }
-}' -f owner="$OWNER" -f name="$REPO" -f pkg="$PACKAGE_NAME" \
-  --jq '.data.repository.packages.nodes[0].id' 2>/dev/null || true)"
+package_visibility() {
+  local endpoint="$1"
+  gh api "$endpoint" --jq '.visibility' 2>/dev/null || true
+}
 
-if [[ -z "$PACKAGE_ID" || "$PACKAGE_ID" == "null" ]]; then
-  PACKAGE_ID="$(gh api graphql -f query='
-query($login: String!, $pkg: String!) {
-  user(login: $login) {
-    packages(first: 20, names: [$pkg], packageType: NPM) {
-      nodes { id name }
-    }
-  }
-}' -f login="$OWNER" -f pkg="$PACKAGE_NAME" \
-    --jq '.data.user.packages.nodes[0].id' 2>/dev/null || true)"
-fi
+GET_ENDPOINTS=(
+  "/user/packages/npm/${ENCODED_NAME}"
+  "/repos/${OWNER}/${REPO}/packages/npm/${ENCODED_NAME}"
+)
 
-if [[ -n "$PACKAGE_ID" && "$PACKAGE_ID" != "null" ]]; then
-  echo "==> Setting visibility PUBLIC via GraphQL (id=${PACKAGE_ID})"
-  gh api graphql -f query='
-mutation($packageId: ID!) {
-  updatePackagesSettings(input: {packageId: $packageId, visibility: PUBLIC}) {
-    package { id name }
-  }
-}' -f packageId="$PACKAGE_ID" >/dev/null
-  echo "==> Package visibility set to PUBLIC"
-  exit 0
-fi
+for endpoint in "${GET_ENDPOINTS[@]}"; do
+  visibility="$(package_visibility "$endpoint")"
+  if [[ "$visibility" == "public" ]]; then
+    echo "==> Already public (${endpoint})"
+    exit 0
+  fi
+  if [[ -n "$visibility" && "$visibility" != "null" ]]; then
+    echo "==> Current visibility (${endpoint}): ${visibility}"
+  fi
+done
 
-echo "==> GraphQL lookup failed; trying REST visibility endpoint"
-if gh api --method POST \
-  -H "Accept: application/vnd.github+json" \
-  "/user/packages/npm/${ENCODED_NAME}/visibility" \
-  -f visibility=public >/dev/null 2>&1; then
-  echo "==> Package visibility set to PUBLIC (REST)"
-  exit 0
-fi
+set_public() {
+  local endpoint="$1"
+  echo "==> Setting visibility PUBLIC via REST (${endpoint})"
+  gh api --method POST "$endpoint" -f visibility=public
+}
+
+POST_ENDPOINTS=(
+  "/user/packages/npm/${ENCODED_NAME}/visibility"
+  "/repos/${OWNER}/${REPO}/packages/npm/${ENCODED_NAME}/visibility"
+)
+
+LAST_ERR=""
+for endpoint in "${POST_ENDPOINTS[@]}"; do
+  if err="$(set_public "$endpoint" 2>&1)"; then
+    echo "==> Package visibility set to PUBLIC"
+    exit 0
+  fi
+  LAST_ERR="$err"
+  echo "!! ${endpoint} failed: ${err}" >&2
+done
 
 echo "!! Could not change package visibility automatically." >&2
+if [[ -n "$LAST_ERR" ]]; then
+  echo "   Last error: ${LAST_ERR}" >&2
+fi
 echo "   Open: https://github.com/users/${OWNER}/packages/npm/package/${ENCODED_NAME}" >&2
 echo "   → Package settings → Change visibility → Public" >&2
 exit 1

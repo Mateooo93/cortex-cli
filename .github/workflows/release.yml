@@ -26,6 +26,7 @@ on:
       - 'Makefile'
       - 'script/**'
       - '.github/workflows/release.yml'
+      - '.github/workflows/package-public.yml'
       - 'packaging/npm/**'
       - 'packaging/winget/**'
       - 'script/publish-npm.sh'
@@ -49,6 +50,7 @@ concurrency:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
