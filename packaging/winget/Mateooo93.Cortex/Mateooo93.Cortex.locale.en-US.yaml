@@ -1,0 +1,26 @@
+PackageIdentifier: Mateooo93.Cortex
+PackageLocale: en-US
+PackageVersion: 0.0.0
+PackageName: Cortex
+Publisher: Mateooo93
+PublisherUrl: https://github.com/Mateooo93
+PublisherSupportUrl: https://github.com/Mateooo93/cortex-cli/issues
+PrivacyUrl: https://github.com/Mateooo93/cortex-cli
+Author: Mateooo93
+Moniker: cortex
+Tags:
+  - ai
+  - coding-agent
+  - cli
+  - terminal
+  - tui
+ShortDescription: Fast AI coding agent with a polished terminal UI
+Description: >-
+  cortex-cli is a single-binary AI coding agent with a Bubble Tea TUI,
+  multi-provider support, built-in tools, optional workflows, and persistent
+  sessions.
+License: AGPL-3.0-or-later
+LicenseUrl: https://github.com/Mateooo93/cortex-cli/blob/main/LICENSE
+Copyright: Copyright (c) Mateooo93
+ManifestType: locale
+ManifestVersion: 1.6.0

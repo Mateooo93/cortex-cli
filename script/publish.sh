@@ -361,6 +361,9 @@ RELEASE_URL="https://github.com/${REPO}/releases/tag/${VERSION}"
 echo ""
 echo "==> Release published: $RELEASE_URL"
 
+echo "==> Updating winget manifest templates..."
+"$SCRIPT_DIR/publish-winget.sh" "$VERSION" --repo "$REPO" --dist "$DIST_DIR"
+
 # Announce on Discord
 DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
 if [[ -n "$DISCORD_WEBHOOK_URL" ]]; then

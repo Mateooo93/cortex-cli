@@ -24,11 +24,23 @@ A beautiful single-binary AI coding agent with a polished terminal UI and 20+ pr
 
 ## Quick start
 
+**Easiest (all platforms)** — npm or Bun downloads the native binary for your OS:
+
 ```bash
-# Linux amd64 (see Install for arm64 and other platforms)
+npm install -g cortex-cli
+cortex
+```
+
+```bash
+bun install -g cortex-cli
+cortex
+```
+
+**Linux amd64** (see Install for other arches and package managers):
+
+```bash
 curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-amd64
 chmod +x cortex && sudo mv cortex /usr/local/bin/
-
 cortex
 ```
 
@@ -63,9 +75,42 @@ Type `/` in chat for the full menu. Highlights:
 
 ## Install
 
-Pre-built binaries are on the [Releases page](https://github.com/Mateooo93/cortex-cli/releases).
+Pick one — they all install the same native binary.
 
-### Linux
+### npm (macOS, Linux, Windows)
+
+Requires [Node.js 18+](https://nodejs.org/). Downloads the correct release asset and verifies SHA-256.
+
+```bash
+npm install -g cortex-cli
+cortex
+```
+
+### Bun (macOS, Linux, Windows)
+
+```bash
+bun install -g cortex-cli
+cortex
+```
+
+### winget (Windows)
+
+```powershell
+winget install Mateooo93.Cortex
+```
+
+### Homebrew (macOS, Linux)
+
+```bash
+brew tap Mateooo93/cortex
+brew install cortex
+```
+
+### Direct download
+
+Binaries on the [Releases page](https://github.com/Mateooo93/cortex-cli/releases).
+
+#### Linux
 
 ```bash
 # amd64 (x86_64)
@@ -77,14 +122,14 @@ curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/downlo
 chmod +x cortex && sudo mv cortex /usr/local/bin/
 ```
 
-### macOS (Apple Silicon)
+#### macOS (Apple Silicon)
 
 ```bash
 curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-darwin-arm64
 chmod +x cortex && sudo mv cortex /usr/local/bin/
 ```
 
-### Windows
+#### Windows
 
 Use **Windows Terminal** or **PowerShell** (`cmd.exe` has limited TUI support). Swap `amd64` for `arm64` on ARM PCs.
 
@@ -92,7 +137,7 @@ Use **Windows Terminal** or **PowerShell** (`cmd.exe` has limited TUI support). 
 mkdir "$env:LOCALAPPDATA\Programs\cortex" -Force; iwr "https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Programs\cortex\cortex.exe"; & "$env:LOCALAPPDATA\Programs\cortex\cortex.exe"
 ```
 
-Config lives at `%USERPROFILE%\.cortex\`. API keys and OAuth tokens use Windows Credential Manager.
+Windows config lives at `%USERPROFILE%\.cortex\`. API keys and OAuth tokens use Windows Credential Manager.
 
 ### From source
 

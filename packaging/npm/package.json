@@ -1,0 +1,45 @@
+{
+  "name": "cortex-cli",
+  "version": "0.0.0-dev",
+  "description": "Fast AI coding agent with a polished terminal UI (npm wrapper — downloads the native binary for your OS)",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mateooo93/cortex-cli.git"
+  },
+  "homepage": "https://github.com/Mateooo93/cortex-cli#readme",
+  "bugs": {
+    "url": "https://github.com/Mateooo93/cortex-cli/issues"
+  },
+  "keywords": [
+    "cortex",
+    "ai",
+    "coding-agent",
+    "cli",
+    "tui",
+    "terminal"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "bin": {
+    "cortex": "bin/cortex.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node lib/install.js"
+  }
+}

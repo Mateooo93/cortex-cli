@@ -8,8 +8,10 @@ name: Release
 #   - manual dispatch (with optional version override)
 #
 # Requires these repo secrets:
-#   GITHUB_TOKEN     (auto-provided)
+#   GITHUB_TOKEN        (auto-provided)
 #   HOMEBREW_TAP_TOKEN  (PAT with 'repo' scope on the homebrew-cortex tap repo)
+#   NPM_TOKEN           (npm automation token for cortex-cli publish)
+#   WINGET_TOKEN        (PAT for opening PRs to microsoft/winget-pkgs)
 
 on:
   push:
@@ -24,7 +26,10 @@ on:
       - 'Makefile'
       - 'script/**'
       - '.github/workflows/release.yml'
-      - 'packaging/**'
+      - 'packaging/npm/**'
+      - 'packaging/winget/**'
+      - 'script/publish-npm.sh'
+      - 'script/publish-winget.sh'
   workflow_dispatch:
     inputs:
       version:
@@ -165,6 +170,25 @@ jobs:
           ./script/update-tap.sh "$VERSION" \
             --tap "${{ github.repository_owner }}/homebrew-cortex" || \
             echo "!! Tap update failed; the GitHub release is still published."
+
+      - name: Publish npm package
+        if: env.NPM_TOKEN != ''
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "==> Publishing cortex-cli to npm"
+          ./script/publish-npm.sh "$VERSION" --yes
+
+      - name: Submit winget manifest PR
+        if: env.WINGET_TOKEN != ''
+        uses: vedantmgoyal2009/winget-releaser@main
+        with:
+          identifier: Mateooo93.Cortex
+          release-tag: ${{ steps.version.outputs.version }}
+          installers-regex: 'cortex-windows-.*\.exe$'
+          token: ${{ secrets.WINGET_TOKEN }}
 
       - name: Tag the release
         run: |
