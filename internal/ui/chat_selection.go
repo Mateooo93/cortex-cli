@@ -88,34 +88,34 @@ func (m *Model) visibleChatLines(sess *SessionState, layout Layout) []string {
 }
 
 // chatSelection tracks a drag-selection inside the chat message viewport.
-// Coordinates are absolute terminal cells.
+// Line indices are relative to the visible chat lines slice; X is relative to
+// the inner left edge of the chat content (past the border).
 type chatSelection struct {
-	active       bool
-	anchorX      int
-	anchorY      int
-	endX         int
-	endY         int
+	active     bool
+	anchorLine int
+	anchorX    int
+	endLine    int
+	endX       int
 }
 
 func (s *chatSelection) clear() {
 	*s = chatSelection{}
 }
 
-func (s chatSelection) normalized() (x0, y0, x1, y1 int) {
-	x0, y0 = s.anchorX, s.anchorY
-	x1, y1 = s.endX, s.endY
-	if y0 > y1 || (y0 == y1 && x0 > x1) {
-		x0, y0, x1, y1 = x1, y1, x0, y0
+func (s chatSelection) normalized() (line0, line1, x0, x1 int) {
+	line0, x0 = s.anchorLine, s.anchorX
+	line1, x1 = s.endLine, s.endX
+	if line0 > line1 || (line0 == line1 && x0 > x1) {
+		line0, line1, x0, x1 = line1, line0, x1, x0
 	}
-	return x0, y0, x1, y1
+	return line0, line1, x0, x1
 }
 
 func (m *Model) chatInnerBounds() (top, bottom, left, right int) {
 	top, bottom, right = m.chatContentBounds()
 	left = 1
 	right = right - 1
-	top = top + 1
-	bottom = bottom - 1
+	bottom = bottom - 1 // exclude bottom border row (BorderTop is false)
 	return top, bottom, left, right
 }
 
@@ -127,16 +127,52 @@ func (m *Model) mouseInChatInner(x, y int) bool {
 	return x >= left && x < right && y >= top && y < bottom
 }
 
+// mouseToChatCell maps terminal coordinates to a visible chat line index and
+// inner-relative column.
+func (m *Model) mouseToChatCell(x, y int) (lineIdx, cellX int, ok bool) {
+	top, bottom, left, right := m.chatInnerBounds()
+	if x < left || x >= right || y < top || y >= bottom {
+		return 0, 0, false
+	}
+	lineIdx = y - top
+	if lineIdx < 0 {
+		return 0, 0, false
+	}
+	return lineIdx, x - left, true
+}
+
+func (m *Model) clampChatLineIndex(sess *SessionState, lineIdx int) int {
+	if lineIdx < 0 {
+		return 0
+	}
+	layout := m.currentLayout()
+	lines := m.visibleChatLines(sess, layout)
+	if len(lines) == 0 {
+		return 0
+	}
+	max := len(lines) - 1
+	if lineIdx > max {
+		return max
+	}
+	return lineIdx
+}
+
 func (m *Model) beginChatSelection(x, y int) {
 	sess := m.currentSession()
 	if sess == nil {
 		return
 	}
+	lineIdx, cellX, ok := m.mouseToChatCell(x, y)
+	if !ok {
+		m.clearChatSelection()
+		return
+	}
+	lineIdx = m.clampChatLineIndex(sess, lineIdx)
 	sess.chatSel.active = true
-	sess.chatSel.anchorX = x
-	sess.chatSel.anchorY = y
-	sess.chatSel.endX = x
-	sess.chatSel.endY = y
+	sess.chatSel.anchorLine = lineIdx
+	sess.chatSel.anchorX = cellX
+	sess.chatSel.endLine = lineIdx
+	sess.chatSel.endX = cellX
 }
 
 func (m *Model) extendChatSelection(x, y int) {
@@ -144,8 +180,28 @@ func (m *Model) extendChatSelection(x, y int) {
 	if sess == nil || !sess.chatSel.active {
 		return
 	}
-	sess.chatSel.endX = x
-	sess.chatSel.endY = y
+	top, bottom, left, right := m.chatInnerBounds()
+	lineIdx := y - top
+	cellX := x - left
+	if lineIdx < 0 {
+		lineIdx = 0
+	}
+	lineIdx = m.clampChatLineIndex(sess, lineIdx)
+	if cellX < 0 {
+		cellX = 0
+	}
+	maxX := m.mdRenderer.width - 1
+	if cellX > maxX {
+		cellX = maxX
+	}
+	if y >= bottom {
+		lineIdx = m.clampChatLineIndex(sess, lineIdx)
+	}
+	if x >= right {
+		cellX = maxX
+	}
+	sess.chatSel.endLine = lineIdx
+	sess.chatSel.endX = cellX
 }
 
 func (m *Model) clearChatSelection() {
@@ -156,28 +212,27 @@ func (m *Model) clearChatSelection() {
 
 // applyChatSelectionHighlight styles visible chat lines that fall inside the
 // current selection rectangle.
-func applyChatSelectionHighlight(lines []string, screenTopY, leftX int, sel chatSelection, style lipgloss.Style) []string {
+func applyChatSelectionHighlight(lines []string, sel chatSelection, style lipgloss.Style) []string {
 	if !sel.active || len(lines) == 0 {
 		return lines
 	}
-	x0, y0, x1, y1 := sel.normalized()
+	line0, line1, x0, x1 := sel.normalized()
 	out := make([]string, len(lines))
 	for i, line := range lines {
-		screenY := screenTopY + i
-		if screenY < y0 || screenY > y1 {
+		if i < line0 || i > line1 {
 			out[i] = line
 			continue
 		}
 		lineX0 := 0
 		lineX1 := runewidth.StringWidth(stripANSI(line))
-		if screenY == y0 {
-			lineX0 = x0 - leftX
+		if i == line0 {
+			lineX0 = x0
 			if lineX0 < 0 {
 				lineX0 = 0
 			}
 		}
-		if screenY == y1 {
-			lineX1 = x1 - leftX + 1
+		if i == line1 {
+			lineX1 = x1 + 1
 			if lineX1 > runewidth.StringWidth(stripANSI(line)) {
 				lineX1 = runewidth.StringWidth(stripANSI(line))
 			}
@@ -189,28 +244,27 @@ func applyChatSelectionHighlight(lines []string, screenTopY, leftX int, sel chat
 
 // chatSelectionPlainText extracts plain text from the selected region of the
 // visible chat lines.
-func chatSelectionPlainText(lines []string, screenTopY, leftX int, sel chatSelection) string {
+func chatSelectionPlainText(lines []string, sel chatSelection) string {
 	if !sel.active || len(lines) == 0 {
 		return ""
 	}
-	x0, y0, x1, y1 := sel.normalized()
+	line0, line1, x0, x1 := sel.normalized()
 	var parts []string
 	for i, line := range lines {
-		screenY := screenTopY + i
-		if screenY < y0 || screenY > y1 {
+		if i < line0 || i > line1 {
 			continue
 		}
 		plain := stripANSI(line)
 		lineX0 := 0
 		lineX1 := runewidth.StringWidth(plain)
-		if screenY == y0 {
-			lineX0 = x0 - leftX
+		if i == line0 {
+			lineX0 = x0
 			if lineX0 < 0 {
 				lineX0 = 0
 			}
 		}
-		if screenY == y1 {
-			lineX1 = x1 - leftX + 1
+		if i == line1 {
+			lineX1 = x1 + 1
 			if lineX1 > runewidth.StringWidth(plain) {
 				lineX1 = runewidth.StringWidth(plain)
 			}

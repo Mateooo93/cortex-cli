@@ -157,8 +157,7 @@ func (m *Model) copyChatSelectionCmd() tea.Cmd {
 	if len(lines) == 0 {
 		return nil
 	}
-	top, _, left, _ := m.chatInnerBounds()
-	text := chatSelectionPlainText(lines, top, left, sess.chatSel)
+	text := chatSelectionPlainText(lines, sess.chatSel)
 	if text == "" {
 		return nil
 	}

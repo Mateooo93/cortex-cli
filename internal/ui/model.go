@@ -2674,13 +2674,16 @@ func (m Model) View() tea.View {
 		// (renderSessionsView, renderSettingsView) also use FocusedStyle.
 		// The right panel uses its own (blurred) style for visual separation.
 		if sess != nil && sess.chatSel.active {
-			top, _, left, _ := m.chatInnerBounds()
 			selStyle := lipgloss.NewStyle().Background(lipgloss.Color("#2A4A7F")).Foreground(lipgloss.Color("#FFFFFF"))
-			chatLines = applyChatSelectionHighlight(chatLines, top, left, sess.chatSel, selStyle)
+			chatLines = applyChatSelectionHighlight(chatLines, sess.chatSel, selStyle)
 		}
 
 		var chatBorderStyle = m.styles.ViewportFocusedStyle
-		chatBox := chatBorderStyle.Width(layout.ChatWidth).Height(layout.ChatHeight).
+		lineCount := len(chatLines)
+		if lineCount < 1 {
+			lineCount = 1
+		}
+		chatBox := chatBorderStyle.Width(layout.ChatWidth).Height(lineCount).
 			Render(strings.Join(chatLines, "\n"))
 		uv.NewStyledString(chatBox).Draw(canvas, image.Rect(0, y, layout.ChatWidth, y+layout.ChatHeight))
 

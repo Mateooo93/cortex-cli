@@ -125,18 +125,38 @@ func TestMouseInChatInner_ExcludesBorder(t *testing.T) {
 		t.Fatal("left border should not be selectable")
 	}
 	if m.mouseInChatInner(left, top-1) {
-		t.Fatal("top border should not be selectable")
+		t.Fatal("row above chat content should not be selectable")
 	}
 }
 
 func TestApplyChatSelectionHighlight(t *testing.T) {
-	sel := chatSelection{active: true, anchorX: 3, anchorY: 5, endX: 6, endY: 5}
+	sel := chatSelection{active: true, anchorLine: 0, anchorX: 2, endLine: 0, endX: 5}
 	lines := []string{"hello world"}
-	got := applyChatSelectionHighlight(lines, 5, 1, sel, lipgloss.NewStyle().Bold(true))
+	got := applyChatSelectionHighlight(lines, sel, lipgloss.NewStyle().Bold(true))
 	if got[0] == lines[0] {
 		t.Fatalf("expected styled selection, got %q", got[0])
 	}
-	if got := chatSelectionPlainText(lines, 5, 1, sel); got != "llo " {
+	if got := chatSelectionPlainText(lines, sel); got != "llo " {
 		t.Fatalf("unexpected plain selection text %q", got)
+	}
+}
+
+func TestMouseToChatCellAccountsForContentOffset(t *testing.T) {
+	m := &Model{
+		width:     100,
+		height:    40,
+		activeTab: TabKindChat,
+		sessions:  []*SessionState{{}},
+	}
+	top, _, left, _ := m.chatInnerBounds()
+	lineIdx, cellX, ok := m.mouseToChatCell(left+4, top)
+	if !ok {
+		t.Fatal("expected mouse cell inside chat content")
+	}
+	if lineIdx != 0 {
+		t.Fatalf("lineIdx = %d, want 0 for first content row", lineIdx)
+	}
+	if cellX != 4 {
+		t.Fatalf("cellX = %d, want 4", cellX)
 	}
 }

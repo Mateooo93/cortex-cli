@@ -413,11 +413,10 @@ func renderToolResultWithContext(name, output string, isError bool, showToolName
 		lines := strings.Split(output, "\n")
 		maxLines := 5
 		if len(lines) > maxLines {
-			short = strings.Join(lines[:maxLines], "\n") +
-				fmt.Sprintf("\n... (%d more lines — output truncated to keep chat readable)", len(lines)-maxLines)
+			short = strings.Join(lines[:maxLines], "\n")
 		}
 		if len(short) > 2500 {
-			short = short[:2500] + "... (truncated)"
+			short = short[:2500]
 		}
 		rendered = s.ToolResultStyle.Render(prefix + short) + "\n"
 	} else if summary := summarizeToolOutput(name, output); summary != "" {
