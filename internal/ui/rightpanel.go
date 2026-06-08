@@ -441,10 +441,11 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 }
 
 // rightPanelBorderStyle uses the theme primary color for the panel outline.
-func rightPanelBorderStyle(s Styles) lipgloss.Style {
+// The top border is required so rounded corners render correctly where the
+// panel meets the tab bar (BorderTop(false) left a broken gap at the top).
+func rightPanelBorderStyle(_ Styles) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderTop(false).
 		BorderForeground(colorPrimary).
 		Padding(0, 1)
 }

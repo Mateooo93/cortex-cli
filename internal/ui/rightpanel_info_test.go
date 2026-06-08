@@ -56,8 +56,8 @@ func TestRightPanel_OutlineUsesThemePrimary(t *testing.T) {
 	if rightPanelBorderStyle(s).GetBorderLeftForeground() != colorPrimary {
 		t.Fatal("right panel border should use theme primary color")
 	}
-	if rightPanelBorderStyle(s).GetBorderTop() {
-		t.Fatal("right panel should omit top border like Settings viewport")
+	if !rightPanelBorderStyle(s).GetBorderTop() {
+		t.Fatal("right panel should include top border for correct rounded corners")
 	}
 }
 

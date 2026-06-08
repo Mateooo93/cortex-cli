@@ -105,7 +105,7 @@ func TestRenderTabBar_ShowsFunctionKeys(t *testing.T) {
 	s := NewStyles(true)
 	bar := renderTabBar(TabKindChat, 120, s, true, false, -1)
 	plain := stripANSI(bar)
-	for _, want := range []string{"Sessions", "Chat", "Settings", "(F1)", "(F2)", "(F4)"} {
+	for _, want := range []string{"Sessions", "Chat", "Settings", "(F1)", "(F2)", "(F3)"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("tab bar missing %q, got:\n%s", want, plain)
 		}

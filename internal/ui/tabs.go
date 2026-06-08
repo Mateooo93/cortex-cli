@@ -749,7 +749,7 @@ func tabBarEntries() []tabBarEntry {
 	return []tabBarEntry{
 		{"Sessions", "F1", TabKindSessions},
 		{"Chat", "F2", TabKindChat},
-		{"Settings", "F4", TabKindSettings},
+		{"Settings", "F3", TabKindSettings},
 	}
 }
 
@@ -792,7 +792,7 @@ func tabKindAtX(x int) (TabKind, bool) {
 	return 0, false
 }
 
-// renderTabBar renders the tab bar: Sessions (F1) | Chat (F2) | Settings (F4).
+// renderTabBar renders the tab bar: Sessions (F1) | Chat (F2) | Settings (F3).
 // alertBlink is true when some session needs user attention (shown on Chat tab label).
 func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, alertBlink bool, hoverTab int) string {
 	defs := tabBarEntries()
