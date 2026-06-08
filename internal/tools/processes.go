@@ -3,10 +3,22 @@ package tools
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
+
+// wrapShellForBackgroundTracking keeps the shell alive until all in-shell
+// background jobs finish (e.g. "npm run dev &"). Without this, bash exits
+// immediately while the server keeps running and the process panel greys out.
+func wrapShellForBackgroundTracking(command string) string {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return trimmed
+	}
+	return "trap 'wait' EXIT; " + trimmed
+}
 
 const (
 	defaultShellTimeoutSec = 120
@@ -109,15 +121,22 @@ func (r *ProcessRegistry) Stop(id string) (Result, error) {
 	if !p.Running {
 		return Result{OK: true, Output: fmt.Sprintf("process %s (pid %d) already exited with code %d", id, p.PID, p.ExitCode)}, nil
 	}
-	proc, err := os.FindProcess(p.PID)
-	if err != nil {
-		return Result{OK: false, Error: err.Error()}, nil
-	}
-	_ = proc.Signal(syscall.SIGTERM)
+	signalProcessGroup(p.PID, syscall.SIGTERM)
 	time.Sleep(200 * time.Millisecond)
-	_ = proc.Kill()
+	signalProcessGroup(p.PID, syscall.SIGKILL)
 	r.MarkExited(id, -1)
 	return Result{OK: true, Output: fmt.Sprintf("stopped process %s (pid %d)", id, p.PID)}, nil
+}
+
+func signalProcessGroup(pid int, sig syscall.Signal) {
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		pgid = pid
+	}
+	_ = syscall.Kill(-pgid, sig)
+	if proc, err := os.FindProcess(pid); err == nil {
+		_ = proc.Signal(sig)
+	}
 }
 
 func (r *ProcessRegistry) notify() {

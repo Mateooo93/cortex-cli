@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -882,11 +883,17 @@ func (t *ShellTool) Run(ctx Context, args map[string]any) (Result, error) {
 	killOnTimeout := parseBoolArg(args, "kill_on_timeout")
 
 	sh := shellCommand()
-	c := exec.Command(sh, "-c", cmd)
+	c := exec.Command(sh, "-c", wrapShellForBackgroundTracking(cmd))
 	c.Dir = ctx.CWD
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var stdout, stderr strings.Builder
-	c.Stdout = &stdout
-	c.Stderr = &stderr
+	if background {
+		c.Stdout = io.Discard
+		c.Stderr = io.Discard
+	} else {
+		c.Stdout = &stdout
+		c.Stderr = &stderr
+	}
 	if err := c.Start(); err != nil {
 		return Result{OK: false, Error: err.Error()}, nil
 	}
@@ -1047,6 +1054,7 @@ func defaultTools() []Tool {
 		&namedTool{toolName: "glob_files", inner: globTool},
 		&SearchTool{},
 		&ShellTool{},
+		&namedTool{toolName: "bash", inner: &ShellTool{}},
 		&StopBackgroundProcessTool{},
 		&WebFetchTool{},
 		&WebSearchTool{},

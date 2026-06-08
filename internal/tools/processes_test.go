@@ -64,6 +64,23 @@ func TestShellTool_TimeoutDetachesWithoutKill(t *testing.T) {
 	}
 }
 
+func TestShellTool_BackgroundShellAmpersandStaysTracked(t *testing.T) {
+	reg := NewProcessRegistry(nil)
+	tctx := Context{CWD: t.TempDir(), AllowShell: true, Processes: reg}
+	res, err := (&ShellTool{}).Run(tctx, map[string]any{
+		"command":    "sleep 4 &",
+		"background": true,
+	})
+	if err != nil || !res.OK {
+		t.Fatalf("start: err=%v res=%+v", err, res)
+	}
+	time.Sleep(200 * time.Millisecond)
+	procs := reg.List()
+	if len(procs) != 1 || !procs[0].Running {
+		t.Fatalf("expected tracked process still running after shell &, got %+v", procs)
+	}
+}
+
 func TestProcessRegistry_Stop(t *testing.T) {
 	reg := NewProcessRegistry(nil)
 	tctx := Context{CWD: t.TempDir(), AllowShell: true, Processes: reg}
