@@ -1140,7 +1140,7 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 		ToolChoice:       provider.ToolChoice{Mode: "auto"},
 		Temperature:      mc.Temperature,
 		MaxTokens:        mc.MaxTokens,
-		Stream:           s.cfg.Streaming,
+		Stream:           true,
 		ReasoningEffort:  reasoningEffortForRequest(mc.ReasoningEffort),
 		CortexPromptMode: mc.CortexPromptMode,
 	}
@@ -1174,21 +1174,7 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 	// won't see a tool result for a tool call
 	// it didn't see.
 	req.Messages = stripOrphanToolResults(req.Messages)
-	if s.cfg.Streaming {
-		return prov.Stream(ctx, req, s.onChunk)
-	}
-	// Non-streaming: just call Chat
-	resp, err := prov.Chat(ctx, req)
-	if err != nil {
-		return provider.Response{}, err
-	}
-	// Emit the content as a single chunk for uniform downstream handling
-	s.safeEmit(protocol.SessionEvent{
-		Type: "stream_chunk",
-		Data: protocol.EventStreamChunk{Text: resp.Content},
-	})
-	s.emitStreamDone(resp.Usage, resp.FinishReason)
-	return resp, nil
+	return prov.Stream(ctx, req, s.onChunk)
 }
 
 func (s *Session) onChunk(c provider.Chunk) {

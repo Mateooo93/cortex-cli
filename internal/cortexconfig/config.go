@@ -593,9 +593,8 @@ func Load() (*Config, error) {
 			bytes.Contains(data, []byte(" "+name+":")) ||
 			bytes.HasPrefix(data, []byte(name+":"))
 	}
-	if !hasField("streaming") {
-		cfg.Streaming = true
-	}
+	// Streaming is always on; the setting was removed from the UI.
+	cfg.Streaming = true
 	if !hasField("showUsage") {
 		cfg.ShowUsage = true
 	}

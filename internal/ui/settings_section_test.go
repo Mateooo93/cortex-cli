@@ -22,11 +22,10 @@ import (
 func TestSettingsSectionOtherSettings_HighlightedWhenActive(t *testing.T) {
 	s := NewStyles(true)
 	other := SettingsOtherView{
-		Theme:       "auto",
+		Theme:        "auto",
 		ShowThinking: true,
-		Streaming:   true,
-		ShowUsage:   true,
-		AutoCompact: true,
+		ShowUsage:    true,
+		AutoCompact:  true,
 	}
 	inspect := SettingsInspectView{}
 	view := renderSettingsView(120, 40, s,
@@ -109,11 +108,10 @@ func TestSettingsSectionOtherSettings_HighlightedWhenActive(t *testing.T) {
 func TestSettingsSectionProviders_HighlightedWhenActive(t *testing.T) {
 	s := NewStyles(true)
 	other := SettingsOtherView{
-		Theme:       "auto",
+		Theme:        "auto",
 		ShowThinking: true,
-		Streaming:   true,
-		ShowUsage:   true,
-		AutoCompact: true,
+		ShowUsage:    true,
+		AutoCompact:  true,
 	}
 	view := renderSettingsView(120, 40, s,
 		0,    // activeSection = Providers
@@ -167,11 +165,10 @@ func TestSettingsSectionProviders_HighlightedWhenActive(t *testing.T) {
 func TestSettingsOtherSettings_IncludesAutoCompactRow(t *testing.T) {
 	s := NewStyles(true)
 	other := SettingsOtherView{
-		Theme:       "auto",
+		Theme:        "auto",
 		ShowThinking: false,
-		Streaming:   true,
-		ShowUsage:   false,
-		AutoCompact: true,
+		ShowUsage:    false,
+		AutoCompact:  true,
 	}
 	view := renderSettingsView(120, 40, s,
 		1,    // Other Settings
@@ -179,7 +176,7 @@ func TestSettingsOtherSettings_IncludesAutoCompactRow(t *testing.T) {
 		"GPT-5.5", "codex",
 		nil, nil,
 		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
-		0, 5,    // otherSel=5 is the new Auto-compact row
+		0, 4,    // otherSel=4 is the Auto-compact row
 		other, SettingsInspectView{},
 		false, "", "",
 		SettingsWizardView{},

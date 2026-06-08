@@ -115,13 +115,7 @@ type SessionState struct {
 	// Live streaming buffers
 	assistantBuf      string
 	assistantRendered string
-	// assistantLastRenderAt throttles expensive full
-	// Markdown re-renders during streaming. Rendering
-	// the entire assistant buffer on EVERY tiny SSE
-	// chunk made the UI feel clunky/stuttery. We now
-	// append chunks immediately but only re-render at
-	// a smooth cadence (~30fps) or on stream_done.
-	assistantLastRenderAt time.Time
+	streamRefresh     StreamRefresh
 	thinkingBuf           string
 	thinkingRendered      string
 	showThinking          bool
@@ -229,7 +223,8 @@ func newSessionState(cfg *config.Config, client *daemon.SessionClient) *SessionS
 	s := &SessionState{
 		agentState:    StateWaitingForInput,
 		input:         newInput(),
-		thinkingAnim:  NewThinkingAnim(),
+		thinkingAnim:   NewThinkingAnim(),
+		streamRefresh:  NewStreamRefresh(),
 		questionPanel: NewQuestionPanel(),
 		focus:         FocusEditor,
 		client:        client,

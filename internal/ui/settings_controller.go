@@ -802,13 +802,6 @@ func (m *Model) setActiveReasoningEffort(effort string) {
 	_ = cortexconfig.Save(m.cortexCfg)
 }
 
-func (m *Model) configuredStreaming() bool {
-	if m.cortexCfg == nil {
-		return true
-	}
-	return m.cortexCfg.Streaming
-}
-
 func (m *Model) configuredShowUsage() bool {
 	if m.cortexCfg == nil {
 		return true
@@ -844,14 +837,6 @@ func (m *Model) setConfiguredTheme(theme string) {
 	m.applyConfiguredTheme()
 }
 
-func (m *Model) setConfiguredStreaming(v bool) {
-	if m.cortexCfg == nil {
-		return
-	}
-	m.cortexCfg.Streaming = v
-	_ = cortexconfig.Save(m.cortexCfg)
-}
-
 func (m *Model) setConfiguredShowUsage(v bool) {
 	if m.cortexCfg == nil {
 		return
@@ -862,7 +847,7 @@ func (m *Model) setConfiguredShowUsage(v bool) {
 
 // settingsOtherOptionCount matches the row count rendered in renderSettingsView
 // for the "Other Settings" section. Keep in sync with tabs.go.
-const settingsOtherOptionCount = 6
+const settingsOtherOptionCount = 5
 
 func (m *Model) setAllSessionsShowThinking(show bool) {
 	for _, sess := range m.sessions {

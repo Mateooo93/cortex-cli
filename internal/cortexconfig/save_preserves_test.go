@@ -105,8 +105,9 @@ models:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	// User explicitly toggles streaming ON.
-	cfg.Streaming = true
+	if !cfg.Streaming {
+		t.Fatal("streaming is always on regardless of config.yaml")
+	}
 	if err := Save(cfg); err != nil {
 		t.Fatalf("Save: %v", err)
 	}

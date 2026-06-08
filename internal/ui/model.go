@@ -1536,21 +1536,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					case 2: // Reasoning effort — cycle auto → low → medium → high
 						m.setActiveReasoningEffort(nextReasoningEffort(m.currentReasoningEffort()))
 						cmds = append(cmds, m.emitStatusMsg("Reasoning effort: "+m.currentReasoningEffort(), StatusMsgInfo))
-					case 3: // Streaming — toggle
-						m.setConfiguredStreaming(!m.configuredStreaming())
-						state := "on"
-						if !m.configuredStreaming() {
-							state = "off"
-						}
-						cmds = append(cmds, m.emitStatusMsg("Streaming responses: "+state, StatusMsgInfo))
-					case 4: // Show token usage — toggle
+					case 3: // Show token usage — toggle
 						m.setConfiguredShowUsage(!m.configuredShowUsage())
 						state := "on"
 						if !m.configuredShowUsage() {
 							state = "off"
 						}
 						cmds = append(cmds, m.emitStatusMsg("Show token usage: "+state, StatusMsgInfo))
-					case 5: // Auto-compact context — toggle
+					case 4: // Auto-compact context — toggle
 						m.setConfiguredAutoCompact(!m.configuredAutoCompact())
 						state := "on"
 						if !m.configuredAutoCompact() {
@@ -2255,6 +2248,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case streamRefreshMsg:
+		for _, sess := range m.sessions {
+			if cmd := sess.streamRefresh.Advance(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			if sess.streamRefresh.active && sess.assistantBuf != "" {
+				width := m.mdRenderer.width + 4
+				sess.assistantRendered = renderStreamingAssistant(sess.assistantBuf, width, true, sess.streamRefresh.cursorOn)
+			}
+		}
+		return m, tea.Batch(cmds...)
+
 	case tabBlinkMsg:
 		if msg.gen != m.tabAlertBlinkGen {
 			return m, nil
@@ -2742,7 +2747,6 @@ func (m Model) View() tea.View {
 			Theme:           m.configuredTheme(),
 			ShowThinking:    settingsShowThinking,
 			ReasoningEffort: m.currentReasoningEffort(),
-			Streaming:       m.configuredStreaming(),
 			ShowUsage:       m.configuredShowUsage(),
 			AutoCompact:     m.configuredAutoCompact(),
 		}
@@ -2899,7 +2903,7 @@ func (m *Model) flushSessionBuf(sess *SessionState) {
 	}
 	sess.assistantBuf = ""
 	sess.assistantRendered = ""
-	sess.assistantLastRenderAt = time.Time{}
+	sess.streamRefresh.Stop()
 	sess.thinkingBuf = ""
 	sess.thinkingRendered = ""
 }

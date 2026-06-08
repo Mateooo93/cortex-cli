@@ -303,7 +303,6 @@ type SettingsOtherView struct {
 	Theme           string
 	ShowThinking    bool
 	ReasoningEffort string
-	Streaming       bool
 	ShowUsage       bool
 	AutoCompact     bool
 }
@@ -567,12 +566,6 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		thinkingStatus = "On"
 		thinkingToggle = "[✓]"
 	}
-	streamingStatus := "Off"
-	streamingToggle := "[ ]"
-	if other.Streaming {
-		streamingStatus = "On"
-		streamingToggle = "[✓]"
-	}
 	usageStatus := "Off"
 	usageToggle := "[ ]"
 	if other.ShowUsage {
@@ -592,7 +585,6 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		{label: "Theme", value: normalizedSettingsValue(other.Theme)},
 		{label: "Show extended thinking", value: thinkingToggle + " " + thinkingStatus},
 		{label: "Reasoning effort", value: normalizedSettingsValue(other.ReasoningEffort)},
-		{label: "Streaming responses", value: streamingToggle + " " + streamingStatus},
 		{label: "Show token usage", value: usageToggle + " " + usageStatus},
 		// Auto-compact context: triggers a /compact run when
 		// usage exceeds 80% of the model's context window.

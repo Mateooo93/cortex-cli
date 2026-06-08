@@ -37,19 +37,9 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		var chunk protocol.EventStreamChunk
 		json.Unmarshal(data, &chunk)
 		sess.assistantBuf += chunk.Text
-		// Smooth streaming: don't re-render the full
-		// Markdown document on every tiny SSE chunk.
-		// That was making the terminal feel clunky
-		// and jumpy. Append chunks immediately, but
-		// re-render at a ~30fps cadence (or whenever
-		// the chunk is large enough to warrant an
-		// immediate refresh). stream_done below does
-		// a final render so no text is left behind.
-		now := time.Now()
-		if sess.assistantLastRenderAt.IsZero() || now.Sub(sess.assistantLastRenderAt) >= 33*time.Millisecond || len(chunk.Text) >= 256 {
-			sess.assistantRendered = m.mdRenderer.Render(sess.assistantBuf)
-			sess.assistantLastRenderAt = now
-		}
+		width := m.mdRenderer.width + 4
+		sess.assistantRendered = renderStreamingAssistant(sess.assistantBuf, width, true, sess.streamRefresh.cursorOn)
+		cmds = append(cmds, sess.streamRefresh.Start())
 
 	case "event.thinking_chunk":
 		data := marshalData(event.Data)
@@ -64,14 +54,9 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var done protocol.EventStreamDone
 		json.Unmarshal(data, &done)
-		// Final streaming render: because stream_chunk
-		// throttles Markdown rendering for smoothness,
-		// there may be a small tail of assistantBuf
-		// that has not yet been rendered. Render once
-		// here before finalising token/accounting state.
+		sess.streamRefresh.Stop()
 		if sess.assistantBuf != "" {
-			sess.assistantRendered = m.mdRenderer.Render(sess.assistantBuf)
-			sess.assistantLastRenderAt = time.Now()
+			sess.assistantRendered = strings.TrimLeft(m.mdRenderer.Render(sess.assistantBuf), "\n")
 		}
 		// Context-window counting fix. The streaming API
 		// reports `InputTokens` as the prompt size of the
