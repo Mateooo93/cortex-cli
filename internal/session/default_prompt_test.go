@@ -41,6 +41,16 @@ func TestBuildSystemPrompt_IncludesWorkdir(t *testing.T) {
 	if !strings.Contains(prompt, "Working directory:") {
 		t.Fatalf("expected working directory section, got:\n%s", prompt)
 	}
+	for _, want := range []string{
+		"list_dir",
+		`path "."`,
+		"home/user/myproject",
+		"never cd just to",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q", want)
+		}
+	}
 }
 
 func TestBuildSystemPrompt_RequiresVisibleNarration(t *testing.T) {

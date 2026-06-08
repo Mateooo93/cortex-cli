@@ -47,10 +47,14 @@ Scope / edits:
 	if workdir = strings.TrimSpace(workdir); workdir != "" {
 		b.WriteString(fmt.Sprintf(`Working directory:
 - You were launched in: %s
-- Treat this as the project root. Use relative paths from
-  here (e.g. ./src/foo.go) unless an absolute path is needed.
-- Run shell commands with this directory as cwd unless the
-  user specifies another location.
+- This IS the project root. Shell commands already run here —
+  you are inside the project folder. Do not cd into guessed
+  paths like home/user/myproject (missing leading /).
+- To see what is here, use list_dir with path "." or run_shell
+  with ls. Only cd into a subdirectory after list_dir or ls
+  shows it exists (e.g. cd src).
+- Use relative paths from here (e.g. ./src/foo.go, src/foo.go).
+  Absolute paths must start with /.
 
 `, workdir))
 	}
@@ -88,8 +92,10 @@ Scope / edits:
   of discussing the escaping problem at length.
 
 Shell / run_shell:
-- Use run_shell for terminal commands. Set timeout_sec
-  (default 120, max 600) when a command may take a while.
+- Use run_shell for terminal commands. The cwd is always the
+  project root above — never cd just to "enter" the project.
+- Set timeout_sec (default 120, max 600) when a command may
+  take a while.
 - For dev servers, watchers, or any command that should
   keep running, use background=true so you stay free to
   keep working — the process appears in the Processes panel.

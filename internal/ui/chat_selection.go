@@ -8,9 +8,17 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// chatContentInnerWidth is the drawable width inside the chat viewport border.
+// chatViewportBorderWidth and chatViewportHPadding match ViewportFocusedStyle
+// (rounded border + Padding(0, 1)).
+const (
+	chatViewportBorderWidth = 1
+	chatViewportHPadding    = 1
+)
+
+// chatContentInnerWidth is the drawable width inside the chat viewport border
+// and horizontal padding. Must stay aligned with updateChatWidth (ChatWidth-4).
 func chatContentInnerWidth(layout Layout) int {
-	w := layout.ChatWidth - 2
+	w := layout.ChatWidth - 2*chatViewportBorderWidth - 2*chatViewportHPadding
 	if w < 1 {
 		return 1
 	}
@@ -168,8 +176,8 @@ func (s chatSelection) normalized() (line0, line1, x0, x1 int) {
 
 func (m *Model) chatInnerBounds() (top, bottom, left, right int) {
 	top, bottom, right = m.chatContentBounds()
-	left = 1
-	right = right - 1
+	left = chatViewportBorderWidth + chatViewportHPadding
+	right = right - chatViewportBorderWidth - chatViewportHPadding
 	bottom = bottom - 1 // exclude bottom border row (BorderTop is false)
 	return top, bottom, left, right
 }

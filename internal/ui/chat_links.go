@@ -106,7 +106,7 @@ func (m *Model) handleChatLinkClick(x, y int) tea.Cmd {
 		return nil
 	}
 	lineIdx = m.clampChatLineIndex(sess, lineIdx)
-	lines := m.visibleChatLines(sess, m.currentLayout())
+	lines := m.displayChatLines(sess, m.currentLayout())
 	if lineIdx < 0 || lineIdx >= len(lines) {
 		return nil
 	}

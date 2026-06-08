@@ -224,6 +224,24 @@ func TestMouseMotion_KeepsDragSelectionWithoutButtonBit(t *testing.T) {
 	}
 }
 
+func TestChatInnerBounds_AccountsForViewportPadding(t *testing.T) {
+	m := &Model{
+		width:     100,
+		height:    40,
+		activeTab: TabKindChat,
+		sessions:  []*SessionState{{}},
+	}
+	_, _, left, right := m.chatInnerBounds()
+	layout := m.currentLayout()
+	wantInner := chatContentInnerWidth(layout)
+	if right-left != wantInner {
+		t.Fatalf("inner width = %d, want %d (left=%d right=%d)", right-left, wantInner, left, right)
+	}
+	if left != chatViewportBorderWidth+chatViewportHPadding {
+		t.Fatalf("left = %d, want %d", left, chatViewportBorderWidth+chatViewportHPadding)
+	}
+}
+
 func TestMouseToChatCellAccountsForContentOffset(t *testing.T) {
 	m := &Model{
 		width:     100,
