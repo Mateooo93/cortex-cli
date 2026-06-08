@@ -1945,29 +1945,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				didScroll := false
 				switch msg.String() {
-				case "up", "k":
+				case "up":
 					sess.chatScrollOffset += 3
 					didScroll = true
-				case "down", "j":
+				case "down":
 					sess.chatScrollOffset -= 3
 					didScroll = true
 				case "pgup":
 					sess.chatScrollOffset += 20
 					didScroll = true
-				case "b":
-					if strings.TrimSpace(sess.input.Value()) == "" {
-						sess.chatScrollOffset += 20
-						didScroll = true
-					}
 				case "pgdown":
 					sess.chatScrollOffset -= 20
 					didScroll = true
-				case "f":
-					if strings.TrimSpace(sess.input.Value()) == "" {
-						sess.chatScrollOffset -= 20
-						didScroll = true
-					}
-				case "home", "g":
+				case "home":
 					sess.chatScrollOffset = m.sessionMaxScrollOffset(sess)
 					didScroll = true
 				case "end", "G":

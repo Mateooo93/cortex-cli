@@ -10,6 +10,21 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 )
 
+func TestLowercaseFTypesIntoEmptyPrompt(t *testing.T) {
+	setupPersistDir(t)
+	m := NewModel(&config.Config{}, cortexconfig.Default(), nil, false, "", false, false)
+	m.activeTab = TabKindChat
+	sess := m.currentSession()
+	sess.agentState = StateWaitingForInput
+	sess.input.SetValue("")
+	sess.input.Focus()
+
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
+	if sess.input.Value() != "f" {
+		t.Fatalf("input = %q, want %q (f must type even when prompt is empty)", sess.input.Value(), "f")
+	}
+}
+
 func TestLowercaseFTypesIntoInputWhenNotEmpty(t *testing.T) {
 	setupPersistDir(t)
 	m := NewModel(&config.Config{}, cortexconfig.Default(), nil, false, "", false, false)
@@ -25,17 +40,17 @@ func TestLowercaseFTypesIntoInputWhenNotEmpty(t *testing.T) {
 	}
 }
 
-func TestLowercaseFScrollsWhenInputEmpty(t *testing.T) {
+func TestPgDownStillScrollsChat(t *testing.T) {
 	setupPersistDir(t)
 	m := NewModel(&config.Config{}, cortexconfig.Default(), nil, false, "", false, false)
 	m.activeTab = TabKindChat
 	sess := m.currentSession()
 	sess.agentState = StateWaitingForInput
-	sess.input.SetValue("")
+	sess.input.SetValue("typing")
 	sess.chatScrollOffset = 10
 
-	_, _ = m.Update(tea.KeyPressMsg{Code: 'f'})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
 	if sess.chatScrollOffset >= 10 {
-		t.Fatalf("chatScrollOffset = %d, want scroll down from f when input empty", sess.chatScrollOffset)
+		t.Fatalf("chatScrollOffset = %d, want scroll down from PgDown", sess.chatScrollOffset)
 	}
 }
