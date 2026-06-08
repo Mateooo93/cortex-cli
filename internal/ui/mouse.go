@@ -86,6 +86,7 @@ func (m *Model) handleTabBarClick() (Model, tea.Cmd) {
 		m.activeTab = TabKindSessions
 		m.syncSessionsSelected()
 		m.clearChatSelection()
+		m.clearInputSelection()
 		return *m, m.sessionsInput.Focus()
 	case TabKindChat:
 		m.activeTab = TabKindChat
@@ -99,6 +100,7 @@ func (m *Model) handleTabBarClick() (Model, tea.Cmd) {
 	case TabKindSettings:
 		m.openSettingsTab()
 		m.clearChatSelection()
+		m.clearInputSelection()
 		return *m, nil
 	}
 	return *m, nil
@@ -122,18 +124,21 @@ func (m *Model) handleChatMouseDrag(x, y int) {
 	m.extendChatSelection(x, y)
 }
 
-// copyChatSelectionCmd copies the current chat drag-selection to the clipboard.
-func (m *Model) copyChatSelectionCmd() tea.Cmd {
+// copyActiveSelectionCmd copies the current chat or input drag-selection.
+func (m *Model) copyActiveSelectionCmd() tea.Cmd {
 	sess := m.currentSession()
-	if sess == nil || !sess.chatSel.active {
+	if sess == nil {
 		return nil
 	}
-	layout := m.currentLayout()
-	lines := m.displayChatLines(sess, layout)
-	if len(lines) == 0 {
+	var text string
+	switch {
+	case sess.inputSel.active:
+		text = chatSelectionPlainText(m.inputDisplayLines(sess), sess.inputSel)
+	case sess.chatSel.active:
+		text = chatSelectionPlainText(m.displayChatLines(sess, m.currentLayout()), sess.chatSel)
+	default:
 		return nil
 	}
-	text := chatSelectionPlainText(lines, sess.chatSel)
 	if text == "" {
 		return nil
 	}
@@ -142,4 +147,20 @@ func (m *Model) copyChatSelectionCmd() tea.Cmd {
 		return tea.Batch(cmd, status)
 	}
 	return status
+}
+
+func (m *Model) handleInputMouseDown(x, y int) {
+	if !m.mouseInInputInner(x, y) {
+		m.clearInputSelection()
+		return
+	}
+	m.beginInputSelection(x, y)
+}
+
+func (m *Model) handleInputMouseDrag(x, y int) {
+	sess := m.currentSession()
+	if sess == nil || !sess.inputSel.active {
+		return
+	}
+	m.extendInputSelection(x, y)
 }

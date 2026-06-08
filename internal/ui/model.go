@@ -967,6 +967,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.handleChatLinkClick(mouse.X, mouse.Y); cmd != nil {
 					return m, cmd
 				}
+			} else if m.mouseInInputInner(mouse.X, mouse.Y) {
+				m.handleInputMouseDown(mouse.X, mouse.Y)
 			} else {
 				m.handleChatMouseDown(mouse.X, mouse.Y)
 			}
@@ -983,7 +985,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.updateMouseHover(mouse.X, mouse.Y)
 		if m.activeTab == TabKindChat && m.mouseButtonDown {
-			m.handleChatMouseDrag(mouse.X, mouse.Y)
+			sess := m.currentSession()
+			if sess != nil && sess.inputSel.active {
+				m.handleInputMouseDrag(mouse.X, mouse.Y)
+			} else {
+				m.handleChatMouseDrag(mouse.X, mouse.Y)
+			}
 		}
 		return m, nil
 
@@ -1030,7 +1037,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mouseButtonDown = false
 
 		if m.activeTab == TabKindChat {
-			m.extendChatSelection(mouse.X, mouse.Y)
+			sess := m.currentSession()
+			if sess != nil && sess.inputSel.active {
+				m.extendInputSelection(mouse.X, mouse.Y)
+			} else {
+				m.extendChatSelection(mouse.X, mouse.Y)
+			}
 		}
 
 		if m.mouseInTabBar(m.mouseY) {
@@ -1109,8 +1121,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeTab == TabKindChat {
 			switch msg.String() {
 			case "ctrl+c", "ctrl+shift+c", "ctrl+insert":
-				if sess := m.currentSession(); sess != nil && sess.chatSel.active {
-					if cmd := m.copyChatSelectionCmd(); cmd != nil {
+				if sess := m.currentSession(); sess != nil && (sess.chatSel.active || sess.inputSel.active) {
+					if cmd := m.copyActiveSelectionCmd(); cmd != nil {
 						return m, cmd
 					}
 					return m, m.emitStatusMsg("nothing to copy", StatusMsgInfo)
@@ -3076,7 +3088,7 @@ func (m Model) View() tea.View {
 		} else if m.state == StateQuitConfirm {
 			inputSection = renderInputBox("Chat", false, "", m.width, false, m.styles.ColorBlurBorder)
 		} else if sess != nil {
-			inputSection = renderInputBox("Chat", false, sess.input.View(), m.width, sess.focus == FocusEditor, m.styles.ColorBlurBorder)
+			inputSection = renderInputBox("Chat", false, m.renderInputView(sess), m.width, sess.focus == FocusEditor, m.styles.ColorBlurBorder)
 		} else {
 			inputSection = renderInputBox("Chat", false, "", m.width, false, m.styles.ColorBlurBorder)
 		}

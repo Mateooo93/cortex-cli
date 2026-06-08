@@ -154,6 +154,7 @@ type SessionState struct {
 	chatMessages     []ChatMessage
 	chatScrollOffset int
 	chatSel          chatSelection
+	inputSel         chatSelection
 
 	// Live streaming buffers
 	assistantBuf      string

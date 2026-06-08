@@ -231,6 +231,7 @@ func (m *Model) beginChatSelection(x, y int) {
 		return
 	}
 	lineIdx = m.clampChatLineIndex(sess, lineIdx)
+	sess.inputSel.clear()
 	sess.chatSel.active = true
 	sess.chatSel.anchorLine = lineIdx
 	sess.chatSel.anchorX = cellX

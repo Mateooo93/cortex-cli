@@ -33,7 +33,7 @@ func (m Model) canOpenContextMenu() bool {
 		return true
 	}
 	sess := m.currentSession()
-	return sess != nil && sess.chatSel.active
+	return sess != nil && (sess.chatSel.active || sess.inputSel.active)
 }
 
 func (m *Model) buildContextMenuItems() []ctxMenuItem {
@@ -42,7 +42,7 @@ func (m *Model) buildContextMenuItems() []ctxMenuItem {
 		items = append(items, ctxMenuItem{label: "Paste", action: ctxActionPaste})
 	}
 	sess := m.currentSession()
-	if sess != nil && sess.chatSel.active {
+	if sess != nil && (sess.chatSel.active || sess.inputSel.active) {
 		items = append(items, ctxMenuItem{label: "Copy selection", action: ctxActionCopy})
 	}
 	return items
@@ -144,7 +144,7 @@ func (m Model) executeContextMenuItem(idx int) (Model, tea.Cmd) {
 	case ctxActionPaste:
 		return m.handlePasteKey()
 	case ctxActionCopy:
-		if cmd := m.copyChatSelectionCmd(); cmd != nil {
+		if cmd := m.copyActiveSelectionCmd(); cmd != nil {
 			return m, cmd
 		}
 	}
