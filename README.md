@@ -13,6 +13,11 @@
   <a href="https://github.com/Mateooo93/cortex-cli/releases/latest"><img src="https://img.shields.io/github/v/release/Mateooo93/cortex-cli?style=flat-square" alt="Release" /></a>
 </p>
 
+```bash
+npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com
+cortex
+```
+
 <p align="center">
   <a href="https://github.com/Mateooo93/cortex-cli">
     <img src="assets/cortex-cli-welcome.png" alt="cortex-cli welcome screen — CORTEX splash, status panel, and chat input" />
@@ -47,15 +52,6 @@
 
 ## Installation
 
-### curl (recommended)
-
-macOS and Linux — no npm auth:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.sh | bash
-cortex --version
-```
-
 ### npm
 
 macOS, Linux, and Windows:
@@ -65,11 +61,20 @@ npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com
 cortex
 ```
 
-If npm returns `E401 Unauthorized`, use the curl installer above, or add to `~/.npmrc`:
+If npm returns `E401 Unauthorized`, use the curl installer below, or add to `~/.npmrc`:
 
 ```
 @mateooo93:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
+```
+
+### curl
+
+macOS and Linux — no npm auth:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.sh | bash
+cortex --version
 ```
 
 ### Manual download
