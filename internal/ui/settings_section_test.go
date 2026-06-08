@@ -7,19 +7,19 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// TestSettingsSectionOtherSettings_HighlightedWhenActive is
-// the regression pin for the "tab in Settings doesn't move to
-// Other Settings" bug. The old renderSettingsView compared the
-// cursor's section index to 2 instead of 1, so even when the
-// user was on Other Settings, the cursor was never drawn and
-// the section title was never highlighted — they thought they
-// were stuck on Providers.
-//
-// We pass activeSection=1 (Other Settings) and verify:
-//   - "Other Settings" appears as a section title with the ▸
-//     chevron (active marker)
-//   - the cursor on the highlighted row is rendered (▸ marker)
-//   - Providers is visible but not highlighted
+func settingsSectionTabLine(view string) string {
+	for _, line := range strings.Split(view, "\n") {
+		plain := stripANSI(line)
+		if strings.Contains(plain, "Providers") && strings.Contains(plain, "Other Settings") && strings.Contains(plain, "Tab") {
+			return line
+		}
+	}
+	return ""
+}
+
+// TestSettingsSectionOtherSettings_HighlightedWhenActive verifies Tab
+// switches to Other Settings: the section tab row highlights Other
+// Settings and only that section's rows are shown.
 func TestSettingsSectionOtherSettings_HighlightedWhenActive(t *testing.T) {
 	s := NewStyles(true)
 	other := SettingsOtherView{
@@ -30,68 +30,31 @@ func TestSettingsSectionOtherSettings_HighlightedWhenActive(t *testing.T) {
 	}
 	inspect := SettingsInspectView{}
 	view := renderSettingsView(120, 40, s,
-		1,    // activeSection = Other Settings
+		1, // activeSection = Other Settings
 		0, 0, 0,
 		"GPT-5.5", "codex",
-		nil, nil, // providers, models
+		nil, nil,
 		[]ProviderSettingsView{
 			{Provider: "codex", DisplayName: "ChatGPT (codex)"},
 			{Provider: "openai", DisplayName: "OpenAI"},
 		},
-		0,    // keySel
-		0,    // otherSel
-		other,
-		inspect,
+		0, 0, other, inspect,
 		false, "", "",
 		SettingsWizardView{},
 	)
-	// Section title "Other Settings" must be present.
-	if !strings.Contains(view, "Other Settings") {
-		t.Errorf("expected section title 'Other Settings', got %q", view)
+	tabLine := settingsSectionTabLine(view)
+	if tabLine == "" {
+		t.Fatal("could not find section tab row")
 	}
-	// The active section's chevron should be in front of
-	// "Other Settings" (\u25b8 = ▸).
-	lines := strings.Split(view, "\n")
-	var otherSettingsLine string
-	for _, line := range lines {
-		// Match the section title line, not the status
-		// bar line at the bottom that also says
-		// "Section: ...".
-		if strings.Contains(line, "Other Settings") && !strings.Contains(line, "Section:") {
-			otherSettingsLine = line
-			break
-		}
+	if !strings.Contains(tabLine, s.TabActiveStyle.Render(" Other Settings ")) {
+		t.Errorf("expected Other Settings tab to be active, got %q", stripANSI(tabLine))
 	}
-	if otherSettingsLine == "" {
-		t.Fatal("could not find Other Settings line")
+	if strings.Contains(stripANSI(view), "ChatGPT (codex)") {
+		t.Errorf("provider rows should be hidden in Other Settings section, got:\n%s", view)
 	}
-	if !strings.Contains(otherSettingsLine, "\u25b8") {
-		t.Errorf("expected active 'Other Settings' line to have ▸ chevron, got %q", otherSettingsLine)
-	}
-	// Providers section should still be visible but
-	// UN-highlighted (no chevron in front of "Providers").
-	var providersLine string
-	for _, line := range lines {
-		if strings.Contains(line, "Providers") && !strings.Contains(line, "Section:") {
-			providersLine = line
-			break
-		}
-	}
-	if providersLine == "" {
-		t.Fatal("could not find Providers line")
-	}
-	if strings.HasPrefix(providersLine, " \u25b8") {
-		t.Errorf("expected inactive 'Providers' line to NOT have chevron, got %q", providersLine)
-	}
-	// The cursor on the highlighted Other Settings row
-	// (otherSel=0 → "Theme") must be rendered with ▸.
-	// We check for the cursor pattern (▸ followed by the row
-	// label) anywhere on the line, not as a strict prefix,
-	// because the line has leading box-drawing + ANSI
-	// control codes.
 	var foundCursor bool
-	for _, line := range lines {
-		if strings.Contains(line, "Theme") && !strings.Contains(line, "Section:") {
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Theme") {
 			if strings.Contains(line, "\u25b8 Theme") {
 				foundCursor = true
 			}
@@ -103,9 +66,8 @@ func TestSettingsSectionOtherSettings_HighlightedWhenActive(t *testing.T) {
 	}
 }
 
-// TestSettingsSectionProviders_HighlightedWhenActive verifies
-// the inverse: when activeSection=0, "Providers" gets the
-// chevron and "Other Settings" doesn't.
+// TestSettingsSectionProviders_HighlightedWhenActive verifies the
+// Providers tab is active and provider rows are shown.
 func TestSettingsSectionProviders_HighlightedWhenActive(t *testing.T) {
 	s := NewStyles(true)
 	other := SettingsOtherView{
@@ -115,7 +77,7 @@ func TestSettingsSectionProviders_HighlightedWhenActive(t *testing.T) {
 		AutoCompact:  true,
 	}
 	view := renderSettingsView(120, 40, s,
-		0,    // activeSection = Providers
+		0, // activeSection = Providers
 		0, 0, 0,
 		"GPT-5.5", "codex",
 		nil, nil,
@@ -126,30 +88,18 @@ func TestSettingsSectionProviders_HighlightedWhenActive(t *testing.T) {
 		false, "", "",
 		SettingsWizardView{},
 	)
-	lines := strings.Split(view, "\n")
-	var providersLine, otherSettingsLine string
-	for _, line := range lines {
-		// Skip the bottom status-bar line that says
-		// "Section: Providers · F1..." which also
-		// contains the section names.
-		if strings.Contains(line, "Section:") {
-			continue
-		}
-		if strings.Contains(line, "Providers") && providersLine == "" {
-			providersLine = line
-		}
-		if strings.Contains(line, "Other Settings") && otherSettingsLine == "" {
-			otherSettingsLine = line
-		}
+	tabLine := settingsSectionTabLine(view)
+	if tabLine == "" {
+		t.Fatal("could not find section tab row")
 	}
-	if providersLine == "" || otherSettingsLine == "" {
-		t.Fatalf("missing section title lines:\n%s", view)
+	if !strings.Contains(tabLine, s.TabActiveStyle.Render(" Providers ")) {
+		t.Errorf("expected Providers tab to be active, got %q", stripANSI(tabLine))
 	}
-	if !strings.Contains(providersLine, "\u25b8") {
-		t.Errorf("expected 'Providers' to have ▸ when active, got %q", providersLine)
+	if !strings.Contains(stripANSI(view), "ChatGPT (codex)") {
+		t.Errorf("expected provider row in Providers section, got:\n%s", view)
 	}
-	if strings.Contains(otherSettingsLine, "\u25b8") {
-		t.Errorf("expected 'Other Settings' to NOT have ▸ when inactive, got %q", otherSettingsLine)
+	if strings.Contains(stripANSI(view), "Auto-compact context") {
+		t.Errorf("Other Settings rows should be hidden in Providers section, got:\n%s", view)
 	}
 }
 
@@ -174,7 +124,6 @@ func TestSettingsProviderRows_AllBoldUnlessCursor(t *testing.T) {
 			t.Fatalf("missing provider %q in view", name)
 		}
 	}
-	// Active provider (codex) must not be the only dim/non-bold row.
 	if strings.Contains(view, "\x1b[2m") {
 		t.Fatalf("provider rows should not use dim style, got:\n%s", view)
 	}
@@ -223,9 +172,6 @@ func TestSettingsOtherSettings_IncludesColorRows(t *testing.T) {
 
 // TestSettingsOtherSettings_IncludesAutoCompactRow pins the
 // new "Auto-compact context" row in the Other Settings list.
-// This is the user-facing toggle for the auto-compact feature
-// (/compact slash command is always available, but the
-// auto-run behaviour is gated behind this toggle).
 func TestSettingsOtherSettings_IncludesAutoCompactRow(t *testing.T) {
 	s := NewStyles(true)
 	other := SettingsOtherView{
@@ -235,13 +181,12 @@ func TestSettingsOtherSettings_IncludesAutoCompactRow(t *testing.T) {
 		AutoCompact:  true,
 	}
 	view := renderSettingsView(120, 40, s,
-		1,    // Other Settings
+		1, // Other Settings
 		0, 0, 0,
 		"GPT-5.5", "codex",
 		nil, nil,
 		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
-		0, 6,    // otherSel=6 is the Auto-compact row
-		other, SettingsInspectView{},
+		0, 6, other, SettingsInspectView{},
 		false, "", "",
 		SettingsWizardView{},
 	)
@@ -250,5 +195,16 @@ func TestSettingsOtherSettings_IncludesAutoCompactRow(t *testing.T) {
 	}
 	if !strings.Contains(view, "On") {
 		t.Errorf("expected 'On' status for Auto-compact when enabled, got:\n%s", view)
+	}
+}
+
+func TestRenderSettingsSectionTabs_ShowsTabHint(t *testing.T) {
+	s := NewStyles(true)
+	row := renderSettingsSectionTabs(0, 80, s)
+	plain := stripANSI(row)
+	for _, want := range []string{"Providers", "Other Settings", "Tab"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("missing %q in %q", want, plain)
+		}
 	}
 }

@@ -224,24 +224,29 @@ func renderSessionsView(sessions []*SessionState, width, height int, s Styles, f
 	return s.ViewportFocusedStyle.Width(width).Height(height).Render(content)
 }
 
-// settingsSectionTitle renders a section heading like "▸ Providers" or
-// "  Other Settings". Active sections get a chevron + primary color;
-// inactive ones are dim and un-prefixed. The chevron makes it instantly
-// obvious which section the user is in — without it, the Settings tab
-// looked like a wall of identical grey text and users had to squint to
-// figure out where they were.
-func settingsSectionTitle(title string, active bool, innerWidth int) string {
-	style := lipgloss.NewStyle().Bold(true)
-	if active {
-		// Active section: chevron + primary blue + bold so the
-		// eye snaps to it. The chevron matches the row marker
-		// (▸) used for the active row in the provider list, so
-		// the two read as the same kind of "you are here".
-		style = style.Foreground(colorPrimary)
-	} else {
-		style = style.Foreground(colorDim)
+// renderSettingsSectionTabs draws Providers | Other Settings with Tab hint.
+func renderSettingsSectionTabs(activeSection int, innerWidth int, s Styles) string {
+	sep := lipgloss.NewStyle().Foreground(colorDim).Render(" │ ")
+	names := []string{"Providers", "Other Settings"}
+	var parts []string
+	for i, name := range names {
+		tab := " " + name + " "
+		if i == activeSection {
+			parts = append(parts, s.TabActiveStyle.Render(tab))
+		} else {
+			parts = append(parts, s.TabInactiveStyle.Render(tab))
+		}
+		if i == 0 {
+			parts = append(parts, sep)
+		}
 	}
-	return style.Width(innerWidth).Render(title)
+	tabs := strings.Join(parts, "")
+	hint := lipgloss.NewStyle().Foreground(colorDim).Italic(true).Render("Tab")
+	gap := innerWidth - lipgloss.Width(tabs) - lipgloss.Width(hint)
+	if gap < 1 {
+		gap = 1
+	}
+	return lipgloss.NewStyle().Width(innerWidth).Render(tabs + strings.Repeat(" ", gap) + hint)
 }
 
 func settingsWindow(sel, total, limit int) (int, int) {
@@ -397,62 +402,23 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		}
 		return v
 	}
-	sectionName := []string{"Providers", "Other Settings"}[activeSection]
 	divider := dimStyle.Width(innerWidth).Render(strings.Repeat("─", innerWidth))
-	// sectionIdx maps a logical section name to its index. The two
-	// sections (Providers, Other Settings) are numbered 0 and 1, so
-	// `activeSection` lines up 1:1 with `sectionIdx`. We use this
-	// helper instead of hardcoding `2` for Other Settings (which
-	// was the bug: cursor was never highlighted because `2` is
-	// outside the valid range).
-	sectionIdx := func(name string) int {
-		switch name {
-		case "Providers":
-			return 0
-		default: // "Other Settings"
-			return 1
-		}
-	}
-	sectionTitle := func(idx int, label string) string {
-		prefix := "  "
-		if activeSection == idx {
-			prefix = "▸ "
-		}
-		return settingsSectionTitle(prefix+label, activeSection == idx, innerWidth)
-	}
-
-	activeSummary := "No model selected"
-	if activeModel != "" {
-		activeSummary = "Active model: " + activeModel
-	}
-	providerSummary := "Provider: " + activeProviderName
-	if activeProviderName == "" {
-		providerSummary = "Provider: —"
-	}
 
 	// When the provider edit wizard is open it fills the whole
 	// Settings viewport and replaces the Models / Other Settings
 	// sections. Render it here so the rest of the normal layout
 	// (section switching, provider list, etc.) is suppressed.
 	if wizard.Provider != "" {
-		return renderSettingsWizardView(width, height, s, dimStyle, selectedStyle, activeStyle, titleStyle, innerWidth, func(text string) string { return sectionTitle(1, text) }, divider, wizard, activeSummary, providerSummary)
+		return renderSettingsWizardView(width, height, s, dimStyle, selectedStyle, activeStyle, titleStyle, innerWidth, divider, wizard)
 	}
 
 	lines := []string{
 		titleStyle.Width(innerWidth).Render("Settings"),
-		// Single summary line combining the active model +
-		// provider so the user has the full context in one
-		// row. (The previous version had two lines: one for
-		// "Active model: …" and one for "Provider: … · Tab
-		// switches section" which was redundant and the user
-		// complained about the duplication.)
-		dimStyle.Width(innerWidth).Render(settingsTruncate(providerSummary+" · "+activeSummary, innerWidth)),
-		divider,
+		renderSettingsSectionTabs(activeSection, innerWidth, s),
 	}
 
 	if inKeyInput {
 		lines = append(lines,
-			sectionTitle(1, "API Keys & Base URLs"),
 			dimStyle.Width(innerWidth).Render(settingsTruncate(keyInputLabel, innerWidth)),
 			keyInputView,
 			"",
@@ -461,16 +427,8 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		return s.ViewportFocusedStyle.Width(width).Height(height).Render(strings.Join(lines, "\n"))
 	}
 
-	// Models section was removed. Use /model in the chat tab to
-	// switch models; the active model is already shown in the
-	// header above (activeSummary) so we just drop straight into
-	// the Providers list here.
-	lines = append(lines, divider)
-
+	if activeSection == 0 {
 	// Providers section: provider name only, no status text.
-	lines = append(lines,
-		sectionTitle(0, "Providers"),
-	)
 	apiRowsLimit := clampRows(height/6, 3, 6)
 	keyStart, keyEnd := settingsWindow(keySel, len(keys), apiRowsLimit)
 	// Provider names are bold and bright white so they read as headings.
@@ -480,7 +438,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	}
 	for i := keyStart; i < keyEnd; i++ {
 		pk := keys[i]
-		isCursor := activeSection == 0 && inspect.Provider == "" && i == keySel
+		isCursor := inspect.Provider == "" && i == keySel
 		prefix := "  "
 		if isCursor {
 			prefix = "▸ "
@@ -499,7 +457,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	if keyEnd < len(keys) {
 		lines = append(lines, mutedStyle.Width(innerWidth).Render(fmt.Sprintf("  ↓ %d more providers", len(keys)-keyEnd)))
 	}
-	if activeSection == 0 && inspect.Provider != "" {
+	if inspect.Provider != "" {
 		// Inline detail panel for the selected provider.
 		baseURLValue := inspect.BaseURL
 		if baseURLValue == "" {
@@ -569,16 +527,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 			lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("    "+settingsTruncate(inspect.HelpURL, innerWidth)))
 		}
 	}
-	lines = append(lines, divider)
-
-	// Other Settings section, always visible. Pass the actual
-	// section index (1) so the title's chevron + highlight follow
-	// the user's `tab` keypress. (The previous code passed `2`
-	// which never matched `activeSection` and so the section
-	// looked permanently inactive.)
-	lines = append(lines,
-		sectionTitle(sectionIdx("Other Settings"), "Other Settings"),
-	)
+	} else {
 	thinkingStatus := "Off"
 	thinkingToggle := "[ ]"
 	if other.ShowThinking {
@@ -614,7 +563,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	}
 	for i, row := range otherRows {
 		prefix := "  "
-		isActive := activeSection == sectionIdx("Other Settings") && i == otherSel
+		isActive := i == otherSel
 		if isActive {
 			prefix = "▸ "
 		}
@@ -629,7 +578,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 			lines = append(lines, renderSettingsLine(rowStyle, rowText, innerWidth))
 		}
 	}
-	lines = append(lines, divider, dimStyle.Width(innerWidth).Render(settingsTruncate("Section: "+sectionName, innerWidth)))
+	}
 	content := strings.Join(lines, "\n")
 	return s.ViewportFocusedStyle.Width(width).Height(height).Render(content)
 }
@@ -640,18 +589,13 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 // three fields are stacked vertically with the active row highlighted
 // and a single text input bound to the active field sits at the bottom
 // so the user can edit without a separate pop-up.
-func renderSettingsWizardView(width, height int, s Styles, dimStyle, selectedStyle, activeStyle, titleStyle lipgloss.Style, innerWidth int, sectionTitle func(string) string, divider string, w SettingsWizardView, activeSummary, providerSummary string) string {
+func renderSettingsWizardView(width, height int, s Styles, dimStyle, selectedStyle, activeStyle, titleStyle lipgloss.Style, innerWidth int, divider string, w SettingsWizardView) string {
 	whiteStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	fieldLabelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 
 	lines := []string{
 		titleStyle.Width(innerWidth).Render("Settings"),
-		dimStyle.Width(innerWidth).Render(settingsTruncate(providerSummary+" · "+activeSummary, innerWidth)),
-		divider,
-		// The wizard is always opened from the Providers section; render
-		// it as the active section title (with the ▸ marker) without
-		// depending on the enclosing sectionTitle closure.
-		renderSettingsSelectLine(selectedStyle, "▸ Providers", innerWidth),
+		renderSettingsSectionTabs(0, innerWidth, s),
 	}
 
 	// Heading showing the provider being edited.
