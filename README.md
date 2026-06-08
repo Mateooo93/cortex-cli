@@ -27,16 +27,17 @@ A beautiful single-binary AI coding agent with a polished terminal UI and 20+ pr
 **Easiest (all platforms)** — npm or Bun downloads the native binary for your OS:
 
 ```bash
+npm uninstall -g cortex-cli   # remove CognitiveScale package if present
 npm install -g @mateooo93/cortex-cli
-cortex-agent
+cortex
 ```
 
 ```bash
 bun install -g @mateooo93/cortex-cli
-cortex-agent
+cortex
 ```
 
-> The unscoped npm package `cortex-cli` is a **different** product (CognitiveScale). Use `@mateooo93/cortex-cli` for this AI coding agent.
+> The unscoped npm package `cortex-cli` is a **different** product (CognitiveScale). Use `@mateooo93/cortex-cli` and uninstall the other one if `cortex --help` shows pipelines/missions.
 
 **Linux amd64** (see Install for other arches and package managers):
 
@@ -84,15 +85,16 @@ Pick one — they all install the same native binary.
 Requires [Node.js 18+](https://nodejs.org/). Downloads the correct release asset and verifies SHA-256.
 
 ```bash
+npm uninstall -g cortex-cli   # remove CognitiveScale package if present
 npm install -g @mateooo93/cortex-cli
-cortex-agent
+cortex
 ```
 
 ### Bun (macOS, Linux, Windows)
 
 ```bash
 bun install -g @mateooo93/cortex-cli
-cortex-agent
+cortex
 ```
 
 ### winget (Windows)
