@@ -53,8 +53,6 @@ github.com/atotto/clipboard
 ## explicit
 github.com/aymerick/douceur/css
 github.com/aymerick/douceur/parser
-# github.com/bmatcuk/doublestar/v4 v4.10.0
-## explicit; go 1.16
 # github.com/charmbracelet/colorprofile v0.4.2
 ## explicit; go 1.24.2
 github.com/charmbracelet/colorprofile
@@ -92,10 +90,6 @@ github.com/danieljoos/wincred
 ## explicit; go 1.13
 github.com/dlclark/regexp2
 github.com/dlclark/regexp2/syntax
-# github.com/dustin/go-humanize v1.0.1
-## explicit; go 1.16
-# github.com/goccy/go-json v0.10.5
-## explicit; go 1.19
 # github.com/godbus/dbus/v5 v5.1.0
 ## explicit; go 1.12
 github.com/godbus/dbus/v5
@@ -105,18 +99,12 @@ github.com/google/uuid
 # github.com/gorilla/css v1.0.1
 ## explicit; go 1.20
 github.com/gorilla/css/scanner
-# github.com/gridlhq-dev/tree-sitter-swift v0.1.0
-## explicit; go 1.20
-# github.com/hashicorp/golang-lru/v2 v2.0.7
-## explicit; go 1.18
 # github.com/lucasb-eyer/go-colorful v1.3.0
 ## explicit; go 1.12
 github.com/lucasb-eyer/go-colorful
 # github.com/mattn/go-isatty v0.0.20
 ## explicit; go 1.15
 github.com/mattn/go-isatty
-# github.com/mattn/go-pointer v0.0.1
-## explicit
 # github.com/mattn/go-runewidth v0.0.20
 ## explicit; go 1.20
 github.com/mattn/go-runewidth
@@ -127,17 +115,11 @@ github.com/microcosm-cc/bluemonday/css
 # github.com/muesli/cancelreader v0.2.2
 ## explicit; go 1.17
 github.com/muesli/cancelreader
-# github.com/ncruces/go-strftime v1.0.0
-## explicit; go 1.17
-# github.com/openai/openai-go v1.12.0
-## explicit; go 1.21
-# github.com/posthog/posthog-go v1.11.2
-## explicit; go 1.21
-# github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec
-## explicit; go 1.12
 # github.com/rivo/uniseg v0.4.7
 ## explicit; go 1.18
 github.com/rivo/uniseg
+# github.com/stretchr/testify v1.11.1
+## explicit; go 1.17
 # github.com/tidwall/gjson v1.18.0
 ## explicit; go 1.12
 github.com/tidwall/gjson
@@ -150,40 +132,6 @@ github.com/tidwall/pretty
 # github.com/tidwall/sjson v1.2.5
 ## explicit; go 1.14
 github.com/tidwall/sjson
-# github.com/tree-sitter-grammars/tree-sitter-kotlin v1.1.0
-## explicit; go 1.22
-# github.com/tree-sitter/go-tree-sitter v0.25.0
-## explicit; go 1.23
-# github.com/tree-sitter/tree-sitter-bash v0.25.1
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-c v0.24.1
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-c-sharp v0.23.1
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-cpp v0.23.4
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-css v0.25.0
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-go v0.25.0
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-html v0.23.2
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-java v0.23.5
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-javascript v0.25.0
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-json v0.24.8
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-php v0.24.2
-## explicit; go 1.23
-# github.com/tree-sitter/tree-sitter-python v0.25.0
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-ruby v0.23.1
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-rust v0.24.0
-## explicit; go 1.22
-# github.com/tree-sitter/tree-sitter-typescript v0.23.2
-## explicit; go 1.22.0
 # github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e
 ## explicit; go 1.19
 github.com/xo/terminfo
@@ -233,11 +181,3 @@ golang.org/x/text/unicode/norm
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
 gopkg.in/yaml.v3
-# modernc.org/libc v1.67.6
-## explicit; go 1.24.0
-# modernc.org/mathutil v1.7.1
-## explicit; go 1.21
-# modernc.org/memory v1.11.0
-## explicit; go 1.23.0
-# modernc.org/sqlite v1.46.1
-## explicit; go 1.24.0

@@ -1,11 +1,15 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/Mateooo93/cortex-cli/internal/updater"
 )
 
 // updateOverlayState captures the visual state of the
@@ -20,11 +24,8 @@ import (
 //   - A bold title that changes phase ("Updating cortex" →
 //     "All done!" → "Restarting…" → "Already up to date" /
 //     "Update failed")
-//   - A 4x4 braille matrix "loading" animation that morphs
-//     every tick
+//   - A centered braille spinner and a single progress bar under it
 //   - The current updater step ("Downloading v0.2.15…")
-//   - A 20-cell progress bar (▮▮▮▮▯▯▯▯…) that fills as
-//     the known updater steps complete
 //   - Elapsed time
 //   - A "step X/N" counter
 //
@@ -45,6 +46,13 @@ type updateOverlayState struct {
 	phase         string // "running", "done", "restarting", "up-to-date", "error"
 	resultMessage string
 	restartIn     int // 3..0; when 0 the overlay fires syscall.Exec
+	// restartPath is the exact filesystem path to the newly installed
+	// binary that the updater placed (from Result.NewPath). We prefer
+	// this over re-calling os.Executable() inside the old process for
+	// the re-exec, because it guarantees we start the fresh build the
+	// user just downloaded. Fixes cases where "update succeeds but
+	// restart still runs the old version".
+	restartPath string
 }
 
 // updateSteps lists the steps the updater reports, in order.
@@ -79,26 +87,6 @@ func mapUpdateStep(name string) int {
 	return -1
 }
 
-// spinnerFrames is the 8-frame braille spinner used inside
-// the overlay. We use the same set as the status bar so the
-// visual language is consistent.
-var updateSpinnerFrames = []string{"⣀", "⣤", "⣶", "⣿", "⣷", "⣦", "⣀", "⠉"}
-
-// loadMorphFrames is a 4x4 braille "loading" matrix that
-// morphs each frame to give the overlay a more dynamic
-// feel than a single spinner glyph. Each frame is 4
-// unicode-braille cells side-by-side.
-var loadMorphFrames = []string{
-	"⣀⣀⣀⣀",
-	"⣤⣀⣀⣀",
-	"⣶⣤⣀⣀",
-	"⣿⣶⣤⣀",
-	"⣷⣿⣶⣤",
-	"⣦⣷⣿⣶",
-	"⣀⣦⣷⣿",
-	"⠉⣀⣦⣷",
-}
-
 // renderUpdateOverlay renders the centered modal that
 // surfaces the /update flow. Returns "" if the overlay
 // is not active.
@@ -124,7 +112,7 @@ func (m *Model) renderUpdateOverlay() string {
 	switch m.updateOverlay.phase {
 	case "running":
 		titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#3B82F6"))
-		title = titleStyle.Render("⟳  Updating cortex")
+		title = titleStyle.Render("Updating cortex")
 	case "done":
 		titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#22C55E"))
 		title = titleStyle.Render("✓  All done!")
@@ -142,31 +130,21 @@ func (m *Model) renderUpdateOverlay() string {
 		title = titleStyle.Render("Updating cortex")
 	}
 
-	// --- Big animation ----------------------------------------------
-	// During running phase: animated 4x4 braille morph.
-	// During restarting: countdown with a circular feel.
-	// During done/error: a static large check or X.
+	// --- Pixel animation --------------------------------------------
+	frame := m.updateOverlay.frame
+	innerW := updateOverlayInnerWidth(boxW)
 	var anim string
-	bigAnim := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#3B82F6"))
 	switch m.updateOverlay.phase {
 	case "running":
-		frame := m.updateOverlay.frame % len(loadMorphFrames)
-		anim = bigAnim.Render(loadMorphFrames[frame])
+		anim = renderUpdateRunningAnim(frame, m.updateOverlay.stepIdx, m.updateOverlay.startedAt, innerW)
 	case "restarting":
-		// Show the countdown number styled large.
-		bigRestart := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F59E0B"))
-		anim = bigRestart.Render(fmt.Sprintf("  %d  ", m.updateOverlay.restartIn))
-	case "done":
-		bigDone := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#22C55E"))
-		anim = bigDone.Render("  ✓  ")
-	case "up-to-date":
-		bigDone := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#22C55E"))
-		anim = bigDone.Render("  ✓  ")
+		anim = renderUpdatePixelRestart(frame, m.updateOverlay.restartIn, innerW)
+	case "done", "up-to-date":
+		anim = renderUpdatePixelDone(frame, innerW)
 	case "error":
-		bigErr := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#EF4444"))
-		anim = bigErr.Render("  ✗  ")
+		anim = renderUpdatePixelError(frame, innerW)
 	default:
-		anim = bigAnim.Render(loadMorphFrames[0])
+		anim = renderUpdateRunningAnim(frame, m.updateOverlay.stepIdx, m.updateOverlay.startedAt, innerW)
 	}
 
 	// --- Step text + counter -----------------------------------------
@@ -175,34 +153,6 @@ func (m *Model) renderUpdateOverlay() string {
 	stepValue := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(m.updateOverlay.step)
 	stepLine := fmt.Sprintf("%s  %s", stepLabel, stepValue)
 	_ = stepText
-
-	// --- Progress bar (only during running) -------------------------
-	progressLine := ""
-	if m.updateOverlay.phase == "running" {
-		barW := boxW - 8
-		if barW < 12 {
-			barW = 12
-		}
-		// 4 known steps; current step is "in progress" — fill it half.
-		// We map stepIdx ∈ [-1, 0..3] to a 0..1 progress fraction.
-		frac := 0.0
-		if m.updateOverlay.stepIdx < 0 {
-			frac = 0.0
-		} else {
-			frac = float64(m.updateOverlay.stepIdx) / float64(len(updateSteps))
-			// 25% head start within the current step.
-			frac += 1.0 / float64(len(updateSteps)) * 0.5
-			if frac > 1.0 {
-				frac = 1.0
-			}
-		}
-		filled := int(float64(barW) * frac)
-		empty := barW - filled
-		filledStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3B82F6"))
-		emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
-		bar := filledStyle.Render(strings.Repeat("▮", filled)) + emptyStyle.Render(strings.Repeat("▯", empty))
-		progressLine = bar
-	}
 
 	// --- Elapsed -----------------------------------------------------
 	elapsed := time.Since(m.updateOverlay.startedAt).Truncate(time.Second)
@@ -216,7 +166,7 @@ func (m *Model) renderUpdateOverlay() string {
 	case "restarting":
 		footer = s.DimLabel.Italic(true).Render(fmt.Sprintf("Restarting in %d…", m.updateOverlay.restartIn))
 	case "done":
-		footer = s.DimLabel.Italic(true).Render("Re-executing the new binary in a moment…")
+		footer = s.Bold.Render("Press Enter to restart")
 	case "up-to-date":
 		footer = s.DimLabel.Italic(true).Render("Closing automatically…")
 	case "error":
@@ -243,12 +193,8 @@ func (m *Model) renderUpdateOverlay() string {
 		anim,
 		"",
 		stepLine,
+		"",
 	}
-	if progressLine != "" {
-		lines = append(lines, "")
-		lines = append(lines, progressLine)
-	}
-	lines = append(lines, "")
 	lines = append(lines, elapsedLine)
 	if resultLine != "" {
 		lines = append(lines, "")
@@ -265,4 +211,117 @@ func (m *Model) renderUpdateOverlay() string {
 		Render(strings.Join(lines, "\n"))
 
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// --- Self-update message types and handlers ---
+
+type selfUpdateProgressMsg struct{}
+
+type selfUpdateFinishedMsg struct {
+	result updater.Result
+}
+
+// Legacy restart-path messages; kept for test compatibility.
+type updateOverlayStartRestartMsg struct{}
+type updateOverlayTickMsg struct{}
+
+type updateOverlayExecMsg struct{}
+
+type updateOverlayDismissMsg struct{}
+
+func selfUpdateProgressTick() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg {
+		return selfUpdateProgressMsg{}
+	})
+}
+
+// runSelfUpdateCmd kicks off the self-update flow and opens the overlay modal.
+func (m *Model) runSelfUpdateCmd() tea.Cmd {
+	m.updateProgress.Store("Checking for updates\u2026")
+	m.updateOverlay = updateOverlayState{
+		active:    true,
+		step:      "Checking for updates\u2026",
+		stepIdx:   0,
+		frame:     0,
+		startedAt: time.Now(),
+		phase:     "running",
+	}
+	cmds := []tea.Cmd{
+		func() tea.Msg {
+			res := updater.RunWithProgress(context.Background(), func(step string) {
+				m.updateProgress.Store(step)
+			})
+			return selfUpdateFinishedMsg{result: res}
+		},
+		selfUpdateProgressTick(),
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m Model) handleSelfUpdateFinished(msg selfUpdateFinishedMsg) (Model, tea.Cmd) {
+	m.updateProgress.Store("")
+	m.statusMsg.Spinner = -1
+	switch msg.result.Kind {
+	case "up-to-date":
+		m.updateOverlay.phase = "up-to-date"
+		m.updateOverlay.resultMessage = fmt.Sprintf("You're already running %s.", msg.result.NewVersion)
+		return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+			return updateOverlayDismissMsg{}
+		})
+	case "updated":
+		m.updateOverlay.phase = "done"
+		m.updateOverlay.step = "Complete"
+		m.updateOverlay.resultMessage = msg.result.Message
+		m.updateOverlay.restartPath = msg.result.NewPath
+		return m, nil
+	default:
+		errMsg := "Update failed"
+		if msg.result.Error != nil {
+			errMsg = msg.result.Error.Error()
+		} else if msg.result.Message != "" {
+			errMsg = msg.result.Message
+		}
+		m.updateOverlay.phase = "error"
+		m.updateOverlay.resultMessage = errMsg
+		return m, nil
+	}
+}
+
+func (m Model) handleSelfUpdateProgress() (Model, tea.Cmd) {
+	m.updateProgressFrame++
+	if step, ok := m.updateProgress.Load().(string); ok && step != "" {
+		if m.updateOverlay.active {
+			m.updateOverlay.step = step
+			m.updateOverlay.frame++
+			if idx := mapUpdateStep(step); idx >= 0 {
+				m.updateOverlay.stepIdx = idx
+			}
+		} else {
+			m.statusMsg.Text = step
+			m.statusMsg.Kind = StatusMsgInfo
+			m.statusMsg.Spinner = m.updateProgressFrame % 8
+			m.statusMsg.gen++
+		}
+	} else if m.updateOverlay.active && m.updateOverlay.phase == "running" {
+		m.updateOverlay.frame++
+	}
+	if m.updateOverlay.active && m.updateOverlay.phase == "running" {
+		return m, selfUpdateProgressTick()
+	}
+	return m, nil
+}
+
+func (m Model) handleUpdateOverlayExec() (Model, tea.Cmd) {
+	if !m.updateOverlay.active {
+		return m, nil
+	}
+	m.updateOverlay.phase = "restarting"
+	return m, m.execSelfCmd()
+}
+
+func (m Model) handleUpdateOverlayDismiss() Model {
+	if m.updateOverlay.active && m.updateOverlay.phase == "up-to-date" {
+		m.updateOverlay.active = false
+	}
+	return m
 }

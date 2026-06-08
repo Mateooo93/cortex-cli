@@ -33,7 +33,7 @@ func chatMessagesToProviderHistory(messages []ChatMessage) []provider.Message {
 			// message for it here.
 		default:
 			// Drop MsgThinking, MsgError, MsgSystem, MsgPlan*,
-			// MsgWorkflow*, etc. These are UI-only and would
+			// plan markers, etc. These are UI-only and would
 			// confuse the model.
 		}
 	}

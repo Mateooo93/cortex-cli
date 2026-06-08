@@ -34,7 +34,7 @@ Your `bash`, `read_file`, `grep`, `glob_files`, and `lsp_query` tools exist spec
 
 # Output format
 
-After your review narrative, emit **exactly one** fenced JSON block as the final element of your response. The workflow engine parses this — any text after the JSON or a malformed block breaks the loop.
+After your review narrative, emit **exactly one** fenced JSON block as the final element of your response. The plan/review system parses this — any text after the JSON or a malformed block breaks the loop.
 
 ```json
 {

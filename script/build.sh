@@ -132,7 +132,7 @@ windows_arm64_log="$(mktemp)"
     go build -C "$ROOT_DIR" -trimpath \
       -tags 'netgo osusergo' \
       -ldflags="-s -w -X main.Version=${VERSION}" \
-      -o "$OUT_DIR/cortex-darwin-arm64" .
+      -o "$OUT_DIR/cortex-darwin-arm64" ./cmd/cortex
 ) >"$darwin_log" 2>&1 &
 darwin_pid=$!
 
@@ -145,7 +145,7 @@ darwin_pid=$!
     go build -C "$ROOT_DIR" -trimpath \
       -tags 'netgo osusergo' \
       -ldflags="-s -w -X main.Version=${VERSION}" \
-      -o "$OUT_DIR/cortex-windows-amd64.exe" .
+      -o "$OUT_DIR/cortex-windows-amd64.exe" ./cmd/cortex
 ) >"$windows_amd64_log" 2>&1 &
 windows_amd64_pid=$!
 (
@@ -153,7 +153,7 @@ windows_amd64_pid=$!
     go build -C "$ROOT_DIR" -trimpath \
       -tags 'netgo osusergo' \
       -ldflags="-s -w -X main.Version=${VERSION}" \
-      -o "$OUT_DIR/cortex-windows-arm64.exe" .
+      -o "$OUT_DIR/cortex-windows-arm64.exe" ./cmd/cortex
 ) >"$windows_arm64_log" 2>&1 &
 windows_arm64_pid=$!
 
@@ -166,7 +166,7 @@ build_linux_native() {
     go build -C "$ROOT_DIR" -trimpath \
       -tags 'netgo osusergo' \
       -ldflags="-s -w -X main.Version=${VERSION}" \
-      -o "$OUT_DIR/cortex-${label}" . \
+      -o "$OUT_DIR/cortex-${label}" ./cmd/cortex \
     >"$logfile" 2>&1
 }
 

@@ -285,13 +285,21 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		return Result{Kind: "error", Error: fmt.Errorf("updater: resolve symlinks: %w", err), NewVersion: rel.TagName}
 	}
 
-	// 5. Download to a temp file in the same directory so the
-	// final rename is on the same filesystem (atomic on POSIX).
-	dir := filepath.Dir(currentExe)
-	tmpPath := filepath.Join(dir, assetName+".new")
-	if err := os.RemoveAll(tmpPath); err != nil {
+	// 5. Plan where to install. If the running binary's directory
+	// isn't writable (system-wide install, read-only mount, etc.)
+	// we fall back to ~/.local/bin on the install step.
+	plan, err := planInstall(currentExe)
+	if err != nil {
 		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
 	}
+
+	// Download to the system temp dir so we never need write access
+	// beside the running binary just to fetch the release asset.
+	tmpPath, cleanupTemp, err := createDownloadTemp(assetName)
+	if err != nil {
+		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
+	}
+	defer cleanupTemp()
 	if progress != nil {
 		progress(fmt.Sprintf("Downloading %s…", rel.TagName))
 	}
@@ -334,65 +342,45 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		return Result{Kind: "error", Error: fmt.Errorf("updater: hash mismatch: downloaded %s, expected %s", downloadedHash[:12]+"...", expectedHash[:12]+"..."), NewVersion: rel.TagName, AssetName: assetName}
 	}
 
-	// 7. Make the downloaded file executable on POSIX.
+	// 7. Install the verified binary.
 	if progress != nil {
 		progress("Installing new binary…")
 	}
-	if runtime.GOOS != "windows" {
-		if err := os.Chmod(tmpPath, 0o755); err != nil {
-			_ = os.RemoveAll(tmpPath)
-			return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
+
+	// On Windows you can't rename a running executable in place.
+	// Fall back to the helper-process flow when we're replacing
+	// the running binary directly.
+	if runtime.GOOS == "windows" && plan.inPlace && plan.targetPath == currentExe {
+		if winErr := installOnWindows(tmpPath, currentExe); winErr != nil {
+			return Result{Kind: "error", Error: winErr, NewVersion: rel.TagName, AssetName: assetName}
+		}
+		return Result{
+			Kind:       "updated",
+			OldVersion: currentVersion,
+			NewVersion: latestVersion,
+			AssetName:  assetName,
+			OldPath:    currentExe,
+			NewPath:    currentExe,
+			Message:    installMessage(rel.TagName, plan),
 		}
 	}
 
-	// 8. Install: rename the old binary to <name>.old, then
-	// rename the new one into place.
-	oldPath := currentExe + ".old"
-	_ = os.RemoveAll(oldPath) // ignore error: may not exist
-	if err := os.Rename(currentExe, oldPath); err != nil {
-		_ = os.RemoveAll(tmpPath)
-		// Friendly error: if the rename failed because
-		// the install directory isn't writable (e.g.
-		// /usr/local/bin/ on a system-wide install
-		// without root), tell the user how to fix it.
-		// The user reported "open
-		// /usr/local/bin/cortex-linux-arm64.new:
-		// permission denied" — the underlying
-		// os.Rename fails with EACCES on Linux when
-		// the source file is in a root-owned
-		// directory, and our error message was
-		// unhelpful. Wrap the original error with
-		// a hint.
-		if os.IsPermission(err) || strings.Contains(err.Error(), "permission") {
+	finalPlan, err := applyInstall(tmpPath, plan)
+	if err != nil {
+		if isPermissionErr(err) {
 			return Result{
-				Kind:    "error",
-				Error:  fmt.Errorf("updater: cannot replace %s (permission denied). cortex was installed system-wide; run `sudo -i` and use a user-writable install dir, or reinstall via `./install.sh` into ~/.local/bin (which is in your PATH). Original error: %w", currentExe, err),
-				NewVersion:  rel.TagName,
-				AssetName: assetName,
-			}
-		}
-		// On Windows, you can't rename a running executable. Fall
-		// back to the helper-process flow.
-		if runtime.GOOS == "windows" {
-			if winErr := installOnWindows(tmpPath, currentExe); winErr != nil {
-				return Result{Kind: "error", Error: winErr, NewVersion: rel.TagName, AssetName: assetName}
-			}
-			return Result{
-				Kind:       "updated",
-				OldVersion: currentVersion,
-				NewVersion: latestVersion,
+				Kind:       "error",
+				Error:      fmt.Errorf("updater: cannot install update (%w). Try moving cortex to ~/.local/bin or ensure that directory is in your PATH", err),
+				NewVersion: rel.TagName,
 				AssetName:  assetName,
-				OldPath:    currentExe,
-				NewPath:    currentExe,
-				Message:    fmt.Sprintf("Updated to %s. Restart cortex-cli to use the new version.", rel.TagName),
 			}
 		}
 		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
 	}
-	if err := os.Rename(tmpPath, currentExe); err != nil {
-		// Try to roll back: put the old binary back.
-		_ = os.Rename(oldPath, currentExe)
-		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
+
+	oldPath := ""
+	if finalPlan.inPlace {
+		oldPath = finalPlan.targetPath + ".old"
 	}
 
 	return Result{
@@ -401,8 +389,8 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		NewVersion: latestVersion,
 		AssetName:  assetName,
 		OldPath:    oldPath,
-		NewPath:    currentExe,
-		Message:    fmt.Sprintf("Updated to %s. Restart cortex-cli to use the new version.", rel.TagName),
+		NewPath:    finalPlan.targetPath,
+		Message:    installMessage(rel.TagName, finalPlan),
 	}
 }
 
@@ -436,21 +424,6 @@ func installOnWindows(tmpPath, currentExe string) error {
 	// Don't Wait — the helper does its work after we exit.
 	go func() { _ = cmd.Wait() }()
 	return nil
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
 }
 
 // ErrUnsupportedArch is returned by AssetName when there's no

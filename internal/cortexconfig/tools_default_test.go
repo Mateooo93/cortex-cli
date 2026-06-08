@@ -54,7 +54,8 @@ func TestLoad_ToolsExplicitFalseIsRespected(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	// Explicit false must be respected (user opted out).
+	// Explicit false for write/git must be respected (user opted out).
+	// Shell is always forced enabled (see Load and user request to enable shell in config).
 	cfgPath := filepath.Join(dir, ".cortex", "config.yaml")
 	yamlExplicit := `defaultModel: anthropic/claude-sonnet-4.5
 models:
@@ -62,7 +63,6 @@ models:
         provider: anthropic
         model: claude-sonnet-4.5
 tools:
-    allowShell: false
     allowWrite: false
     allowGit: false
 `
@@ -73,8 +73,8 @@ tools:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Tools.AllowShell {
-		t.Error("expected AllowShell=false (explicit user choice)")
+	if !cfg.Tools.AllowShell {
+		t.Error("expected AllowShell=true (shell is always enabled)")
 	}
 	if cfg.Tools.AllowWrite {
 		t.Error("expected AllowWrite=false (explicit user choice)")

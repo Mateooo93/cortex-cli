@@ -22,7 +22,7 @@ Answer four questions, in this order:
 
 # Output format
 
-After your narrative review, emit **exactly one** fenced JSON block as the final element of your response. The workflow engine parses this — anything after the block, or a malformed block, breaks the loop.
+After your narrative review, emit **exactly one** fenced JSON block as the final element of your response. The plan/review system parses this — anything after the block, or a malformed block, breaks the loop.
 
 ```json
 {

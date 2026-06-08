@@ -51,7 +51,7 @@ run-x: build-x
 	./bin/cortex --pprof-port 6061 2>/tmp/cortex-debug.log
 
 build-x:
-	go build -o bin/cortex .
+	go build -o bin/cortex ./cmd/cortex
 
 # Local dev build — current platform only, fast
 build: build-x

@@ -1,9 +1,9 @@
 name: Release
 
-# Auto-release on merge to main.
+# Auto-release on merge to main (only when CLI code changes).
 # Version is derived from the merged PR's "fixes #N" / "closes #N" reference.
 # Triggers:
-#   - push to main
+#   - push to main (filtered to CLI source: *.go, go.mod, Makefile, scripts, etc.)
 #   - manual dispatch (with optional version override)
 #
 # Requires these repo secrets:
@@ -13,6 +13,17 @@ name: Release
 on:
   push:
     branches: [main]
+    # Only rebuild on changes that actually affect the CLI binary.
+    # This avoids unnecessary releases when only docs, README, assets,
+    # or other non-code files are touched.
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'script/**'
+      - '.github/workflows/release.yml'
+      - 'packaging/**'
   workflow_dispatch:
     inputs:
       version:

@@ -7,10 +7,8 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	"github.com/Mateooo93/cortex-cli/internal/config"
-	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 	"github.com/Mateooo93/cortex-cli/internal/daemon"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
-	"github.com/Mateooo93/cortex-cli/internal/workflow"
 )
 
 // RecentToolStatus is the lifecycle state of a
@@ -112,6 +110,7 @@ type SessionState struct {
 	// Accumulated chat display — built from daemon events
 	chatMessages     []ChatMessage
 	chatScrollOffset int
+	chatSel          chatSelection
 
 	// Live streaming buffers
 	assistantBuf      string
@@ -139,12 +138,10 @@ type SessionState struct {
 	// tall; more would overflow).
 	RecentTools []RecentToolEntry
 
-	// Agent / workflow state
-	agentState     AppState
-	activeWorkflow string
-	workflows      []protocol.WorkflowInfo
-	activePlan     *protocol.Plan
-	todos          []protocol.TodoItem
+	// Agent state
+	agentState AppState
+	activePlan *protocol.Plan
+	todos      []protocol.TodoItem
 
 	// Effort level: "low", "medium", "high", "ultracode"
 	effortLevel string
@@ -174,11 +171,10 @@ type SessionState struct {
 	// rightPanel is visible by default in info mode so the
 	// user can see model / context / keybinds from the first
 	// paint. Ctrl+B toggles it.
-	rightPanel         RightPanel
-	workflowGraphPanel WorkflowGraphPanel
-	questionPanel      QuestionPanel
-	attachmentPanel    AttachmentPanel
-	historyPanel       HistoryPanel
+	rightPanel      RightPanel
+	questionPanel   QuestionPanel
+	attachmentPanel AttachmentPanel
+	historyPanel    HistoryPanel
 
 	// Input area
 	input         textarea.Model
@@ -217,10 +213,6 @@ type SessionState struct {
 	// sorting + display in the Sessions tab.
 	createdAt time.Time
 
-	// workflowEngine is per-session so workflows started in
-	// one session don't bleed into another. When the user
-	// switches tabs, this engine is replaced.
-	workflowEngine *workflow.Engine
 	// turnElapsed accumulates the time the agent has actually
 	// spent thinking/streaming for the current turn. We use this
 	// for the "⏱  2:13" indicator in the slim footer + right
@@ -332,14 +324,3 @@ func (s *SessionState) FinishTurn() time.Duration {
 	return d
 }
 
-// EnsureWorkflowEngine returns a per-session workflow engine.
-// First call creates the engine bound to the user's config; later
-// calls return the same instance. We make the engine per-session
-// because each session is a separate conversation context and the
-// user expects workflow state to reset when they start a new chat.
-func (s *SessionState) EnsureWorkflowEngine(cfg *cortexconfig.Config) *workflow.Engine {
-	if s.workflowEngine == nil {
-		s.workflowEngine = workflow.NewEngine(cfg)
-	}
-	return s.workflowEngine
-}

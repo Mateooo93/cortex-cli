@@ -11,7 +11,7 @@ import (
 // activityStripSpinnerFrames is the 4-frame spinner
 // used for the currently-running tool in the bottom
 // activity strip. We cycle these every 1Hz tick (the
-// same workflowTickMsg that drives the workflow view
+// (stale comment cleaned; workflow tick removed)
 // re-renders the strip; when no tick is active, the
 // strip is only re-rendered on tool events, which is
 // fine because the user already knows the tool is
@@ -182,7 +182,7 @@ func truncateForStrip(s string, max int) string {
 // ...and the user asked us to remove them.
 var orchestrationTools = map[string]bool{
 	"ask_user_question": true,
-	"dispatch_workflow": true,
+
 	"todo_write":        true,
 }
 

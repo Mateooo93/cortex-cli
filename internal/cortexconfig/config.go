@@ -602,14 +602,11 @@ func Load() (*Config, error) {
 	if !hasField("autoCompact") {
 		cfg.AutoCompact = true
 	}
-	// Tool permissions default to true. If the user has
-	// explicitly disabled one we keep their choice; if the
-	// field is missing entirely we re-apply the default so an
-	// upgrade from a pre-tools config doesn't silently turn
-	// the agent's hands behind its back.
-	if !hasField("allowShell") {
-		cfg.Tools.AllowShell = true
-	}
+	// Shell is always forced enabled ("enable shell in config just in case
+	// the model wants to use it"). Write/git respect explicit false (via
+	// hasField check on raw YAML after unmarshal, which otherwise leaves
+	// bools false).
+	cfg.Tools.AllowShell = true
 	if !hasField("allowWrite") {
 		cfg.Tools.AllowWrite = true
 	}

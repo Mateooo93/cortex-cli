@@ -55,7 +55,7 @@ go test ./...
 4. (Optional) Build the local `cortex` binary:
 
 ```bash
-go build -o bin/cortex .
+go build -o bin/cortex ./cmd/cortex
 ./bin/cortex chat
 ```
 

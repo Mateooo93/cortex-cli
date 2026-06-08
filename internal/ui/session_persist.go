@@ -178,8 +178,8 @@ type persistedChatMessage struct {
 	// Rendered is the pre-styled ANSI string for this message.
 	// We persist it (rather than regenerating on load) because
 	// not every ChatMessageType has a re-render path: system
-	// success/retry messages, plan messages, workflow messages,
-	// and error messages do not roundtrip through rerender().
+	// success/retry messages, plan messages, and error messages do not
+	// roundtrip through rerender().
 	//
 	// The trade-off is that on load, the text is locked to the
 	// terminal width it was captured at. That is acceptable
@@ -280,8 +280,8 @@ func deleteSavedChat(id string) {
 // model-only sessions, etc.) should NOT be saved — the
 // user reported they bloat the Sessions tab.
 //
-// We count user/assistant/tool/workflow content, but
-// ignore pure system/error/noise and empty thinking.
+// We count user/assistant/tool content, but ignore pure
+// system/error/noise and empty thinking.
 // In-flight assistant/thinking buffers only count if
 // they contain non-whitespace text.
 func sessionHasPersistableContent(sess *SessionState) bool {
@@ -294,8 +294,7 @@ func sessionHasPersistableContent(sess *SessionState) bool {
 		}
 		switch msg.Type {
 		case MsgUser, MsgAssistant, MsgToolCall, MsgToolResult,
-			MsgPlanProposal, MsgPlanTaskStart, MsgPlanTaskDone, MsgPlanSummary,
-			MsgWorkflowStart, MsgWorkflowStepStart, MsgWorkflowStepDone, MsgWorkflowComplete:
+			MsgPlanProposal, MsgPlanTaskStart, MsgPlanTaskDone, MsgPlanSummary:
 			return true
 		case MsgThinking:
 			// Thinking alone should not keep an empty
@@ -534,10 +533,6 @@ func (m *Model) restoreSavedSessions(saved []SavedSession, current *SessionState
 		sess.modelName = s.Model
 		sess.createdAt = s.CreatedAt
 		sess.parentID = s.ParentID
-		// Restored sessions start with an empty workflow
-		// engine — workflows are not persisted (they're
-		// in-memory only).
-		sess.EnsureWorkflowEngine(m.cortexCfg)
 		sess.forkTurnIdx = s.ForkTurnIdx
 		sess.reconnecting = true
 
@@ -548,7 +543,7 @@ func (m *Model) restoreSavedSessions(saved []SavedSession, current *SessionState
 		// restart without any re-render pass. We previously
 		// tried to skip persisting Rendered and re-generate
 		// it on load, but several message types (system
-		// success/retry, plan, workflow, error) did not have
+		// success/retry, plan, error) did not have
 		// a re-render path, which left the chat panel empty
 		// after a restart — the original bug.
 		//
