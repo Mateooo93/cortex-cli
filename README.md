@@ -13,10 +13,32 @@
   <a href="https://github.com/Mateooo93/cortex-cli/releases/latest"><img src="https://img.shields.io/github/v/release/Mateooo93/cortex-cli?style=flat-square" alt="Release" /></a>
 </p>
 
-```bash
-npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com
-cortex
-```
+<br>
+
+<p align="center">
+  <strong>Get started in seconds</strong>
+</p>
+
+<p align="center">
+  <a href="#installation">
+    <img src="https://img.shields.io/badge/Install%20with-npm-CB3837?style=for-the-badge&logo=npm&logoColor=white" alt="Install with npm" />
+  </a>
+</p>
+
+<table align="center">
+  <tr>
+    <td align="center" bgcolor="#0B1020">
+      <pre><code>npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com
+cortex</code></pre>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <sub>macOS · Linux · Windows · <a href="#installation">curl &amp; manual installs</a></sub>
+</p>
+
+<br>
 
 <p align="center">
   <a href="https://github.com/Mateooo93/cortex-cli">
