@@ -21,8 +21,8 @@ func TestRenderInfoView_ProcessHoverStrikethrough(t *testing.T) {
 		}},
 		HoverProcessID: "proc-1",
 	}
-	lines, idx := rp.renderInfoView(panelWidth-4, info, s)
-	raw := strings.Join(lines, "\n")
+	sections, idx := rp.renderInfoView(panelWidth-4, info, s)
+	raw := strings.Join(joinInfoSections(sections), "\n")
 	plain := stripANSI(raw)
 	if idx["proc-1"] < 0 {
 		t.Fatalf("expected process line index, got %v", idx)

@@ -18,12 +18,12 @@ import (
 type rightPanelMode int
 
 const (
-	rpModeModel    rightPanelMode = iota // model selection list
-	rpModeKeys                            // stored API key manager
-	rpModeKeyInput                        // inline key entry form
-	rpModeCodexSignIn                     // ChatGPT OAuth sign-in prompt
-	rpModeTodos                           // pending todo list
-	rpModeInfo                            // session info: model, ctx %, elapsed, keybinds
+	rpModeModel       rightPanelMode = iota // model selection list
+	rpModeKeys                              // stored API key manager
+	rpModeKeyInput                          // inline key entry form
+	rpModeCodexSignIn                       // ChatGPT OAuth sign-in prompt
+	rpModeTodos                             // pending todo list
+	rpModeInfo                              // session info: model, ctx %, elapsed, keybinds
 )
 
 // RightPanelAction is the action returned by HandleKey.
@@ -31,13 +31,13 @@ type RightPanelAction int
 
 const (
 	rpActionNone          RightPanelAction = iota
-	rpActionClose                           // close the panel
-	rpActionModelSelected                   // payload = model API name
-	rpActionKeyDeleted                      // payload = provider name
-	rpActionKeyStored                       // payload = "provider:key"
-	rpActionNeedKey                         // payload = "provider:pendingModel"
-	rpActionCodexSignIn                     // payload = "pendingModel"
-	rpActionCodexSignOut                    // payload = "" (just the provider)
+	rpActionClose                          // close the panel
+	rpActionModelSelected                  // payload = model API name
+	rpActionKeyDeleted                     // payload = provider name
+	rpActionKeyStored                      // payload = "provider:key"
+	rpActionNeedKey                        // payload = "provider:pendingModel"
+	rpActionCodexSignIn                    // payload = "pendingModel"
+	rpActionCodexSignOut                   // payload = "" (just the provider)
 )
 
 // RightPanel is a full-height sidebar on the right side of the screen that
@@ -121,10 +121,15 @@ func (rp *RightPanel) IsVisible() bool { return rp.visible }
 func (rp *RightPanel) Close() { rp.visible = false }
 
 // Toggle flips the panel between hidden and visible. Bound to
-// Ctrl+B from the chat tab.
-func (rp *RightPanel) Toggle() {
+// Ctrl+B from the chat tab. When reopening, show the dedicated
+// todo list if there are pending items.
+func (rp *RightPanel) Toggle(pendingTodos bool) {
 	if rp.visible {
 		rp.Close()
+		return
+	}
+	if pendingTodos {
+		rp.OpenTodos(rp.height)
 		return
 	}
 	rp.OpenInfo(rp.height)
@@ -437,7 +442,14 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 		title := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Width(innerWidth).Render("Todos")
 		sep := lipgloss.NewStyle().Foreground(colorDim).Width(innerWidth).Render(strings.Repeat("─", innerWidth))
 		lines = append(lines, title, sep)
-		for _, t := range todos {
+		rp.ClampSectionScrolls(0, 0, len(todos))
+		visible := windowedSlice(todos, rp.todoScroll, rpMaxVisibleTodos)
+		hiddenAbove := rp.todoScroll
+		hiddenBelow := len(todos) - rp.todoScroll - len(visible)
+		if hint := scrollHintLine(hiddenAbove, hiddenBelow, innerWidth); hint != "" {
+			lines = append(lines, hint)
+		}
+		for _, t := range visible {
 			lines = append(lines, renderTodoOrStepLine(t.Content, string(t.Status), innerWidth))
 		}
 
@@ -446,14 +458,14 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 		// dashboard of: active model, context window
 		// usage, elapsed time, and a quick keybind
 		// legend pinned to the bottom. Read-only.
-		infoLines, procIdx := rp.renderInfoView(innerWidth, info, s)
+		sections, procIdx := rp.renderInfoView(innerWidth, info, s)
 		keyLines := renderInfoKeybindLines(innerWidth)
 		rp.processLineIdx = procIdx
 		innerHeight := height - 2
 		if innerHeight < 1 {
 			innerHeight = 1
 		}
-		lines = appendFooterPinned(infoLines, keyLines, innerHeight, 4)
+		lines = appendFooterPinnedInfo(sections, keyLines, innerHeight, 4)
 	}
 
 	// Pad to fill height (subtract 2 for border top+bottom).
@@ -592,7 +604,15 @@ func scrollHintLine(hiddenAbove, hiddenBelow int, innerWidth int) string {
 	return lipgloss.NewStyle().Foreground(colorDim).Italic(true).Width(innerWidth).Render(strings.Join(parts, "  "))
 }
 
-func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s Styles) ([]string, map[string]int) {
+// infoPanelSections splits the info panel into parts that can be
+// trimmed independently. Todos are kept visible when space is tight.
+type infoPanelSections struct {
+	head       []string
+	todos      []string
+	expandable []string
+}
+
+func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s Styles) (infoPanelSections, map[string]int) {
 	rp.sectionLineRange = nil
 	rp.ClampSectionScrolls(len(info.Subagents), len(info.Processes), len(info.Todos))
 
@@ -604,29 +624,29 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	okStyle := lipgloss.NewStyle().Foreground(colorSuccess)
 
-	lines := []string{}
+	head := []string{}
 	title := " Status "
 	sep := strings.Repeat("─", innerWidth)
-	lines = append(lines,
+	head = append(head,
 		primaryStyle.Width(innerWidth).Render(title),
 		dimStyle.Width(innerWidth).Render(sep),
 	)
 
 	// ── Active model block ───────────────────────────────────────
-	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Model"))
+	head = append(head, whiteStyle.Bold(true).Width(innerWidth).Render("Model"))
 	if info.ModelName != "" {
-		lines = append(lines, dimStyle.Width(innerWidth).Render(truncateRight(info.ModelName, innerWidth)))
+		head = append(head, dimStyle.Width(innerWidth).Render(truncateRight(info.ModelName, innerWidth)))
 	} else {
-		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("(none)"))
+		head = append(head, dimStyle.Italic(true).Width(innerWidth).Render("(none)"))
 	}
 	if info.ProviderName != "" {
-		lines = append(lines, dimStyle.Width(innerWidth).Render(truncateRight("via "+info.ProviderName, innerWidth)))
+		head = append(head, dimStyle.Width(innerWidth).Render(truncateRight("via "+info.ProviderName, innerWidth)))
 	}
 
-	lines = append(lines, "")
+	head = append(head, "")
 
 	// ── Context usage block ──────────────────────────────────────
-	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Context"))
+	head = append(head, whiteStyle.Bold(true).Width(innerWidth).Render("Context"))
 	// used = input tokens + cache-read tokens (cache counts
 	// toward the model's context window).
 	used := info.InputTokens
@@ -669,16 +689,16 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 	case pct >= 80:
 		barColorStyle = warnStyle
 	}
-	lines = append(lines, barColorStyle.Width(innerWidth).Render(bar))
+	head = append(head, barColorStyle.Width(innerWidth).Render(bar))
 	if maxCtx > 0 {
-		lines = append(lines, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
+		head = append(head, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
 			"%s / %s (%s)",
 			formatTokenCountShort(used),
 			formatTokenCountShort(maxCtx),
 			pctLabel,
 		)))
 	} else {
-		lines = append(lines, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
+		head = append(head, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
 			"%s tokens (window unknown)",
 			formatTokenCountShort(used),
 		)))
@@ -687,66 +707,86 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 		// Pre-emptively warn the user that auto-compact will
 		// fire on the next turn unless they turn it off in
 		// Settings → Other Settings → Auto-compact context.
-		lines = append(lines, warnStyle.Italic(true).Width(innerWidth).Render("⚠ auto-compact will run on next turn"))
+		head = append(head, warnStyle.Italic(true).Width(innerWidth).Render("⚠ auto-compact will run on next turn"))
 	}
 
-	lines = append(lines, "")
+	head = append(head, "")
 
 	// ── Session stats block ──────────────────────────────────────
-	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Session"))
-	lines = append(lines, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
+	head = append(head, whiteStyle.Bold(true).Width(innerWidth).Render("Session"))
+	head = append(head, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
 		"⏱  %s", formatDurationShort(info.Elapsed),
 	)))
 	if info.SessionCount > 0 {
-		lines = append(lines, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
+		head = append(head, dimStyle.Width(innerWidth).Render(fmt.Sprintf(
 			"%d session%s", info.SessionCount, plural(info.SessionCount),
 		)))
 	}
 	if info.QueuedMsgs > 0 {
-		lines = append(lines, warnStyle.Width(innerWidth).Render(fmt.Sprintf(
+		head = append(head, warnStyle.Width(innerWidth).Render(fmt.Sprintf(
 			"%d queued", info.QueuedMsgs,
 		)))
 	}
 
+	var todoLines []string
+	// ── Todos (only when the AI has emitted a todo list) ──
+	if len(info.Todos) > 0 {
+		todoLines = append(todoLines, "")
+		sectionStart := len(head) + len(todoLines) - 1
+		todoLines = append(todoLines, whiteStyle.Bold(true).Width(innerWidth).Render("Todos"))
+		visible := windowedSlice(info.Todos, rp.todoScroll, rpMaxVisibleTodos)
+		hiddenAbove := rp.todoScroll
+		hiddenBelow := len(info.Todos) - rp.todoScroll - len(visible)
+		if hint := scrollHintLine(hiddenAbove, hiddenBelow, innerWidth); hint != "" {
+			todoLines = append(todoLines, hint)
+		}
+		for _, t := range visible {
+			todoLines = append(todoLines, renderTodoOrStepLine(t.Content, string(t.Status), innerWidth))
+		}
+		rp.setSectionBounds(rpSectionTodos, sectionStart, len(todoLines)-(sectionStart-len(head)))
+	}
+
+	var expandable []string
+	expandableBase := len(head) + len(todoLines)
 	// ── Local sub-agents (spawn_agent background workers) ──
 	if len(info.Subagents) > 0 {
-		lines = append(lines, "")
-		sectionStart := len(lines)
-		lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Subagents"))
+		expandable = append(expandable, "")
+		sectionStart := expandableBase + len(expandable) - 1
+		expandable = append(expandable, whiteStyle.Bold(true).Width(innerWidth).Render("Subagents"))
 		visible := windowedSlice(info.Subagents, rp.subagentScroll, rpMaxVisibleSubagents)
 		hiddenAbove := rp.subagentScroll
 		hiddenBelow := len(info.Subagents) - rp.subagentScroll - len(visible)
 		if hint := scrollHintLine(hiddenAbove, hiddenBelow, innerWidth); hint != "" {
-			lines = append(lines, hint)
+			expandable = append(expandable, hint)
 		}
 		for _, a := range visible {
 			task := truncateRight(a.Task, innerWidth-10)
 			switch a.Status {
 			case protocol.LocalSubagentRunning:
 				line := fmt.Sprintf("▶ %s  %s", a.Role, task)
-				lines = append(lines, lipgloss.NewStyle().Foreground(colorSecondary).Width(innerWidth).Render(truncateRight(line, innerWidth)))
+				expandable = append(expandable, lipgloss.NewStyle().Foreground(colorSecondary).Width(innerWidth).Render(truncateRight(line, innerWidth)))
 			case protocol.LocalSubagentDone:
 				line := fmt.Sprintf("✓ %s  done", a.Role)
-				lines = append(lines, lipgloss.NewStyle().Foreground(colorSuccess).Width(innerWidth).Render(truncateRight(line, innerWidth)))
+				expandable = append(expandable, lipgloss.NewStyle().Foreground(colorSuccess).Width(innerWidth).Render(truncateRight(line, innerWidth)))
 			default:
 				line := fmt.Sprintf("✗ %s  failed", a.Role)
-				lines = append(lines, lipgloss.NewStyle().Foreground(colorError).Width(innerWidth).Render(truncateRight(line, innerWidth)))
+				expandable = append(expandable, lipgloss.NewStyle().Foreground(colorError).Width(innerWidth).Render(truncateRight(line, innerWidth)))
 			}
 		}
-		rp.setSectionBounds(rpSectionSubagents, sectionStart, len(lines)-sectionStart)
+		rp.setSectionBounds(rpSectionSubagents, sectionStart, len(expandable)-(sectionStart-expandableBase))
 	}
 
 	// ── Background processes (dev servers, detached shells) ──
 	if len(info.Processes) > 0 {
-		lines = append(lines, "")
-		sectionStart := len(lines)
-		lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Processes"))
-		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("click running row to stop"))
+		expandable = append(expandable, "")
+		sectionStart := expandableBase + len(expandable) - 1
+		expandable = append(expandable, whiteStyle.Bold(true).Width(innerWidth).Render("Processes"))
+		expandable = append(expandable, dimStyle.Italic(true).Width(innerWidth).Render("click running row to stop"))
 		visible := windowedSlice(info.Processes, rp.processScroll, rpMaxVisibleProcesses)
 		hiddenAbove := rp.processScroll
 		hiddenBelow := len(info.Processes) - rp.processScroll - len(visible)
 		if hint := scrollHintLine(hiddenAbove, hiddenBelow, innerWidth); hint != "" {
-			lines = append(lines, hint)
+			expandable = append(expandable, hint)
 		}
 		for _, p := range visible {
 			if !p.Running {
@@ -755,34 +795,17 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 			cmd := truncateRight(p.Command, innerWidth-8)
 			elapsed := time.Since(time.Unix(p.StartedAt, 0)).Truncate(time.Second)
 			line := fmt.Sprintf("● pid %d  %s  %s", p.PID, cmd, formatDurationShort(elapsed))
-			processLineIdx[p.ID] = len(lines)
+			processLineIdx[p.ID] = expandableBase + len(expandable)
 			rowStyle := warnStyle
 			if p.ID == info.HoverProcessID {
 				rowStyle = warnStyle.Strikethrough(true).Background(lipgloss.Color("#3A2A2A"))
 			}
-			lines = append(lines, rowStyle.Width(innerWidth).Render(truncateRight(line, innerWidth)))
+			expandable = append(expandable, rowStyle.Width(innerWidth).Render(truncateRight(line, innerWidth)))
 		}
-		rp.setSectionBounds(rpSectionProcesses, sectionStart, len(lines)-sectionStart)
+		rp.setSectionBounds(rpSectionProcesses, sectionStart, len(expandable)-(sectionStart-expandableBase))
 	}
 
-	// ── Todos (only when the AI has emitted a todo list) ──
-	if len(info.Todos) > 0 {
-		lines = append(lines, "")
-		sectionStart := len(lines)
-		lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Todos"))
-		visible := windowedSlice(info.Todos, rp.todoScroll, rpMaxVisibleTodos)
-		hiddenAbove := rp.todoScroll
-		hiddenBelow := len(info.Todos) - rp.todoScroll - len(visible)
-		if hint := scrollHintLine(hiddenAbove, hiddenBelow, innerWidth); hint != "" {
-			lines = append(lines, hint)
-		}
-		for _, t := range visible {
-			lines = append(lines, renderTodoOrStepLine(t.Content, string(t.Status), innerWidth))
-		}
-		rp.setSectionBounds(rpSectionTodos, sectionStart, len(lines)-sectionStart)
-	}
-
-	return lines, processLineIdx
+	return infoPanelSections{head: head, todos: todoLines, expandable: expandable}, processLineIdx
 }
 
 func renderInfoKeybindLines(innerWidth int) []string {
@@ -818,6 +841,41 @@ func padLinesToHeight(lines []string, height int) []string {
 	return lines
 }
 
+func joinInfoSections(secs infoPanelSections) []string {
+	out := make([]string, 0, len(secs.head)+len(secs.todos)+len(secs.expandable))
+	out = append(out, secs.head...)
+	out = append(out, secs.todos...)
+	out = append(out, secs.expandable...)
+	return out
+}
+
+// appendFooterPinnedInfo keeps the keybind footer pinned while trimming
+// expandable sections (subagents/processes) before todos or core stats.
+func appendFooterPinnedInfo(secs infoPanelSections, footer []string, height, minGap int) []string {
+	footerH := countTermLines(footer)
+	maxBody := height - footerH
+	if maxBody < 1 {
+		maxBody = 1
+	}
+
+	head := append([]string{}, secs.head...)
+	todos := append([]string{}, secs.todos...)
+	expandable := append([]string{}, secs.expandable...)
+
+	body := joinInfoSections(infoPanelSections{head: head, todos: todos, expandable: expandable})
+	for countTermLines(body) > maxBody {
+		if len(expandable) > 0 {
+			expandable = trimTermLinesFromEnd(expandable, 1)
+		} else if len(head) > 4 {
+			head = trimTermLinesFromEnd(head, 1)
+		} else {
+			break
+		}
+		body = joinInfoSections(infoPanelSections{head: head, todos: todos, expandable: expandable})
+	}
+	return appendFooterPinned(body, footer, height, minGap)
+}
+
 // appendFooterPinned keeps footer lines at the bottom of height,
 // inserting spacer lines above. Body lines are trimmed from the
 // end first when the combined content overflows.
@@ -828,7 +886,10 @@ func appendFooterPinned(body, footer []string, height, minGap int) []string {
 	bodyH := countTermLines(body)
 	footerH := countTermLines(footer)
 	gap := height - bodyH - footerH
-	if gap < minGap {
+	if gap < 0 {
+		gap = 0
+	}
+	if gap < minGap && bodyH+minGap+footerH <= height {
 		gap = minGap
 	}
 	if bodyH+gap+footerH > height {

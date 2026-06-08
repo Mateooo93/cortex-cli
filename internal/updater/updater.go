@@ -281,18 +281,6 @@ type ProgressFunc func(step string)
 // Pass nil to disable progress reporting (the CLI subcommand does
 // this; only the TUI needs the spinner).
 func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
-	currentExe, err := os.Executable()
-	if err != nil {
-		return Result{Kind: "error", Error: fmt.Errorf("updater: locate binary: %w", err)}
-	}
-	currentExe, err = filepath.EvalSymlinks(currentExe)
-	if err != nil {
-		return Result{Kind: "error", Error: fmt.Errorf("updater: resolve symlinks: %w", err)}
-	}
-	if IsNpmInstall(currentExe) {
-		return runNpmInstallUpdate(ctx, progress, currentExe)
-	}
-
 	if progress != nil {
 		progress("Checking for updates…")
 	}
@@ -331,10 +319,25 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		}
 	}
 
-	// 4. Plan where to install beside the running binary, falling
-	// back to ~/.local/bin when that directory isn't writable.
+	// 4. Locate the running binary and plan the install target.
+	// npm installs write to ~/.cortex/npm/<version>/<asset> (matching
+	// postinstall) instead of replacing an older cache directory.
+	currentExe, err := os.Executable()
+	if err != nil {
+		return Result{Kind: "error", Error: fmt.Errorf("updater: locate binary: %w", err), NewVersion: rel.TagName}
+	}
+	currentExe, err = filepath.EvalSymlinks(currentExe)
+	if err != nil {
+		return Result{Kind: "error", Error: fmt.Errorf("updater: resolve symlinks: %w", err), NewVersion: rel.TagName}
+	}
+	npmInstall := IsNpmInstall(currentExe)
+
 	var plan installPlan
-	plan, err = planInstall(currentExe)
+	if npmInstall {
+		plan, err = planNpmInstall(latestVersion, assetName, currentExe)
+	} else {
+		plan, err = planInstall(currentExe)
+	}
 	if err != nil {
 		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
 	}
@@ -410,52 +413,23 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		oldPath = finalPlan.targetPath + ".old"
 	}
 
+	msg := installMessage(rel.TagName, finalPlan)
+	restartPath := finalPlan.targetPath
+	if npmInstall {
+		if symErr := updateNpmCurrentSymlink(finalPlan.targetPath, installBinaryName()); symErr != nil {
+			return Result{Kind: "error", Error: symErr, NewVersion: rel.TagName, AssetName: assetName}
+		}
+		msg = npmUpdateMessage(rel.TagName)
+	}
+
 	return Result{
 		Kind:       "updated",
 		OldVersion: currentVersion,
 		NewVersion: latestVersion,
 		AssetName:  assetName,
 		OldPath:    oldPath,
-		NewPath:    finalPlan.targetPath,
-		Message:    installMessage(rel.TagName, finalPlan),
-	}
-}
-
-func runNpmInstallUpdate(ctx context.Context, progress ProgressFunc, currentExe string) Result {
-	if progress != nil {
-		progress("Checking for updates…")
-	}
-	rel, err := latestRelease(ctx, HTTPClient)
-	if err != nil {
-		return Result{Kind: "error", Error: err}
-	}
-	currentVersion := strings.TrimPrefix(Version, "v")
-	latestVersion := strings.TrimPrefix(rel.TagName, "v")
-	if currentVersion == latestVersion && currentVersion != "dev" {
-		return Result{
-			Kind:       "up-to-date",
-			OldVersion: currentVersion,
-			NewVersion: latestVersion,
-			Message:    fmt.Sprintf("cortex-cli %s is already the latest", rel.TagName),
-		}
-	}
-	if progress != nil {
-		progress(fmt.Sprintf("Running npm install -g %s…", npmInstallSpec()))
-	}
-	if err := npmInstallLatest(ctx); err != nil {
-		return Result{Kind: "error", Error: err, NewVersion: rel.TagName}
-	}
-	restart, err := restartPathForNpm()
-	if err != nil {
-		return Result{Kind: "error", Error: err, NewVersion: rel.TagName}
-	}
-	return Result{
-		Kind:       "updated",
-		OldVersion: currentVersion,
-		NewVersion: latestVersion,
-		OldPath:    currentExe,
-		NewPath:    restart,
-		Message:    npmInstallMessage(rel.TagName),
+		NewPath:    restartPath,
+		Message:    msg,
 	}
 }
 

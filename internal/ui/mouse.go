@@ -133,7 +133,7 @@ func (m *Model) copyActiveSelectionCmd() tea.Cmd {
 	var text string
 	switch {
 	case sess.inputSel.active:
-		text = chatSelectionPlainText(m.inputDisplayLines(sess), sess.inputSel)
+		text = chatSelectionPlainText(m.inputTextDisplayLines(sess), sess.inputSel)
 	case sess.chatSel.active:
 		text = chatSelectionPlainText(m.displayChatLines(sess, m.currentLayout()), sess.chatSel)
 	default:

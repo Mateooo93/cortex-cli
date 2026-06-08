@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,7 @@ func TestExtractFilePathFromSummary(t *testing.T) {
 		{"write_file", "config.yaml (100 chars)", "config.yaml"},
 		{"read_file", "main.go:10-20", "main.go"},
 		{"read_file", "test.txt", "test.txt"},
-		{"bash", "ls -la", ""}, // Not a file operation
+		{"bash", "ls -la", ""},  // Not a file operation
 		{"grep", "pattern", ""}, // Not a file operation
 	}
 
@@ -296,6 +297,42 @@ func TestRenderDiffDetailSideBySide(t *testing.T) {
 	}
 	if !strings.Contains(strip(rawLine), "Function()") {
 		t.Error("expected shared 'Function()' suffix to appear in the rendered diff line")
+	}
+}
+
+func TestRenderDiffDetail_TruncatesLargeUnifiedDiff(t *testing.T) {
+	var lines []string
+	for i := 0; i < 20; i++ {
+		lines = append(lines, fmt.Sprintf("-old line %d", i), fmt.Sprintf("+new line %d", i))
+	}
+	detail := strings.Join(lines, "\n") + "\n"
+
+	rendered := renderDiffDetail(detail, NewStyles(true), 120)
+	plain := stripANSI(rendered)
+
+	if strings.Contains(plain, "old line 19") {
+		t.Fatalf("truncated diff should not include tail lines, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "old line 0") {
+		t.Fatalf("truncated diff should keep early lines, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "… and 35 more diff line") {
+		t.Fatalf("expected truncation hint, got:\n%s", plain)
+	}
+}
+
+func TestTruncateDiffDetail_StructuredFormat(t *testing.T) {
+	rows := []string{"H header"}
+	for i := 0; i < 10; i++ {
+		rows = append(rows, fmt.Sprintf("R %d removed %d", i+1, i))
+	}
+	detail := strings.Join(rows, "\n")
+	truncated, hidden := truncateDiffDetail(detail, 5)
+	if hidden != 6 {
+		t.Fatalf("hidden = %d, want 6", hidden)
+	}
+	if strings.Contains(truncated, "removed 9") {
+		t.Fatalf("truncated detail should omit tail rows, got %q", truncated)
 	}
 }
 

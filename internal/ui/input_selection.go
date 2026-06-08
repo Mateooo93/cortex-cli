@@ -51,7 +51,7 @@ func (m *Model) inputInnerBounds() (top, bottom, left, right int, ok bool) {
 		return 0, 0, 0, 0, false
 	}
 	sectionTop := m.inputSectionTopY()
-	lines := len(m.inputDisplayLines(m.currentSession()))
+	lines := len(m.inputTextDisplayLines(m.currentSession()))
 	if lines < 1 {
 		lines = 1
 	}
@@ -68,6 +68,20 @@ func (m *Model) mouseInInputInner(x, y int) bool {
 		return false
 	}
 	return x >= left && x < right && y >= top && y < bottom
+}
+
+// inputTextDisplayLines expands the raw textarea value for hit-testing without
+// calling textarea.View(), which can panic on uninitialized models in tests.
+func (m *Model) inputTextDisplayLines(sess *SessionState) []string {
+	if sess == nil {
+		return nil
+	}
+	val := sess.input.Value()
+	if val == "" {
+		return []string{" "}
+	}
+	raw := strings.Split(strings.TrimSuffix(val, "\n"), "\n")
+	return expandLinesToVisualRows(raw, inputContentInnerWidth(m.width))
 }
 
 func (m *Model) inputDisplayLines(sess *SessionState) []string {
@@ -94,7 +108,7 @@ func (m *Model) clampInputLineIndex(sess *SessionState, lineIdx int) int {
 	if lineIdx < 0 {
 		return 0
 	}
-	lines := m.inputDisplayLines(sess)
+	lines := m.inputTextDisplayLines(sess)
 	if len(lines) == 0 {
 		return 0
 	}
@@ -169,7 +183,7 @@ func (m *Model) renderInputView(sess *SessionState) string {
 	if !sess.inputSel.active {
 		return sess.input.View()
 	}
-	lines := m.inputDisplayLines(sess)
+	lines := m.inputTextDisplayLines(sess)
 	selStyle := lipglossSelectionStyle()
 	lines = applyChatSelectionHighlight(lines, sess.inputSel, selStyle)
 	return strings.Join(lines, "\n")

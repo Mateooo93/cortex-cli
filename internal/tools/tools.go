@@ -9,9 +9,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -323,15 +323,16 @@ type EditFileTool struct{}
 
 func (t *EditFileTool) Name() string { return "edit_file" }
 func (t *EditFileTool) Description() string {
-	return "Edit a file by replacing a small exact string. Put path and oldString before newString in the JSON. Do NOT use this for huge rewrites; use smaller chunks. Requires allowWrite."
+	return "Edit a file by replacing a small exact string. REQUIRED fields: path plus either edits=[{\"oldText\":\"...\",\"newText\":\"...\"}] OR legacy path+oldString+newString together in one call. " +
+		"Never send path alone or oldString without newString — missing newString deletes matched text. Put path first. Do NOT use this for huge rewrites; use smaller chunks. Requires allowWrite."
 }
 func (t *EditFileTool) Parameters() map[string]Param {
 	return map[string]Param{
 		"path": {Type: "string", Description: "Path to file. IMPORTANT: include this first. Absolute paths must start with /.", Required: true},
 		// Legacy single-edit fields. Kept for
 		// provider compatibility.
-		"oldString": {Type: "string", Description: "Legacy single edit: small exact string/block to replace. Include before newString.", Required: false},
-		"newString": {Type: "string", Description: "Legacy single edit replacement. Keep small; for large changes split into multiple edits.", Required: false},
+		"oldString": {Type: "string", Description: "Legacy single edit: small exact string/block to replace. Must be paired with newString in the same call.", Required: false},
+		"newString": {Type: "string", Description: "Legacy single edit replacement text. REQUIRED whenever oldString is set — omitting it deletes the match.", Required: false},
 		// Pi-style multi-edit input. Providers now
 		// receive a real nested array schema; parser
 		// still accepts a JSON string for backwards
@@ -452,10 +453,13 @@ func parseEditFileEdits(args map[string]any) ([]editReplacementInput, error) {
 		return parseEditReplacementJSON(string(buf))
 	}
 	oldStr, _ := args["oldString"].(string)
-	newStr, _ := args["newString"].(string)
 	if oldStr == "" {
 		return nil, fmt.Errorf("oldString or edits is required")
 	}
+	if _, hasNew := args["newString"]; !hasNew {
+		return nil, fmt.Errorf("newString is required when using legacy edit_file (path, oldString, newString). Omitting newString deletes the matched text — always include newString even for small edits")
+	}
+	newStr, _ := args["newString"].(string)
 	return []editReplacementInput{{OldText: oldStr, NewText: newStr}}, nil
 }
 
@@ -934,10 +938,10 @@ func (t *ShellTool) Run(ctx Context, args map[string]any) (Result, error) {
 			OK:     true,
 			Output: msg,
 			Details: map[string]any{
-				"background":   true,
-				"process_id":   procID,
-				"pid":          pid,
-				"timeout_sec":  0,
+				"background":  true,
+				"process_id":  procID,
+				"pid":         pid,
+				"timeout_sec": 0,
 			},
 		}, nil
 	}
@@ -981,10 +985,10 @@ func (t *ShellTool) Run(ctx Context, args map[string]any) (Result, error) {
 			OK:     true,
 			Output: msg,
 			Details: map[string]any{
-				"detached":     true,
-				"process_id":   procID,
-				"pid":          pid,
-				"timeout_sec":  timeoutSec,
+				"detached":    true,
+				"process_id":  procID,
+				"pid":         pid,
+				"timeout_sec": timeoutSec,
 			},
 		}, nil
 	}

@@ -73,12 +73,21 @@ Scope / edits:
   Use multiple entries for separate non-overlapping
   edits in the same file.
 - Legacy edit_file fields still work (path, oldString,
-  newString), but prefer the edits array string for
-  multiple changes.
+  newString), but ALL THREE must appear in the same
+  tool call. Never send path alone. Never send
+  oldString without newString — missing newString
+  deletes the matched text and corrupts the file.
+- Example legacy edit:
+  {"path":"src/foo.go","oldString":"old line","newString":"new line"}
+- Example Pi-style edit:
+  {"path":"src/foo.go","edits":[{"oldText":"old line","newText":"new line"}]}
 - Never start edit_file JSON with newString/content.
   If a large newString appears first, providers can
   truncate the JSON before path/oldString/edits arrive,
   causing the edit to fail.
+- After a failed edit_file, read_file the path again
+  before retrying — do not repeat the same malformed
+  arguments.
 - Always use correct paths:
   - Absolute paths must start with / (example:
     /home/ubuntu/project/file.ts).

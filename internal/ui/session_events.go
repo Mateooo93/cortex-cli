@@ -274,18 +274,22 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var tu protocol.EventTodoListUpdated
 		json.Unmarshal(data, &tu)
-		sess.todos = tu.Todos
-		switch sess.rightPanel.mode {
-		case rpModeTodos:
-			if !hasPendingTodos(sess.todos) {
-				sess.rightPanel.Close()
-				m.updateChatWidth()
-			}
-		default:
-			if !sess.rightPanel.IsVisible() && hasPendingTodos(sess.todos) {
+		if len(tu.Todos) > 0 {
+			sess.todos = tu.Todos
+		}
+		if len(sess.todos) == 0 {
+			break
+		}
+		if hasPendingTodos(sess.todos) {
+			if !sess.rightPanel.IsVisible() {
 				sess.rightPanel.OpenTodos(m.height)
 				m.updateChatWidth()
 			}
+		} else if sess.rightPanel.mode == rpModeTodos {
+			// Keep the panel open in info mode so completed items
+			// stay visible instead of vanishing when the last item
+			// is marked done.
+			sess.rightPanel.OpenInfo(m.height)
 		}
 
 	case "event.plan_proposed":

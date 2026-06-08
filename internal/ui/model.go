@@ -100,7 +100,6 @@ type StatusMessage struct {
 	Spinner int // spinner frame index (0..7); -1 = no spinner
 }
 
-
 // clearStatusMsgMsg clears the status bar message when its generation matches.
 type clearStatusMsgMsg struct{ gen int }
 
@@ -277,7 +276,7 @@ type Model struct {
 	updateOverlay updateOverlayState
 	// oauthAuthPending is true while an OAuth flow is in flight.
 	oauthAuthPending   bool
-	oauthAuthProvider string
+	oauthAuthProvider  string
 	oauthAuthURL       string
 	oauthAuthModel     string
 	oauthAuthStartedAt time.Time
@@ -329,7 +328,7 @@ type Model struct {
 	lastClickButton tea.MouseButton
 
 	mouseButtonDown bool
-	mouseHover mouseHover
+	mouseHover      mouseHover
 
 	// Right-click context menu (paste/copy) for Linux terminals
 	// where the emulator menu is blocked by mouse capture.
@@ -854,7 +853,6 @@ func (m *Model) handleOAuthLoginFailed(msg oauthLoginFailedMsg) tea.Cmd {
 	return m.emitStatusMsg(out, StatusMsgError)
 }
 
-
 func NewModel(cfg *config.Config, cortexCfg *cortexconfig.Config, client *daemon.SessionClient, testMode bool, authToken string, enableWrite, enableDir bool) Model {
 	if cortexCfg == nil {
 		cortexCfg = cortexconfig.Default()
@@ -882,7 +880,7 @@ func NewModel(cfg *config.Config, cortexCfg *cortexconfig.Config, client *daemon
 		authToken:                      authToken,
 		enableAutomaticWritePermission: enableWrite,
 		enableAutomaticDirectoryAccess: enableDir,
-		testMode: testMode,
+		testMode:                       testMode,
 	}
 
 	// Restore previously-saved sessions so the user can see and reopen
@@ -967,10 +965,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.handleChatLinkClick(mouse.X, mouse.Y); cmd != nil {
 					return m, cmd
 				}
+			} else if m.mouseInChatInner(mouse.X, mouse.Y) {
+				m.handleChatMouseDown(mouse.X, mouse.Y)
 			} else if m.mouseInInputInner(mouse.X, mouse.Y) {
 				m.handleInputMouseDown(mouse.X, mouse.Y)
 			} else {
-				m.handleChatMouseDown(mouse.X, mouse.Y)
+				m.clearChatSelection()
+				m.clearInputSelection()
 			}
 		}
 		return m, nil
@@ -986,10 +987,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateMouseHover(mouse.X, mouse.Y)
 		if m.activeTab == TabKindChat && m.mouseButtonDown {
 			sess := m.currentSession()
-			if sess != nil && sess.inputSel.active {
+			if sess == nil {
+				return m, nil
+			}
+			switch {
+			case sess.inputSel.active:
 				m.handleInputMouseDrag(mouse.X, mouse.Y)
-			} else {
+			case sess.chatSel.active:
 				m.handleChatMouseDrag(mouse.X, mouse.Y)
+			case m.mouseInChatInner(mouse.X, mouse.Y):
+				m.beginChatSelection(mouse.X, mouse.Y)
+			case m.mouseInInputInner(mouse.X, mouse.Y):
+				m.beginInputSelection(mouse.X, mouse.Y)
 			}
 		}
 		return m, nil
@@ -1010,6 +1019,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Wheel over the right panel scrolls subagents / processes /
 			// todos sections (max 3 / 3 / 5 visible rows). Elsewhere on
 			// the chat tab, wheel scrolls the main chat transcript.
+			if sess.rightPanel.IsVisible() && sess.rightPanel.mode == rpModeTodos && len(sess.todos) > 0 {
+				max := maxScrollOffset(len(sess.todos), rpMaxVisibleTodos)
+				sess.rightPanel.todoScroll = clampScroll(sess.rightPanel.todoScroll+delta, 0, max)
+				return m, nil
+			}
 			if line, ok := m.rightPanelContentLineAt(msg.Mouse().X, msg.Mouse().Y); ok &&
 				sess.rightPanel.IsVisible() && sess.rightPanel.mode == rpModeInfo {
 				if sess.rightPanel.ScrollSectionAt(line, delta) {
@@ -1390,7 +1404,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// focus so the user can keep typing while
 			// glancing at the stats.
 			if sess != nil {
-				sess.rightPanel.Toggle()
+				sess.rightPanel.Toggle(hasPendingTodos(sess.todos))
 				m.updateChatWidth()
 			}
 			return m, nil
@@ -1745,76 +1759,76 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeTab == TabKindWorkflows {
 			switch msg.String() {
 			case "up", "k":
-					if m.workflowSelected > 0 {
-						m.workflowSelected--
-					}
-					m.workflowStepSelected = -1
-					return m, nil
-				case "down", "j":
-					count := 0
-					for _, s := range m.sessions {
-						if s.workflowEngine != nil {
-							count += len(s.workflowEngine.Workflows())
-						}
-					}
-					if m.workflowSelected < count-1 {
-						m.workflowSelected++
-					}
-					m.workflowStepSelected = -1
-					return m, nil
-				case "enter":
-					if m.workflowSelected >= 0 {
-						if m.workflowStepSelected < 0 {
-							m.workflowStepSelected = 0
-						} else {
-							m.workflowStepSelected = -1
-						}
-					}
-					return m, nil
-				case "c":
-					if m.workflowSelected >= 0 {
-						idx := 0
-						for _, s := range m.sessions {
-							if s.workflowEngine == nil {
-								continue
-							}
-							for _, w := range s.workflowEngine.Workflows() {
-								if idx == m.workflowSelected {
-									s.workflowEngine.Cancel(w.ID)
-									return m, nil
-								}
-								idx++
-							}
-						}
-					}
-					return m, nil
-				case "right", "l":
-					if m.workflowSelected >= 0 && m.workflowStepSelected >= 0 {
-						m.workflowStepSelected++
-					}
-					return m, nil
-				case "left", "h":
-					if m.workflowStepSelected > 0 {
-						m.workflowStepSelected--
-					}
-					return m, nil
-				case "f1":
-					m.activeTab = TabKindSessions
-					m.syncSessionsSelected()
-					return m, m.sessionsInput.Focus()
-				case "f2":
-					m.activeTab = TabKindChat
-					if s := m.currentSession(); s != nil {
-						s.unreadCount = 0
-					}
-					return m, nil
-				case "f3":
-					m.openSettingsTab()
-					return m, nil
-				case "f4":
-					return m, nil
+				if m.workflowSelected > 0 {
+					m.workflowSelected--
 				}
+				m.workflowStepSelected = -1
+				return m, nil
+			case "down", "j":
+				count := 0
+				for _, s := range m.sessions {
+					if s.workflowEngine != nil {
+						count += len(s.workflowEngine.Workflows())
+					}
+				}
+				if m.workflowSelected < count-1 {
+					m.workflowSelected++
+				}
+				m.workflowStepSelected = -1
+				return m, nil
+			case "enter":
+				if m.workflowSelected >= 0 {
+					if m.workflowStepSelected < 0 {
+						m.workflowStepSelected = 0
+					} else {
+						m.workflowStepSelected = -1
+					}
+				}
+				return m, nil
+			case "c":
+				if m.workflowSelected >= 0 {
+					idx := 0
+					for _, s := range m.sessions {
+						if s.workflowEngine == nil {
+							continue
+						}
+						for _, w := range s.workflowEngine.Workflows() {
+							if idx == m.workflowSelected {
+								s.workflowEngine.Cancel(w.ID)
+								return m, nil
+							}
+							idx++
+						}
+					}
+				}
+				return m, nil
+			case "right", "l":
+				if m.workflowSelected >= 0 && m.workflowStepSelected >= 0 {
+					m.workflowStepSelected++
+				}
+				return m, nil
+			case "left", "h":
+				if m.workflowStepSelected > 0 {
+					m.workflowStepSelected--
+				}
+				return m, nil
+			case "f1":
+				m.activeTab = TabKindSessions
+				m.syncSessionsSelected()
+				return m, m.sessionsInput.Focus()
+			case "f2":
+				m.activeTab = TabKindChat
+				if s := m.currentSession(); s != nil {
+					s.unreadCount = 0
+				}
+				return m, nil
+			case "f3":
+				m.openSettingsTab()
+				return m, nil
+			case "f4":
+				return m, nil
 			}
+		}
 
 		// --- Chat tab key handling (session-specific) ---
 		if sess == nil {
@@ -3111,11 +3125,11 @@ func (m Model) View() tea.View {
 		providers := m.settingsProviders()
 		selectedModels := m.selectedSettingsModels()
 		otherView := SettingsOtherView{
-			Theme:           m.configuredTheme(),
+			Theme:        m.configuredTheme(),
 			PrimaryColor: config.ThemePrimaryDisplayName(m.themeColors.Primary),
-			ShowThinking:    settingsShowThinking,
-			ShowUsage:       m.configuredShowUsage(),
-			AutoCompact:     m.configuredAutoCompact(),
+			ShowThinking: settingsShowThinking,
+			ShowUsage:    m.configuredShowUsage(),
+			AutoCompact:  m.configuredAutoCompact(),
 		}
 		inspectView := m.settingsInspectView()
 		wizardView := m.settingsWizardView()
@@ -3716,7 +3730,6 @@ func (m *Model) updateInputPromptColor(sess *SessionState) {
 	s.Blurred.Text = lipgloss.NewStyle().Foreground(colorDim)
 	sess.input.SetStyles(s)
 }
-
 
 // fillTestData populates the current session with fake messages for UI testing.
 func (m *Model) fillTestData() {

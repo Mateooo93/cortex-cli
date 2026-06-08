@@ -51,6 +51,33 @@ func TestShellToolRunsCommand(t *testing.T) {
 // shell tool. Under dash/sh without bash, this expansion is
 // silently left as the literal string, which is the exact
 // failure mode the user reported.
+func TestParseEditFileEdits_RequiresNewStringWithLegacyOldString(t *testing.T) {
+	_, err := parseEditFileEdits(map[string]any{
+		"path":      "main.go",
+		"oldString": "\tfmt.Println(\"hello\")",
+	})
+	if err == nil {
+		t.Fatal("expected error when oldString is set without newString")
+	}
+	if !strings.Contains(err.Error(), "newString is required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseEditFileEdits_AllowsExplicitEmptyNewString(t *testing.T) {
+	edits, err := parseEditFileEdits(map[string]any{
+		"path":      "main.go",
+		"oldString": "todo",
+		"newString": "",
+	})
+	if err != nil {
+		t.Fatalf("explicit empty newString should be allowed: %v", err)
+	}
+	if len(edits) != 1 || edits[0].NewText != "" {
+		t.Fatalf("unexpected edits: %+v", edits)
+	}
+}
+
 func TestShellToolBashSubstitutionWorks(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not installed on this system")

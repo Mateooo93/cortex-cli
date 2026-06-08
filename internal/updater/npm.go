@@ -1,16 +1,11 @@
 package updater
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
-
-const npmUpdateTimeout = 90 * time.Second
 
 // NpmPackageName is the GitHub Packages npm wrapper for cortex-cli.
 const NpmPackageName = "@mateooo93/cortex"
@@ -37,61 +32,8 @@ func IsNpmInstall(exe string) bool {
 	return strings.HasPrefix(exe, cache+string(filepath.Separator))
 }
 
-func npmPackageName() string {
-	if n := strings.TrimSpace(os.Getenv("CORTEX_NPM_PACKAGE")); n != "" {
-		return n
-	}
-	return NpmPackageName
-}
-
-// npmInstallSpec is the package spec passed to npm install -g for /update.
-func npmInstallSpec() string {
-	return npmPackageName() + "@latest"
-}
-
-// npmInstallLatest runs npm install -g @mateooo93/cortex@latest (or the
-// package named by CORTEX_NPM_PACKAGE).
-func npmInstallLatest(ctx context.Context) error {
-	npm, err := exec.LookPath("npm")
-	if err != nil {
-		return fmt.Errorf("updater: npm not found on PATH")
-	}
-	spec := npmInstallSpec()
-	ctx, cancel := context.WithTimeout(ctx, npmUpdateTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, npm, "install", "-g", spec)
-	cmd.Env = os.Environ()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if msg == "" {
-			return fmt.Errorf("updater: npm install -g %s failed: %w", spec, err)
-		}
-		return fmt.Errorf("updater: npm install -g %s failed: %s", spec, msg)
-	}
-	return nil
-}
-
-// restartPathForNpm returns the cortex launcher to re-exec after an npm
-// update. Prefer the global npm bin wrapper over the raw .js shim path.
-func restartPathForNpm() (string, error) {
-	if path, err := exec.LookPath("cortex"); err == nil {
-		if resolved, err := filepath.EvalSymlinks(path); err == nil {
-			path = resolved
-		}
-		return path, nil
-	}
-	if shim := strings.TrimSpace(os.Getenv("CORTEX_NPM_SHIM")); shim != "" {
-		if resolved, err := filepath.EvalSymlinks(shim); err == nil {
-			shim = resolved
-		}
-		return shim, nil
-	}
-	return "", fmt.Errorf("updater: locate cortex on PATH after npm update")
-}
-
-func npmInstallMessage(tagName string) string {
-	return fmt.Sprintf("Updated %s to %s via npm. Restarting…", npmPackageName(), tagName)
+func npmUpdateMessage(tagName string) string {
+	return fmt.Sprintf("Updated to %s. Restarting…", tagName)
 }
 
 // npmCacheBinaryPath returns ~/.cortex/npm/<version>/<asset>, creating the

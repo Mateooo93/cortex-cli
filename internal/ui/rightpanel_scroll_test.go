@@ -18,9 +18,9 @@ func TestRenderInfoView_ScrollableSectionsCapRows(t *testing.T) {
 	}
 	for i := range info.Subagents {
 		info.Subagents[i] = protocol.LocalSubagentItem{
-			ID:   "sub-" + string(rune('a'+i)),
-			Role: "explore",
-			Task: "task",
+			ID:     "sub-" + string(rune('a'+i)),
+			Role:   "explore",
+			Task:   "task",
 			Status: protocol.LocalSubagentRunning,
 		}
 	}
@@ -41,8 +41,8 @@ func TestRenderInfoView_ScrollableSectionsCapRows(t *testing.T) {
 		}
 	}
 
-	lines, _ := rp.renderInfoView(panelWidth-4, info, s)
-	plain := stripANSI(strings.Join(lines, "\n"))
+	sections, _ := rp.renderInfoView(panelWidth-4, info, s)
+	plain := stripANSI(strings.Join(joinInfoSections(sections), "\n"))
 
 	subCount := strings.Count(plain, "▶ explore")
 	if subCount != rpMaxVisibleSubagents {
@@ -71,7 +71,7 @@ func TestRightPanel_ScrollSectionAt(t *testing.T) {
 			{ID: "4", Role: "d", Task: "t", Status: protocol.LocalSubagentRunning},
 		},
 	}
-	rp.renderInfoView(panelWidth-4, info, NewStyles(true))
+	_, _ = rp.renderInfoView(panelWidth-4, info, NewStyles(true))
 	if !rp.ScrollSectionAt(rp.sectionLineRange[rpSectionSubagents][0], 1) {
 		t.Fatal("expected scroll in subagents section")
 	}

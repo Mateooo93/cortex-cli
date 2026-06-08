@@ -68,11 +68,11 @@ type ChatMessage struct {
 	GroupIndex int    // index within the group (0 = header, >0 = sub-items)
 
 	// Re-render metadata: fields needed to re-render at a different width.
-	ShowToolName     bool   // mirrors the showToolName arg of renderToolResultWithContext
-	ToolCallSummary  string // paired tool-call summary (e.g. shell command) for result display
-	TurnModel        string // model name passed to renderTurnInfo
-	TurnElapsed  time.Duration // elapsed duration passed to renderTurnInfo
-	TurnCost     float64       // cost value passed to renderTurnInfo
+	ShowToolName    bool          // mirrors the showToolName arg of renderToolResultWithContext
+	ToolCallSummary string        // paired tool-call summary (e.g. shell command) for result display
+	TurnModel       string        // model name passed to renderTurnInfo
+	TurnElapsed     time.Duration // elapsed duration passed to renderTurnInfo
+	TurnCost        float64       // cost value passed to renderTurnInfo
 
 	// Shell command lifecycle (run_shell / bash). Drives the inline
 	// spinner, elapsed timer, and succeeded/failed suffix on the
@@ -199,15 +199,11 @@ func visualRows(line string, innerWidth int) int {
 	if innerWidth <= 0 {
 		return 1
 	}
-	w := lipgloss.Width(line)
-	if w == 0 {
+	n := len(expandLineToVisualRows(line, innerWidth))
+	if n < 1 {
 		return 1
 	}
-	rows := (w + innerWidth - 1) / innerWidth
-	if rows < 1 {
-		return 1
-	}
-	return rows
+	return n
 }
 
 // bashReasonLabelStyle is applied to the "Reason for not using X:" prefix in bash tool calls.
@@ -542,6 +538,46 @@ func unquoteArgSummary(s string) string {
 	return s
 }
 
+// maxEditDiffDisplayLines caps how many diff rows appear in chat.
+// Full diff text stays in ChatMessage.Detail for history/LLM context.
+const maxEditDiffDisplayLines = 5
+
+// truncateDiffDetail shortens a structured or unified diff detail string.
+// Returns the truncated detail and how many input rows were omitted.
+func truncateDiffDetail(detail string, maxLines int) (string, int) {
+	detail = strings.TrimRight(detail, "\n")
+	if detail == "" || maxLines <= 0 {
+		return detail, 0
+	}
+	rows := strings.Split(detail, "\n")
+	nonEmpty := 0
+	for _, row := range rows {
+		if strings.TrimSpace(row) != "" {
+			nonEmpty++
+		}
+	}
+	if nonEmpty <= maxLines {
+		return detail, 0
+	}
+	kept := make([]string, 0, maxLines)
+	seen := 0
+	for _, row := range rows {
+		if strings.TrimSpace(row) == "" {
+			continue
+		}
+		if seen >= maxLines {
+			break
+		}
+		kept = append(kept, row)
+		seen++
+	}
+	hidden := nonEmpty - seen
+	if hidden < 0 {
+		hidden = 0
+	}
+	return strings.Join(kept, "\n"), hidden
+}
+
 func truncateToolOutputLines(output string, maxLines int) string {
 	lines := strings.Split(output, "\n")
 	short := output
@@ -691,6 +727,8 @@ func renderToolResultWithContext(name, output string, isError bool, showToolName
 func renderDiffDetail(detail string, s Styles, width int) string {
 	const indent = "      " // 6-space indent from left edge
 	const indentWidth = 6
+
+	detail, hiddenRows := truncateDiffDetail(detail, maxEditDiffDisplayLines)
 
 	// Derive per-column width.
 	// Layout: indent(6) | leftCol | " │ "(3) | rightCol
@@ -890,7 +928,15 @@ func renderDiffDetail(detail string, s Styles, width int) string {
 	}
 	flushHunk()
 
-	return sb.String()
+	out := sb.String()
+	if hiddenRows > 0 {
+		extraPlural := "s"
+		if hiddenRows == 1 {
+			extraPlural = ""
+		}
+		out += writeFilePreviewStyle.Render(fmt.Sprintf("%s… and %d more diff line%s", indent, hiddenRows, extraPlural)) + "\n"
+	}
+	return out
 }
 
 // renderAssistantMessage creates a rendered assistant message using Glamour.

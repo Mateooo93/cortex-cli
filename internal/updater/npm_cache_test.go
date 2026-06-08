@@ -3,7 +3,6 @@ package updater
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -66,12 +65,4 @@ func TestUpdateNpmCurrentSymlink(t *testing.T) {
 	}
 }
 
-func TestNpmInstallSpec_UsesLatestTag(t *testing.T) {
-	spec := npmInstallSpec()
-	if !strings.HasSuffix(spec, "@latest") {
-		t.Fatalf("spec = %q, want @latest suffix", spec)
-	}
-	if !strings.Contains(spec, NpmPackageName) {
-		t.Fatalf("spec = %q, want package %s", spec, NpmPackageName)
-	}
-}
+

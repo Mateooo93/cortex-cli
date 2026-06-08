@@ -64,8 +64,29 @@ func expandLinesToVisualRows(lines []string, innerWidth int) []string {
 	return out
 }
 
-// visibleChatLines returns the chat lines currently shown inside the viewport,
-// matching the scroll/padding logic in View.
+// sliceExpandedChatWindow returns the visible slice of expanded chat rows for
+// the current scroll offset, padded to exactly contentHeight rows.
+func sliceExpandedChatWindow(allExpanded []string, scrollOffset, contentHeight int) (visible []string, startIdx, endIdx int) {
+	endIdx = len(allExpanded) - scrollOffset
+	if endIdx < contentHeight {
+		endIdx = contentHeight
+	}
+	if endIdx > len(allExpanded) {
+		endIdx = len(allExpanded)
+	}
+	startIdx = endIdx - contentHeight
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	visible = allExpanded[startIdx:endIdx]
+	if pad := contentHeight - len(visible); pad > 0 {
+		visible = append(make([]string, pad), visible...)
+	}
+	return visible, startIdx, endIdx
+}
+
+// visibleChatLines returns the expanded terminal rows currently shown inside
+// the chat viewport, matching the scroll/padding logic in View.
 func (m *Model) visibleChatLines(sess *SessionState, layout Layout) []string {
 	var chatContent string
 	if sess != nil {
@@ -87,67 +108,38 @@ func (m *Model) visibleChatLines(sess *SessionState, layout Layout) []string {
 	if chatContent == "" && !m.testMode {
 		return welcomeViewportLines(m.mdRenderer.width, contentHeight, m.styles)
 	}
-	innerWidth := m.mdRenderer.width
+	innerWidth := chatContentInnerWidth(layout)
 	allLines := strings.Split(chatContent, "\n")
-
-	visualRowStart := make([]int, len(allLines)+1)
-	for i, line := range allLines {
-		visualRowStart[i+1] = visualRowStart[i] + visualRows(line, innerWidth)
-	}
-	totalVisualRows := visualRowStart[len(allLines)]
+	allExpanded := expandLinesToVisualRows(allLines, innerWidth)
 
 	chatScrollOffset := 0
 	if sess != nil {
 		chatScrollOffset = sess.chatScrollOffset
 	}
-	endVisRow := totalVisualRows - chatScrollOffset
-	if endVisRow < contentHeight {
-		endVisRow = contentHeight
-	}
-	if endVisRow > totalVisualRows {
-		endVisRow = totalVisualRows
-	}
-
-	endLogical := 0
-	for endLogical < len(allLines) && visualRowStart[endLogical+1] <= endVisRow {
-		endLogical++
-	}
-	accVisRows := 0
-	startLogical := endLogical
-	for startLogical > 0 {
-		rows := visualRows(allLines[startLogical-1], innerWidth)
-		if accVisRows+rows > contentHeight {
-			break
-		}
-		accVisRows += rows
-		startLogical--
-	}
-
-	chatLines := allLines[startLogical:endLogical]
-	actualVisRows := visualRowStart[endLogical] - visualRowStart[startLogical]
-	if padCount := contentHeight - actualVisRows; padCount > 0 {
-		padLines := make([]string, padCount)
-		for i := range padLines {
-			padLines[i] = ""
-		}
-		chatLines = append(padLines, chatLines...)
-	}
+	visible, startIdx, endIdx := sliceExpandedChatWindow(allExpanded, chatScrollOffset, contentHeight)
 
 	if sess != nil && sess.chatScrollOffset > 0 && sess.client != nil {
+		expandedStart := make([]int, len(allLines)+1)
+		for i, line := range allLines {
+			expandedStart[i+1] = expandedStart[i] + len(expandLineToVisualRows(line, innerWidth))
+		}
 		for _, sep := range turnSeparatorInfos(sess.chatMessages, m.styles, m.mdRenderer.width, sess.showThinking) {
-			if sep.LineIdx >= startLogical && sep.LineIdx < endLogical {
-				chatLines[sep.LineIdx-startLogical] = renderForkHintLine(m.mdRenderer.width+4, m.styles)
+			expStart := expandedStart[sep.LineIdx]
+			if expStart >= startIdx && expStart < endIdx {
+				visIdx := expStart - startIdx
+				if visIdx >= 0 && visIdx < len(visible) {
+					visible[visIdx] = renderForkHintLine(m.mdRenderer.width+4, m.styles)
+				}
 				break
 			}
 		}
 	}
-	return chatLines
+	return visible
 }
 
-// displayChatLines returns viewport lines expanded to visual terminal rows so
-// mouse hit-testing and selection align with what is drawn.
+// displayChatLines returns viewport lines for rendering and mouse hit-testing.
 func (m *Model) displayChatLines(sess *SessionState, layout Layout) []string {
-	return expandLinesToVisualRows(m.visibleChatLines(sess, layout), chatContentInnerWidth(layout))
+	return m.visibleChatLines(sess, layout)
 }
 
 // chatSelection tracks a drag-selection inside the chat message viewport.

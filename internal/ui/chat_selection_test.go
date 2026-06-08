@@ -6,6 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/Mateooo93/cortex-cli/internal/config"
+	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 )
 
 func TestExpandLineToVisualRowsSplitsWideStyledLine(t *testing.T) {
@@ -17,26 +20,28 @@ func TestExpandLineToVisualRowsSplitsWideStyledLine(t *testing.T) {
 }
 
 func TestDisplayChatLinesMatchMouseLineIndex(t *testing.T) {
-	m := Model{
-		width:     40,
-		height:    20,
-		activeTab: TabKindChat,
-		mdRenderer: NewMarkdownRenderer(34, true, lipgloss.NewStyle()),
-		sessions: []*SessionState{{
-			chatMessages: []ChatMessage{
-				{Type: MsgAssistant, Rendered: strings.Repeat("x", 80) + "\n"},
-			},
-		}},
+	setupPersistDir(t)
+	m := NewModel(&config.Config{}, cortexconfig.Default(), nil, false, "", false, false)
+	m.width = 40
+	m.height = 20
+	m.activeTab = TabKindChat
+	m.mdRenderer = NewMarkdownRenderer(34, true, lipgloss.NewStyle())
+	sess := m.currentSession()
+	sess.chatMessages = []ChatMessage{
+		{Type: MsgAssistant, Rendered: strings.Repeat("x", 80) + "\n"},
 	}
 	layout := m.currentLayout()
-	lines := m.displayChatLines(m.currentSession(), layout)
+	lines := m.displayChatLines(sess, layout)
 	if len(lines) < 2 {
 		t.Fatalf("expected wrapped display lines, got %d", len(lines))
 	}
-	top, _, left, _ := m.chatInnerBounds()
+	top, bottom, left, _ := m.chatInnerBounds()
+	if len(lines) != bottom-top {
+		t.Fatalf("display lines %d != inner rows %d", len(lines), bottom-top)
+	}
 	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: left + 1, Y: top + len(lines) - 1})
 	m = updated.(Model)
-	sess := m.currentSession()
+	sess = m.currentSession()
 	if !sess.chatSel.active {
 		t.Fatal("expected selection on last visible row")
 	}

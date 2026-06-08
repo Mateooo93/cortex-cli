@@ -99,9 +99,6 @@ type Session struct {
 	goalLastVerdict string // evaluator's most recent reason
 	goalCancelled   bool   // set by SendCancel to stop the goal loop
 
-	// Max turns before the goal loop gives up (safety cap).
-	goalMaxTurns int
-
 	// reasoningEffort is session-scoped (/effort picker). The CLI layer
 	// maps it to provider requests only when the active model supports
 	// reasoning_effort — never persisted to model config.
@@ -533,8 +530,6 @@ func (s *Session) runTurn(parent context.Context, text string, attachments []pro
 
 // ── Goal loop ─────────────────────────────────────────────────────────
 
-const defaultMaxGoalTurns = 50
-
 // SetGoal configures the session for autonomous goal-driven execution.
 // After each turn, a cheap evaluator model checks whether the
 // condition is met. If not, the session continues automatically.
@@ -546,9 +541,6 @@ func (s *Session) SetGoal(condition string) {
 	s.goalTurns = 0
 	s.goalLastVerdict = ""
 	s.goalCancelled = false
-	if s.goalMaxTurns <= 0 {
-		s.goalMaxTurns = defaultMaxGoalTurns
-	}
 }
 
 // ClearGoal stops any active goal loop and resets goal state.
@@ -696,8 +688,7 @@ func (s *Session) callProviderWithMessages(ctx context.Context, messages []provi
 // runGoalLoop is the autonomous goal execution loop. It runs the
 // first turn with the goal condition, then evaluates after each turn.
 // If the evaluator says NO, it injects feedback and continues.
-// The loop stops when: goal met, cancelled, max turns exceeded,
-// or context cancelled.
+// The loop stops when: goal met, cancelled, or context cancelled.
 func (s *Session) runGoalLoop(parent context.Context) {
 	ctx, cancel := context.WithCancel(parent)
 	s.mu.Lock()
@@ -741,11 +732,6 @@ func (s *Session) runGoalLoop(parent context.Context) {
 		s.mu.Lock()
 		if s.goalCancelled || !s.goalActive {
 			s.mu.Unlock()
-			return
-		}
-		if s.goalTurns >= s.goalMaxTurns {
-			s.mu.Unlock()
-			s.emitError(fmt.Errorf("goal loop stopped after %d turns (max reached)", s.goalMaxTurns))
 			return
 		}
 		condition := s.goalCondition
