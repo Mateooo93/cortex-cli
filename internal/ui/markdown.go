@@ -293,8 +293,8 @@ func replaceMarkerLine(text, marker, replacement string) string {
 
 // UpdateWidth recreates the renderer with a new width.
 func (m *MarkdownRenderer) UpdateWidth(width int) {
-	if width < 20 {
-		width = 80
+	if width < 10 {
+		width = 10
 	}
 	m.width = width
 

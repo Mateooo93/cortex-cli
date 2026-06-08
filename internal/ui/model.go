@@ -947,6 +947,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if isPasteKey(msg) && m.pasteTarget() != pasteTargetNone {
 			return m.handlePasteKey()
 		}
+
+		// F1-F4 tab switching: handle globally so function keys are not
+		// swallowed by text inputs (common on Linux when the terminal
+		// does not remap F-keys before they reach the TUI).
+		if n := functionKeyNum(msg); n > 0 {
+			if m, cmd, ok := m.handleFunctionKey(n); ok {
+				return m, cmd
+			}
+		}
+
 		// --- Codex "waiting for auth" overlay ---
 		// Esc dismisses the overlay; the OAuth flow keeps
 		// running in the background and will surface its
@@ -1312,31 +1322,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = StateSessionCloseConfirm
 				}
 				return m, nil
-			case "f1":
-				// Already on the Sessions tab — clear the filter and reset
-				// the cursor to the active session so the user lands on a
-				// known-good row.
-				ti := m.sessionsInput
-				ti.SetValue("")
-				m.sessionsInput = ti
-				m.sessionsInput.Blur()
-				m.sessionsInput.Focus()
-				m.syncSessionsSelected()
-				return m, m.sessionsInput.Focus()
-			case "f2":
-				m.activeTab = TabKindChat
-				if sess := m.currentSession(); sess != nil {
-					sess.unreadCount = 0
-					sess.input.Focus()
-					sess.focus = FocusEditor
-					m.sessionsInput.Blur()
-					cmds = append(cmds, sess.thinkingAnim.Resume())
-				}
-				return m, tea.Batch(cmds...)
-			case "f3", "f4":
-				m.openSettingsTab()
-				m.sessionsInput.Blur()
-				return m, tea.Batch(cmds...)
 			case "esc":
 				ti := m.sessionsInput
 				ti.SetValue("")
@@ -1521,24 +1506,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.settingsActiveSection = 1
 				case "shift+tab":
 					m.settingsActiveSection = 1
-				case "f1":
-					m.activeTab = TabKindSessions
-					m.syncSessionsSelected()
-					cmds = append(cmds, m.sessionsInput.Focus())
-				case "f2":
-					m.activeTab = TabKindChat
-					if s := m.currentSession(); s != nil {
-						s.unreadCount = 0
-						cmds = append(cmds, s.thinkingAnim.Resume())
-					}
-				case "f3":
-					// Already here (F3 = Settings in
-					// the new tab bar; the Workflows
-					// tab was removed from the UI)
-				case "f4":
-					// Legacy F4-Settings binding,
-					// still respected for muscle
-					// memory
 				}
 			} else {
 				// Other Settings section
@@ -1596,22 +1563,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.settingsActiveSection = 0
 				case "shift+tab":
 					m.settingsActiveSection = 0
-				case "f1":
-					m.activeTab = TabKindSessions
-					m.syncSessionsSelected()
-					cmds = append(cmds, m.sessionsInput.Focus())
-				case "f2":
-					m.activeTab = TabKindChat
-					if s := m.currentSession(); s != nil {
-						s.unreadCount = 0
-						cmds = append(cmds, s.thinkingAnim.Resume())
-					}
-				case "f3":
-					// Already here (F3 = Settings in
-					// the new tab bar; the Workflows
-					// tab was removed from the UI)
-				case "f4":
-					// Legacy F4-Settings binding
 				}
 			}
 			return m, tea.Batch(cmds...)
@@ -1903,45 +1854,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				sess.historyPanel.Open(len(sess.history.entries), m.height)
 			}
 			return m, nil
-
-		case "f1":
-			m.activeTab = TabKindSessions
-			// Reset the sessions-tab cursor to the top
-			// (index 0 = newest) every time the user
-			// enters the tab. The user reported: "the
-			// selector arrow starts at the bottom and not
-			// at the top it should be at the highest
-			// session". Previously the cursor followed
-			// the currently-active workspace session,
-			// which on a fresh launch is the most
-			// recent — and that landed at the BOTTOM of
-			// the new sorted list. We reset to 0
-			// (highest) on tab entry; syncSessionsSelected
-			// below highlights the active session's row
-			// if it's still in view, but the row index
-			// is now stable and predictable.
-			m.sessionsSelected = 0
-			m.syncSessionsSelected()
-			cmds = append(cmds, m.sessionsInput.Focus())
-			return m, tea.Batch(cmds...)
-
-		case "f2":
-			m.activeTab = TabKindChat
-			if sess := m.currentSession(); sess != nil {
-				sess.unreadCount = 0
-			}
-			return m, tea.Batch(cmds...)
-
-		case "f3":
-			// F3 = Settings
-			m.openSettingsTab()
-			return m, tea.Batch(cmds...)
-
-		case "f4":
-			// Legacy F4-Settings binding preserved
-			// for muscle memory.
-			m.openSettingsTab()
-			return m, tea.Batch(cmds...)
 
 		case "shift+tab":
 			// (workflow mode cycling removed)
