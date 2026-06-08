@@ -103,6 +103,10 @@ type Session struct {
 	// maps it to provider requests only when the active model supports
 	// reasoning_effort — never persisted to model config.
 	reasoningEffort string
+
+	// currentTodos is the last structured todo list emitted by todo_write.
+	// Used to preserve labels when the model sends status-only updates.
+	currentTodos []protocol.TodoItem
 }
 
 // Config is the input for New().
@@ -180,6 +184,7 @@ func (s *Session) History() []provider.Message {
 func (s *Session) Reset() {
 	s.mu.Lock()
 	s.history = nil
+	s.currentTodos = nil
 	s.mu.Unlock()
 	s.ensureSystemPrompt()
 }
@@ -997,10 +1002,7 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) *provider.Message {
 
 	items := make([]protocol.TodoItem, 0, len(parsed))
 	for i, p := range parsed {
-		content, _ := p["content"].(string)
-		if content == "" {
-			content, _ = p["activeForm"].(string)
-		}
+		content := protocol.TodoContentFromMap(p)
 		status, _ := p["status"].(string)
 		id, _ := p["id"].(string)
 		if id == "" {
@@ -1012,6 +1014,10 @@ func (s *Session) handleTodoWrite(call provider.ToolCall) *provider.Message {
 			Status:  protocol.TodoStatus(status),
 		})
 	}
+	s.mu.Lock()
+	items = protocol.MergeTodoList(s.currentTodos, items)
+	s.currentTodos = items
+	s.mu.Unlock()
 	s.safeEmit(protocol.SessionEvent{
 		Type: "todo_list_updated",
 		Data: protocol.EventTodoListUpdated{Todos: items},

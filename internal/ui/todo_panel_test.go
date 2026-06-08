@@ -54,6 +54,26 @@ func TestRightPanel_InfoMode_KeepsTodosWhenOverflow(t *testing.T) {
 	}
 }
 
+func TestRightPanel_TodosMode_StatusOnlyUpdateStillShowsLabels(t *testing.T) {
+	rp := RightPanel{}
+	rp.OpenTodos(16)
+	s := NewStyles(true)
+	prev := []protocol.TodoItem{
+		{ID: "1", Content: "Implement feature", Status: protocol.TodoInProgress},
+	}
+	merged := protocol.MergeTodoList(prev, []protocol.TodoItem{
+		{ID: "1", Status: protocol.TodoCompleted},
+	})
+	view := rp.View(16, s, true, "", merged, RightPanelInfoView{})
+	plain := stripANSI(view)
+	if !strings.Contains(plain, "Implement feature") {
+		t.Fatalf("expected todo label after status-only update, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "✓") {
+		t.Fatalf("expected completed checkmark, got:\n%s", plain)
+	}
+}
+
 func TestRightPanel_TodosMode_ScrollsLongLists(t *testing.T) {
 	rp := RightPanel{}
 	rp.OpenTodos(16)

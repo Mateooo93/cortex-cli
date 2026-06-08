@@ -12,6 +12,24 @@
   <a href="https://github.com/Mateooo93/cortex-cli/stargazers"><img src="https://img.shields.io/github/stars/Mateooo93/cortex-cli?style=for-the-badge" alt="Stars" /></a>
 </p>
 
+<p align="center">
+  <img src="assets/cortex-cli-screenshot.jpg" alt="cortex-cli terminal UI — chat, tool calls, todos, and context panel" width="920" />
+</p>
+
+<p align="center">
+  <em>Chat, tool calls, todos, and the context panel in one terminal window.</em>
+</p>
+
+<p align="center">
+  <video src="assets/cortex-cli-demo.mp4" width="920" autoplay loop muted playsinline>
+    <a href="assets/cortex-cli-demo.mp4">Watch the cortex-cli demo</a>
+  </video>
+</p>
+
+<p align="center">
+  <em>Demo recording: the agent makes a plan, runs tools, and updates the todo list as it works.</em>
+</p>
+
 **cortex-cli** is an open-source coding agent you run in the terminal. Describe what you want in plain language — it reads your repo, edits files, runs commands, searches the web, and keeps working until the job is done. Everything runs locally as a single Go binary with a polished Bubble Tea interface: no daemon, no Docker, no separate cloud agent.
 
 Built for daily development: sessions survive restarts, you can queue messages and spin up parallel workflows without leaving chat, and `/compact` folds long threads into a short summary that keeps the decisions and file paths that matter.

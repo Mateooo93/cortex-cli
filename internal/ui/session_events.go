@@ -275,7 +275,7 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		var tu protocol.EventTodoListUpdated
 		json.Unmarshal(data, &tu)
 		if len(tu.Todos) > 0 {
-			sess.todos = tu.Todos
+			sess.todos = protocol.MergeTodoList(sess.todos, tu.Todos)
 		}
 		if len(sess.todos) == 0 {
 			break

@@ -998,20 +998,24 @@ func plural(n int) string {
 // renderTodoOrStepLine renders a single labelled item with a status icon, wrapped to innerWidth.
 // status values: "pending", "in_progress", "completed", "failed".
 func renderTodoOrStepLine(label, status string, innerWidth int) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = "(todo)"
+	}
 	var bullet, text string
 	switch status {
 	case "in_progress":
 		bullet = lipgloss.NewStyle().Foreground(colorSecondary).Render("▶ ")
-		text = lipgloss.NewStyle().Foreground(colorSecondary).Width(innerWidth - 2).Render(label)
+		text = lipgloss.NewStyle().Foreground(colorSecondary).Bold(true).Width(innerWidth - 2).Render(label)
 	case "completed":
 		bullet = lipgloss.NewStyle().Foreground(colorSuccess).Render("✓ ")
-		text = lipgloss.NewStyle().Foreground(colorDim).Width(innerWidth - 2).Render(label)
+		text = lipgloss.NewStyle().Foreground(colorDim).Strikethrough(true).Width(innerWidth - 2).Render(label)
 	case "failed":
 		bullet = lipgloss.NewStyle().Foreground(colorError).Render("✗ ")
 		text = lipgloss.NewStyle().Foreground(colorError).Width(innerWidth - 2).Render(label)
 	default: // pending
 		bullet = lipgloss.NewStyle().Foreground(colorDim).Render("○ ")
-		text = lipgloss.NewStyle().Foreground(colorDim).Width(innerWidth - 2).Render(label)
+		text = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Width(innerWidth - 2).Render(label)
 	}
 	// Indent continuation lines to align under the text, not the bullet.
 	textLines := strings.Split(text, "\n")
