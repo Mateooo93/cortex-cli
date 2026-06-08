@@ -739,22 +739,67 @@ func renderSettingsWizardView(width, height int, s Styles, dimStyle, selectedSty
 	return s.ViewportFocusedStyle.Width(width).Height(height).Render(content)
 }
 
-// renderTabBar renders the tab bar: Sessions | Chat | Settings.
+type tabBarEntry struct {
+	name string
+	key  string
+	kind TabKind
+}
+
+func tabBarEntries() []tabBarEntry {
+	return []tabBarEntry{
+		{"Sessions", "F1", TabKindSessions},
+		{"Chat", "F2", TabKindChat},
+		{"Settings", "F4", TabKindSettings},
+	}
+}
+
+func tabBarPlainLabel(name, key string) string {
+	return " " + name + " (" + key + ") "
+}
+
+type tabBarHitRegion struct {
+	kind   TabKind
+	startX int
+	endX   int
+}
+
+// tabBarHitRegions mirrors renderTabBar's mid-row layout for mouse clicks.
+func tabBarHitRegions() []tabBarHitRegion {
+	var regions []tabBarHitRegion
+	visPos := 1
+	for i, d := range tabBarEntries() {
+		lw := len(tabBarPlainLabel(d.name, d.key))
+		if i > 0 {
+			visPos++
+		}
+		regions = append(regions, tabBarHitRegion{
+			kind:   d.kind,
+			startX: visPos,
+			endX:   visPos + lw + 1,
+		})
+		visPos += lw + 2
+	}
+	return regions
+}
+
+// tabKindAtX returns which tab label was clicked.
+func tabKindAtX(x int) (TabKind, bool) {
+	for _, r := range tabBarHitRegions() {
+		if x >= r.startX && x <= r.endX {
+			return r.kind, true
+		}
+	}
+	return 0, false
+}
+
+// renderTabBar renders the tab bar: Sessions (F1) | Chat (F2) | Settings (F4).
 // alertBlink is true when some session needs user attention (shown on Chat tab label).
 func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, alertBlink bool, hoverTab int) string {
-	type tabDef struct {
-		name string
-		kind TabKind
-	}
-	defs := []tabDef{
-		{"Sessions", TabKindSessions},
-		{"Chat", TabKindChat},
-		{"Settings", TabKindSettings},
-	}
+	defs := tabBarEntries()
 
 	// Use a consistent outline color for the tab "frames" (╭ ─ │ ╯ etc.)
-	// across all tabs (F1, F2, F3). The active tab is distinguished by
-	// its label style (TabActiveStyle), not by changing the border/sep color.
+	// across all tabs. The active tab is distinguished by its label style
+	// (TabActiveStyle), not by changing the border/sep color.
 	var sepStyle = lipgloss.NewStyle().Foreground(s.ColorWhite)
 
 	var top, mid, bot strings.Builder
@@ -764,7 +809,7 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 	visPos := 1
 
 	for i, d := range defs {
-		full := " " + d.name + " "
+		full := tabBarPlainLabel(d.name, d.key)
 		lw := len(full)
 		topLine := "╭" + strings.Repeat("─", lw) + "╮"
 		var botLine string
@@ -786,7 +831,7 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 		default:
 			nameStyle = s.TabInactiveStyle
 		}
-		label := " " + nameStyle.Render(d.name) + " "
+		label := " " + nameStyle.Render(d.name+" ("+d.key+")") + " "
 
 		if i > 0 {
 			top.WriteString(" ")

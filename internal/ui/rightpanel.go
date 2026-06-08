@@ -421,7 +421,7 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 		if innerHeight < 1 {
 			innerHeight = 1
 		}
-		lines = appendFooterPinned(infoLines, keyLines, innerHeight, 2)
+		lines = appendFooterPinned(infoLines, keyLines, innerHeight, 4)
 	}
 
 	// Pad to fill height (subtract 2 for border top+bottom).
@@ -617,13 +617,14 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 func renderInfoKeybindLines(innerWidth int) []string {
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
 	whiteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	badgeStyle := lipgloss.NewStyle().Background(colorSecondary).Foreground(lipgloss.Color("0")).Bold(true)
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
 
 	lines := []string{
+		"",
 		whiteStyle.Bold(true).Width(innerWidth).Render("Keys"),
 	}
 	for _, row := range rightPanelKeybindRows {
-		lines = append(lines, renderKeybindLegendRow(badgeStyle, dimStyle, row[0], row[1], innerWidth))
+		lines = append(lines, renderKeybindLegendRow(keyStyle, dimStyle, row[0], row[1], innerWidth))
 	}
 	lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("Esc close panel"))
 	return lines
@@ -696,24 +697,19 @@ func trimTermLinesFromEnd(lines []string, trim int) []string {
 	return lines
 }
 
-// rightPanelKeybindRows is the compact legend shown at the bottom of the
-// info panel (Ctrl+B). F3 and F4 both open Settings from the tab bar.
+// rightPanelKeybindRows lists panel-specific shortcuts. F-keys and input
+// keys (Tab/Enter/Esc) live on the tab bar and under the chat input.
 var rightPanelKeybindRows = [][2]string{
-	{"F1", "Sessions"},
-	{"F2", "Chat"},
-	{"F3", "Settings"},
-	{"Tab", "queue"},
-	{"Enter", "send"},
-	{"Esc", "cancel"},
 	{"Ctrl+T", "new session"},
 	{"Ctrl+B", "toggle panel"},
 	{"Ctrl+C", "quit"},
 	{"/", "slash menu"},
 }
 
-func renderKeybindLegendRow(badgeStyle, dimStyle lipgloss.Style, key, action string, innerWidth int) string {
-	badge := badgeStyle.Render(fmt.Sprintf(" %-6s ", key))
-	return badge + " " + dimStyle.Render(truncateRight(action, innerWidth-10))
+func renderKeybindLegendRow(keyStyle, dimStyle lipgloss.Style, key, action string, innerWidth int) string {
+	keyPart := keyStyle.Render(key)
+	line := keyPart + dimStyle.Render("  "+truncateRight(action, innerWidth-lipgloss.Width(keyPart)-2))
+	return lipgloss.NewStyle().Width(innerWidth).Render(line)
 }
 
 // truncateRight is like settingsTruncate but right-side cut and

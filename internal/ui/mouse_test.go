@@ -73,26 +73,29 @@ func TestChatContentBounds_RespectRightPanel(t *testing.T) {
 }
 
 func TestTabKindAtX_MatchesRenderedLayout(t *testing.T) {
-	cases := []struct {
-		x      int
-		want   TabKind
-		wantOK bool
-	}{
-		{0, 0, false},
-		{5, TabKindSessions, true},
-		{12, TabKindSessions, true},
-		{13, 0, false}, // separator between tabs
-		{14, TabKindChat, true},
-		{21, TabKindChat, true},
-		{23, TabKindSettings, true},
-		{34, TabKindSettings, true},
-		{60, 0, false},
+	regions := tabBarHitRegions()
+	if len(regions) != 3 {
+		t.Fatalf("expected 3 tab regions, got %d", len(regions))
 	}
-	for _, tc := range cases {
-		got, ok := tabKindAtX(tc.x)
-		if ok != tc.wantOK || got != tc.want {
-			t.Fatalf("tabKindAtX(%d) = (%v,%v), want (%v,%v)", tc.x, got, ok, tc.want, tc.wantOK)
+	for _, r := range regions {
+		for _, x := range []int{r.startX, r.endX} {
+			got, ok := tabKindAtX(x)
+			if !ok || got != r.kind {
+				t.Fatalf("tabKindAtX(%d) = (%v,%v), want (%v,true)", x, got, ok, r.kind)
+			}
 		}
+	}
+	if _, ok := tabKindAtX(0); ok {
+		t.Fatal("x=0 should miss all tabs")
+	}
+	if regions[0].endX+1 < regions[1].startX {
+		if _, ok := tabKindAtX(regions[0].endX + 1); ok {
+			t.Fatal("separator between tabs should not hit")
+		}
+	}
+	settings := regions[2]
+	if _, ok := tabKindAtX((settings.startX + settings.endX) / 2); !ok {
+		t.Fatal("middle of settings tab should hit")
 	}
 }
 
@@ -104,9 +107,10 @@ func TestMouseClick_SettingsTabOpensSettings(t *testing.T) {
 	m.width = 120
 	m.height = 40
 
+	settings := tabBarHitRegions()[2]
 	updated, _ := m.Update(tea.MouseClickMsg{
 		Button: tea.MouseLeft,
-		X:      28,
+		X:      (settings.startX + settings.endX) / 2,
 		Y:      1,
 	})
 	if updated.(Model).activeTab != TabKindSettings {
@@ -115,12 +119,13 @@ func TestMouseClick_SettingsTabOpensSettings(t *testing.T) {
 }
 
 func TestHandleTabBarClick_SettingsTab(t *testing.T) {
+	settings := tabBarHitRegions()[2]
 	m := &Model{
 		width:     100,
 		height:    40,
 		activeTab: TabKindChat,
 		sessions:  []*SessionState{{}},
-		mouseX:    28,
+		mouseX:    (settings.startX + settings.endX) / 2,
 		mouseY:    1,
 	}
 	updated, cmd := m.handleTabBarClick()

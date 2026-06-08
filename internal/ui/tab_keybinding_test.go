@@ -101,22 +101,17 @@ func TestF3OnSessionsTabOpensSettings(t *testing.T) {
 	}
 }
 
-func TestRenderTabBar_TabNamesOnly(t *testing.T) {
+func TestRenderTabBar_ShowsFunctionKeys(t *testing.T) {
 	s := NewStyles(true)
 	bar := renderTabBar(TabKindChat, 120, s, true, false, -1)
 	plain := stripANSI(bar)
-	for _, want := range []string{"Sessions", "Chat", "Settings"} {
+	for _, want := range []string{"Sessions", "Chat", "Settings", "(F1)", "(F2)", "(F4)"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("tab bar missing %q, got:\n%s", want, plain)
 		}
 	}
 	if strings.Contains(plain, "Workflows") {
 		t.Errorf("tab bar should not contain 'Workflows', got:\n%s", plain)
-	}
-	for _, unwanted := range []string{"(F1)", "(F2)", "(F3)", "[F1]", " F1 "} {
-		if strings.Contains(plain, unwanted) {
-			t.Errorf("tab bar should not contain %q, got:\n%s", unwanted, plain)
-		}
 	}
 }
 
