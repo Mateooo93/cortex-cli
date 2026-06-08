@@ -440,13 +440,13 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 	return box
 }
 
-// rightPanelBorderStyle uses the theme primary color for the panel outline.
+// rightPanelBorderStyle uses a neutral grey outline (not theme primary).
 // The top border is required so rounded corners render correctly where the
 // panel meets the tab bar (BorderTop(false) left a broken gap at the top).
-func rightPanelBorderStyle(_ Styles) lipgloss.Style {
+func rightPanelBorderStyle(s Styles) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
+		BorderForeground(s.ColorBlurBorder).
 		Padding(0, 1)
 }
 
@@ -631,7 +631,6 @@ func renderInfoKeybindLines(innerWidth int) []string {
 	for _, row := range rightPanelKeybindRows {
 		lines = append(lines, renderKeybindLegendRow(keyStyle, dimStyle, row[0], row[1], innerWidth))
 	}
-	lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("Esc close panel"))
 	return lines
 }
 

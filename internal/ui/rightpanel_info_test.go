@@ -51,10 +51,10 @@ func TestModelContextWindow(t *testing.T) {
 // panel renders the context-usage bar with the correct
 // percentage. This is the headline user-facing metric the user
 // asked for.
-func TestRightPanel_OutlineUsesThemePrimary(t *testing.T) {
+func TestRightPanel_OutlineUsesGreyBorder(t *testing.T) {
 	s := NewStyles(true)
-	if rightPanelBorderStyle(s).GetBorderLeftForeground() != colorPrimary {
-		t.Fatal("right panel border should use theme primary color")
+	if rightPanelBorderStyle(s).GetBorderLeftForeground() != s.ColorBlurBorder {
+		t.Fatal("right panel border should use neutral grey, not theme primary")
 	}
 	if !rightPanelBorderStyle(s).GetBorderTop() {
 		t.Fatal("right panel should include top border for correct rounded corners")
@@ -78,13 +78,12 @@ func TestRightPanel_InfoMode_ShowsContextBar(t *testing.T) {
 	for _, want := range []string{
 		"Model", "Context", "6%", "2:13", "Keys",
 		"Ctrl+T", "Ctrl+B", "Ctrl+C", "/",
-		"Esc close panel",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("info panel missing %q, got:\n%s", want, view)
 		}
 	}
-	for _, unwanted := range []string{"F1", "F2", "F4", "Tab", "Enter", "send", "queue", "cancel"} {
+	for _, unwanted := range []string{"F1", "F2", "F4", "Tab", "Enter", "send", "queue", "cancel", "Esc close panel"} {
 		if strings.Contains(view, unwanted) {
 			t.Errorf("info panel should not contain %q (moved to tab bar / input hints), got:\n%s", unwanted, view)
 		}
