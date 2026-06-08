@@ -1929,55 +1929,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Chat scrolling keys: work whenever the Chat tab is active,
-		// no matter what the current focus (input, right panel, etc) or
-		// other panels. This removes the need for the (now removed)
-		// Tab key "focus command" to switch into a scrollable chat mode.
-		// Mouse wheel (see MouseWheelMsg) provides an additional way
-		// to scroll chat from anywhere.
+		// Fork / trim shortcuts on the Chat tab. Chat scroll is mouse-wheel only.
 		if m.activeTab == TabKindChat && sess != nil {
-			// Preserve ↑ history recall: if we're at the top of the
-			// input in waiting state, let the later check open the
-			// history panel instead of scrolling.
-			if msg.String() == "up" && sess.agentState == StateWaitingForInput &&
-				sess.input.Line() == 0 && sess.input.Column() == 0 && len(sess.history.entries) > 0 {
-				// do not scroll; fall through to history open
-			} else {
-				didScroll := false
-				switch msg.String() {
-				case "up":
-					sess.chatScrollOffset += 3
-					didScroll = true
-				case "down":
-					sess.chatScrollOffset -= 3
-					didScroll = true
-				case "pgup":
-					sess.chatScrollOffset += 20
-					didScroll = true
-				case "pgdown":
-					sess.chatScrollOffset -= 20
-					didScroll = true
-				case "home":
-					sess.chatScrollOffset = m.sessionMaxScrollOffset(sess)
-					didScroll = true
-				case "end", "G":
-					sess.chatScrollOffset = 0
-					didScroll = true
-				case "F":
-					if sep, ok := m.sessionActiveForkSep(sess); ok {
-						return m.doFork(sep)
-					}
-				case "T":
-					if sep, ok := m.sessionActiveForkSep(sess); ok {
-						sess.trimPrevState = sess.agentState
-						sess.trimSelected = 0
-						sess.trimSep = sep
-						sess.agentState = StateTrimConfirm
-						return m, nil
-					}
+			switch msg.String() {
+			case "F":
+				if sep, ok := m.sessionActiveForkSep(sess); ok {
+					return m.doFork(sep)
 				}
-				if didScroll {
-					m.clampScrollOffset(sess)
+			case "T":
+				if sep, ok := m.sessionActiveForkSep(sess); ok {
+					sess.trimPrevState = sess.agentState
+					sess.trimSelected = 0
+					sess.trimSep = sep
+					sess.agentState = StateTrimConfirm
 					return m, nil
 				}
 			}

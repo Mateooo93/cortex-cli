@@ -40,17 +40,3 @@ func TestLowercaseFTypesIntoInputWhenNotEmpty(t *testing.T) {
 	}
 }
 
-func TestPgDownStillScrollsChat(t *testing.T) {
-	setupPersistDir(t)
-	m := NewModel(&config.Config{}, cortexconfig.Default(), nil, false, "", false, false)
-	m.activeTab = TabKindChat
-	sess := m.currentSession()
-	sess.agentState = StateWaitingForInput
-	sess.input.SetValue("typing")
-	sess.chatScrollOffset = 10
-
-	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
-	if sess.chatScrollOffset >= 10 {
-		t.Fatalf("chatScrollOffset = %d, want scroll down from PgDown", sess.chatScrollOffset)
-	}
-}
