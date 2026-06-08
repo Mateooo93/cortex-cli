@@ -84,6 +84,22 @@ func (j *Journal) Replay(prompts []string) []JournalEntry {
 	return matches
 }
 
+// FindByPrompt returns the first journal entry with a matching
+// prompt hash. Unlike Replay, this is not prefix-based; it is used
+// when an individual agent call wants to reuse its cached result.
+func (j *Journal) FindByPrompt(prompt string) (JournalEntry, bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	hash := hashPrompt(prompt)
+	for _, entry := range j.entries {
+		if entry.PromptHash == hash {
+			return entry, true
+		}
+	}
+	return JournalEntry{}, false
+}
+
 // Load reads a journal from disk. Returns nil if the file
 // doesn't exist.
 func LoadJournal(path string) (*Journal, error) {

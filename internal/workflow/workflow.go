@@ -161,7 +161,7 @@ type Step struct {
 	Role        string
 	Status      string
 	Output      string
-	CurrentMsg  string        // "what the agent is doing right now"
+	CurrentMsg  string // "what the agent is doing right now"
 	StartedAt   time.Time
 	EndedAt     time.Time
 	Duration    time.Duration
@@ -169,20 +169,20 @@ type Step struct {
 
 // Snapshot is a point-in-time view of a workflow for the UI.
 type Snapshot struct {
-	ID           string
-	Name         string
-	Goal         string
-	Status       string // "planning" | "running" | "synthesizing" | "done" | "failed" | "cancelled"
-	StartedAt    time.Time
-	EndedAt      time.Time
-	Duration     time.Duration
-	Steps        []Step
-	Summary      string
-	CurrentMsg   string // what the active step is currently doing
-	DoneSteps    int    // count of steps whose Status == StepDone
-	TotalSteps   int    // total steps the workflow will execute
-	BudgetSpent  int64  // tokens spent in this run
-	BudgetTotal  int64  // token cap (0 = unlimited)
+	ID          string
+	Name        string
+	Goal        string
+	Status      string // "planning" | "running" | "synthesizing" | "done" | "failed" | "cancelled"
+	StartedAt   time.Time
+	EndedAt     time.Time
+	Duration    time.Duration
+	Steps       []Step
+	Summary     string
+	CurrentMsg  string // what the active step is currently doing
+	DoneSteps   int    // count of steps whose Status == StepDone
+	TotalSteps  int    // total steps the workflow will execute
+	BudgetSpent int64  // tokens spent in this run
+	BudgetTotal int64  // token cap (0 = unlimited)
 }
 
 // Engine runs workflows. The engine is goroutine-safe; multiple
@@ -194,17 +194,17 @@ type Engine struct {
 	flows   map[string]*Workflow
 	hooks   Hooks
 	cancel  map[string]context.CancelFunc
-	journal *Journal        // per-run journal for resume support
-	budget  *Budget         // token budget (may be nil = unlimited)
+	journal *Journal // per-run journal for resume support
+	budget  *Budget  // token budget (may be nil = unlimited)
 }
 
 // Hooks is the callback set the UI registers. All fields are
 // optional; nil means "don't notify for this event".
 type Hooks struct {
 	OnWorkflowStart    func(snap Snapshot)
-	OnStepStart       func(workflowID, stepID string, snap Snapshot)
-	OnStepProgress    func(workflowID, stepID, msg string, snap Snapshot)
-	OnStepDone        func(workflowID, stepID string, snap Snapshot)
+	OnStepStart        func(workflowID, stepID string, snap Snapshot)
+	OnStepProgress     func(workflowID, stepID, msg string, snap Snapshot)
+	OnStepDone         func(workflowID, stepID string, snap Snapshot)
 	OnWorkflowComplete func(snap Snapshot)
 }
 
@@ -212,19 +212,19 @@ type Hooks struct {
 // these in memory (no persistence yet \u2014 the user can re-run
 // from the goal in the Workflows tab).
 type Workflow struct {
-	ID        string
-	Name      string
-	Goal      string
-	Strategy  string
-	MaxAgents int
-	Status    string
-	StartedAt time.Time
-	EndedAt   time.Time
-	Steps     []*Step
-	Summary   string
-	Budget    *Budget          // token budget for this run
-	Journal   *Journal         // call journal for resume
-	cancel    context.CancelFunc
+	ID         string
+	Name       string
+	Goal       string
+	Strategy   string
+	MaxAgents  int
+	Status     string
+	StartedAt  time.Time
+	EndedAt    time.Time
+	Steps      []*Step
+	Summary    string
+	Budget     *Budget  // token budget for this run
+	Journal    *Journal // call journal for resume
+	cancel     context.CancelFunc
 	currentMsg atomic.Value // string
 }
 
@@ -590,9 +590,8 @@ func (e *Engine) callRole(ctx context.Context, role Role, prompt string, wf *Wor
 	// cached result instead of making a new LLM call. This
 	// enables deterministic resume of interrupted runs.
 	if wf.Journal != nil {
-		cached := wf.Journal.Replay([]string{prompt})
-		if len(cached) > 0 && cached[0].Output != "" {
-			return cached[0].Output, nil
+		if cached, ok := wf.Journal.FindByPrompt(prompt); ok && cached.Output != "" {
+			return cached.Output, nil
 		}
 	}
 
