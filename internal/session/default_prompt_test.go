@@ -26,9 +26,32 @@ func TestDefaultSystemPrompt_ContainsThinkTags(t *testing.T) {
 	if !strings.Contains(prompt, "hides these by default") {
 		t.Errorf("default system prompt must note that <think> content is hidden by default, got:\n%s", prompt)
 	}
-	for _, want := range []string{"DO the task", "For large writes", "Split file creation/rewrites", "read_file", "why"} {
+	for _, want := range []string{"DO the task", "For large writes", "Split file creation/rewrites", "read_file", "why", "Only change files"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("default prompt missing %q, got:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestBuildSystemPrompt_IncludesWorkdir(t *testing.T) {
+	prompt := BuildSystemPrompt("/home/user/myproject")
+	if !strings.Contains(prompt, "/home/user/myproject") {
+		t.Fatalf("expected workdir in prompt, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Working directory:") {
+		t.Fatalf("expected working directory section, got:\n%s", prompt)
+	}
+}
+
+func TestBuildSystemPrompt_RequiresVisibleNarration(t *testing.T) {
+	prompt := BuildSystemPrompt("/tmp")
+	for _, want := range []string{
+		"Do NOT put user-facing narration only inside thinking",
+		"Before every tool batch",
+		"visible chat",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q", want)
 		}
 	}
 }

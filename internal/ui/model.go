@@ -245,6 +245,7 @@ type Model struct {
 	settingsInspectProvider  string
 	settingsInspectField     int
 	settingsWizard           settingsWizard
+	themeColors              config.ThemeConfig
 
 	// compactInFlight is true while a /compact (or auto-compact)
 	// run is in progress. The flag prevents stacking multiple
@@ -358,13 +359,13 @@ func (m *Model) buildStatusBarInfo(sess *SessionState) StatusBarInfo {
 		// knows they have something waiting.
 		info.QueuedMsgs = 1
 	}
-	if spec := m.currentSettingsModel(); spec != "" {
+	if spec := m.activeModelSpec(sess); spec != "" {
 		info.ModelName = m.displayNameForModelSpec(spec)
-		if colon := strings.Index(spec, ":"); colon > 0 {
-			info.ProviderTag = spec[:colon]
+		if provider := ProviderOfFromConfig(spec, m.cortexCfg); provider != "" {
+			info.ProviderTag = provider
 		}
 	}
-	if max := cortexconfig.ModelContextWindow(m.currentSettingsModel()); max > 0 {
+	if max := cortexconfig.ModelContextWindow(m.activeModelSpec(sess)); max > 0 {
 		info.ContextMax = max
 	}
 	// Fallback to chars/4 estimate so the bar shows something
@@ -413,33 +414,16 @@ func (m *Model) buildRightPanelInfoView(sess *SessionState) RightPanelInfoView {
 			// hundred lines down.
 			info.Connected = !sess.reconnecting
 		}
-		if sess.modelName != "" {
-			info.ModelName = sess.modelName
-		}
-		// Look up the provider display name from the
-		// cortexconfig presets so the panel can show
-		// "ChatGPT (codex)" instead of just "codex".
-		if m.cortexCfg != nil {
-			// First try: currentSettingsModel() returns
-			// the spec the user picked via /model; if
-			// that has a friendly name use it.
-			if spec := m.currentSettingsModel(); spec != "" {
-				if display := m.displayNameForModelSpec(spec); display != "" {
-					info.ModelName = display
-				}
-			}
-			// Resolve "provider" by stripping the
-			// "<provider>:" prefix from the spec.
-			if spec := m.currentSettingsModel(); spec != "" {
-				if colon := strings.Index(spec, ":"); colon > 0 {
-					info.ProviderName = cortexconfig.ProviderDisplayName(spec[:colon])
-				}
+		if spec := m.activeModelSpec(sess); spec != "" {
+			info.ModelName = m.displayNameForModelSpec(spec)
+			if provider := ProviderOfFromConfig(spec, m.cortexCfg); provider != "" {
+				info.ProviderName = cortexconfig.ProviderDisplayName(provider)
 			}
 		}
 	}
 	// Look up the model's context window.
 	if m.cortexCfg != nil {
-		if max := cortexconfig.ModelContextWindow(m.currentSettingsModel()); max > 0 {
+		if max := cortexconfig.ModelContextWindow(m.activeModelSpec(sess)); max > 0 {
 			info.ContextMax = max
 		}
 	}
@@ -869,6 +853,7 @@ func NewModel(cfg *config.Config, cortexCfg *cortexconfig.Config, client *daemon
 	if testMode {
 		m.fillTestData()
 	}
+	m.themeColors = m.loadThemeColors()
 	m.applyConfiguredTheme()
 
 	return m
@@ -1475,6 +1460,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.settingsCustomBaseURL = val
 							m.openSettingsTextInput(settingsInputCustomProviderAPIKey, providerName, "New provider API key", "Paste API key (optional)...", "", true)
 						}
+					case settingsInputThemePrimary:
+						if err := m.setThemePrimaryColor(val); err != nil {
+							cmds = append(cmds, m.emitStatusMsg("Primary color: "+err.Error(), StatusMsgError))
+						} else if val == "" {
+							cmds = append(cmds, m.emitStatusMsg("Primary color reset to default", StatusMsgInfo))
+						} else {
+							cmds = append(cmds, m.emitStatusMsg("Primary color saved: "+m.themeColors.EffectivePrimary(), StatusMsgInfo))
+						}
+					case settingsInputThemeSecondary:
+						if err := m.setThemeSecondaryColor(val); err != nil {
+							cmds = append(cmds, m.emitStatusMsg("Secondary color: "+err.Error(), StatusMsgError))
+						} else if val == "" {
+							cmds = append(cmds, m.emitStatusMsg("Secondary color reset to default", StatusMsgInfo))
+						} else {
+							cmds = append(cmds, m.emitStatusMsg("Secondary color saved: "+m.themeColors.EffectiveSecondary(), StatusMsgInfo))
+						}
 					case settingsInputCustomProviderAPIKey:
 						if m.settingsCustomProvider != "" && m.settingsCustomBaseURL != "" && m.cortexCfg != nil {
 							providerName = m.cortexCfg.AddCustomProvider(m.settingsCustomProvider, m.settingsCustomBaseURL, val)
@@ -1597,7 +1598,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					case 0: // Theme — cycle auto → dark → light → auto
 						m.setConfiguredTheme(nextTheme(m.configuredTheme()))
 						cmds = append(cmds, m.emitStatusMsg("Theme: "+m.configuredTheme(), StatusMsgInfo))
-					case 1: // Show extended thinking — toggle
+					case 1: // Primary color
+						m.openSettingsTextInput(
+							settingsInputThemePrimary, "",
+							"Primary color",
+							"#RRGGBB (empty = default "+config.DefaultThemePrimary+")",
+							m.themeColors.Primary, false,
+						)
+					case 2: // Secondary color
+						m.openSettingsTextInput(
+							settingsInputThemeSecondary, "",
+							"Secondary color",
+							"#RRGGBB (empty = default "+config.DefaultThemeSecondary+")",
+							m.themeColors.Secondary, false,
+						)
+					case 3: // Show extended thinking — toggle
 						if sess := m.currentSession(); sess != nil {
 							sess.showThinking = !sess.showThinking
 							if sess.showThinking && sess.thinkingBuf != "" {
@@ -1607,17 +1622,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 							_ = config.SetShowThinking(sess.showThinking)
 						}
-					case 2: // Reasoning effort — cycle auto → low → medium → high
+					case 4: // Reasoning effort — cycle auto → low → medium → high
 						m.setActiveReasoningEffort(nextReasoningEffort(m.currentReasoningEffort()))
 						cmds = append(cmds, m.emitStatusMsg("Reasoning effort: "+m.currentReasoningEffort(), StatusMsgInfo))
-					case 3: // Show token usage — toggle
+					case 5: // Show token usage — toggle
 						m.setConfiguredShowUsage(!m.configuredShowUsage())
 						state := "on"
 						if !m.configuredShowUsage() {
 							state = "off"
 						}
 						cmds = append(cmds, m.emitStatusMsg("Show token usage: "+state, StatusMsgInfo))
-					case 4: // Auto-compact context — toggle
+					case 6: // Auto-compact context — toggle
 						m.setConfiguredAutoCompact(!m.configuredAutoCompact())
 						state := "on"
 						if !m.configuredAutoCompact() {
@@ -2779,7 +2794,7 @@ func (m Model) View() tea.View {
 		if sess != nil && sess.rightPanel.IsVisible() {
 			rpHeight := layout.ChatHeight + 1
 			infoView := m.buildRightPanelInfoView(sess)
-			rpView := sess.rightPanel.View(rpHeight, m.styles, sess.focus == FocusRightPanel, sess.modelName, sess.todos, infoView)
+			rpView := sess.rightPanel.View(rpHeight, m.styles, sess.focus == FocusRightPanel, m.activeModelSpec(sess), sess.todos, infoView)
 			rpX := m.width - sess.rightPanel.PanelWidth()
 			uv.NewStyledString(rpView).Draw(canvas, image.Rect(rpX, y-1, m.width, y-1+rpHeight))
 		}
@@ -2828,6 +2843,8 @@ func (m Model) View() tea.View {
 		selectedModels := m.selectedSettingsModels()
 		otherView := SettingsOtherView{
 			Theme:           m.configuredTheme(),
+			PrimaryColor:    formatThemeColorLabel(m.themeColors.Primary, config.DefaultThemePrimary),
+			SecondaryColor:  formatThemeColorLabel(m.themeColors.Secondary, config.DefaultThemeSecondary),
 			ShowThinking:    settingsShowThinking,
 			ReasoningEffort: m.currentReasoningEffort(),
 			ShowUsage:       m.configuredShowUsage(),

@@ -159,16 +159,7 @@ func (s *Session) Reset() {
 	s.mu.Lock()
 	s.history = nil
 	s.mu.Unlock()
-	systemMsg := DefaultSystemPrompt()
-	if systemMsg != "" {
-		systemMsg += "\n\n"
-	}
-	if s.cfg.SystemPrompt != "" {
-		systemMsg += s.cfg.SystemPrompt + "\n\n"
-	}
-	systemMsg += s.tools.ToSystemPrompt()
-	// We don't push to history directly; the next Send will rebuild.
-	s.system(systemMsg)
+	s.ensureSystemPrompt()
 }
 
 // SetActiveModel switches the model for future turns.
@@ -191,16 +182,7 @@ func (s *Session) SetActiveModel(name string) error {
 // The history is rebuilt with a system message derived from the
 // current config so the next turn sees the right tools/prompt.
 func (s *Session) RestoreHistory(history []provider.Message) {
-	systemMsg := DefaultSystemPrompt()
-	if systemMsg != "" {
-		systemMsg += "\n\n"
-	}
-	if s.cfg.SystemPrompt != "" {
-		systemMsg += s.cfg.SystemPrompt + "\n\n"
-	}
-	systemMsg += s.tools.ToSystemPrompt()
-	s.system(systemMsg)
-
+	systemMsg := s.buildSystemMessage()
 	s.mu.Lock()
 	// Append the restored messages after the system message.
 	// We trust the caller's input here -- this is only called
@@ -348,6 +330,25 @@ func (s *Session) system(text string) {
 	s.history = out
 }
 
+func (s *Session) buildSystemMessage() string {
+	systemMsg := BuildSystemPrompt(s.workdir)
+	if systemMsg != "" {
+		systemMsg += "\n\n"
+	}
+	if s.cfg.SystemPrompt != "" {
+		systemMsg += s.cfg.SystemPrompt + "\n\n"
+	}
+	systemMsg += s.tools.ToSystemPrompt()
+	return systemMsg
+}
+
+// ensureSystemPrompt prepends or refreshes the system message.
+// Called on /clear, history restore, and before the first turn
+// so new sessions still get the working-directory instructions.
+func (s *Session) ensureSystemPrompt() {
+	s.system(s.buildSystemMessage())
+}
+
 // ── Turn execution ──────────────────────────────────────────────────────
 
 func (s *Session) runTurn(parent context.Context, text string, attachments []protocol.Attachment) {
@@ -365,6 +366,16 @@ func (s *Session) runTurn(parent context.Context, text string, attachments []pro
 		s.mu.Unlock()
 		s.emitAgentDone()
 	}()
+
+	// Ensure the system prompt (with workdir) is present before
+	// the first provider call — new sessions start with empty
+	// history and would otherwise miss it entirely.
+	s.mu.Lock()
+	hasSystem := len(s.history) > 0 && s.history[0].Role == "system"
+	s.mu.Unlock()
+	if !hasSystem {
+		s.ensureSystemPrompt()
+	}
 
 	// 1) Push the user message
 	s.mu.Lock()

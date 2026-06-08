@@ -8,6 +8,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -735,6 +738,124 @@ func (t *SearchTool) Run(ctx Context, args map[string]any) (Result, error) {
 	return Result{OK: true, Output: strings.Join(matches, "\n")}, nil
 }
 
+// WebSearchTool performs a web search using DuckDuckGo's public JSON API
+// (no key required). Returns instant answers when available and related
+// topics as web results. Always allowed (read-only external info).
+type WebSearchTool struct{}
+
+func (t *WebSearchTool) Name() string { return "web_search" }
+func (t *WebSearchTool) Description() string {
+	return "Perform a web search and return top results with titles, links and snippets. Powered by DuckDuckGo (no API key). Useful for research and current events."
+}
+func (t *WebSearchTool) Parameters() map[string]Param {
+	return map[string]Param{
+		"query":       {Type: "string", Description: "The search query", Required: true},
+		"num_results": {Type: "number", Description: "Maximum results to return (default 5, max 10)"},
+	}
+}
+func (t *WebSearchTool) Run(ctx Context, args map[string]any) (Result, error) {
+	q, _ := args["query"].(string)
+	if strings.TrimSpace(q) == "" {
+		return Result{OK: false, Error: "query is required"}, nil
+	}
+	num := 5
+	if v, ok := args["num_results"]; ok {
+		if f, ok := v.(float64); ok && f > 0 {
+			num = int(f)
+			if num > 10 {
+				num = 10
+			}
+		}
+	}
+
+	client := &http.Client{Timeout: 12 * time.Second}
+	u := "https://api.duckduckgo.com/?q=" + url.QueryEscape(q) + "&format=json&no_redirect=1&no_html=1&skip_disambig=1"
+	req, err := http.NewRequestWithContext(context.Background(), "GET", u, nil)
+	if err != nil {
+		return Result{OK: false, Error: err.Error()}, nil
+	}
+	req.Header.Set("User-Agent", "cortex-cli/1.0 (web_search tool)")
+	resp, err := client.Do(req)
+	if err != nil {
+		return Result{OK: false, Error: "web search failed: " + err.Error()}, nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return Result{OK: false, Error: fmt.Sprintf("search API returned HTTP %d", resp.StatusCode)}, nil
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Result{OK: false, Error: "read response: " + err.Error()}, nil
+	}
+
+	var data map[string]any
+	if err := json.Unmarshal(body, &data); err != nil {
+		return Result{OK: false, Error: "decode JSON: " + err.Error()}, nil
+	}
+
+	var lines []string
+	lines = append(lines, fmt.Sprintf("Web search results for %q:", q))
+
+	// Prefer instant answer / abstract
+	if heading, _ := data["Heading"].(string); heading != "" {
+		lines = append(lines, "\n• "+heading)
+		if abs, _ := data["AbstractText"].(string); abs != "" {
+			lines = append(lines, "  "+abs)
+		}
+		if u, _ := data["AbstractURL"].(string); u != "" {
+			lines = append(lines, "  "+u)
+		}
+	}
+
+	// Flatten RelatedTopics into result list
+	count := 0
+	if tps, ok := data["RelatedTopics"].([]any); ok {
+		for _, tp := range tps {
+			if count >= num {
+				break
+			}
+			if m, ok := tp.(map[string]any); ok {
+				if txt, _ := m["Text"].(string); txt != "" {
+					u := ""
+					if uu, _ := m["FirstURL"].(string); uu != "" {
+						u = uu
+					}
+					lines = append(lines, fmt.Sprintf("\n%d. %s", count+1, txt))
+					if u != "" {
+						lines = append(lines, "   "+u)
+					}
+					count++
+				} else if subt, ok := m["Topics"].([]any); ok {
+					for _, st := range subt {
+						if count >= num {
+							break
+						}
+						if sm, ok := st.(map[string]any); ok {
+							if txt, _ := sm["Text"].(string); txt != "" {
+								u := ""
+								if uu, _ := sm["FirstURL"].(string); uu != "" {
+									u = uu
+								}
+								lines = append(lines, fmt.Sprintf("\n%d. %s", count+1, txt))
+								if u != "" {
+									lines = append(lines, "   "+u)
+								}
+								count++
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(lines) == 1 {
+		lines = append(lines, "\nNo structured results. Consider refining the query.")
+	}
+
+	return Result{OK: true, Output: strings.Join(lines, "\n")}, nil
+}
+
 // ShellTool executes an arbitrary shell command. It prefers bash
 // over dash/sh so that bash-only features (arrays, [[ ]], ${var//}
 // expansions, process substitution) keep working. On systems where
@@ -807,6 +928,7 @@ func defaultTools() []Tool {
 		&SearchTool{},
 		&ShellTool{},
 		&WebFetchTool{},
+		&WebSearchTool{},
 		&SpawnAgentTool{},
 		&TaskOutputTool{},
 		&AskUserQuestionTool{},

@@ -301,6 +301,8 @@ func settingsKeyStatus(pk ProviderSettingsView) string {
 
 type SettingsOtherView struct {
 	Theme           string
+	PrimaryColor    string
+	SecondaryColor  string
 	ShowThinking    bool
 	ReasoningEffort string
 	ShowUsage       bool
@@ -592,6 +594,8 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		value string
 	}{
 		{label: "Theme", value: normalizedSettingsValue(other.Theme)},
+		{label: "Primary color", value: other.PrimaryColor},
+		{label: "Secondary color", value: other.SecondaryColor},
 		{label: "Show extended thinking", value: thinkingToggle + " " + thinkingStatus},
 		{label: "Reasoning effort", value: normalizedSettingsValue(other.ReasoningEffort)},
 		{label: "Show token usage", value: usageToggle + " " + usageStatus},
@@ -615,7 +619,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		lines = append(lines, rowStyle.Width(innerWidth).Render(rowText))
 	}
 	if activeSection == sectionIdx("Other Settings") {
-		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  ↑/↓ move · Enter toggle/cycle · Tab switch to Providers"))
+		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  ↑/↓ move · Enter toggle/cycle/edit color · Tab switch to Providers"))
 	}
 
 	lines = append(lines, divider, dimStyle.Width(innerWidth).Render(settingsTruncate("Section: "+sectionName+" · F1 Sessions · F2 Workspace · F3 Settings", innerWidth)))

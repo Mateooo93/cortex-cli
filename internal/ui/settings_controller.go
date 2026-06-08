@@ -22,6 +22,8 @@ const (
 	settingsInputCustomProviderName
 	settingsInputCustomProviderBaseURL
 	settingsInputCustomProviderAPIKey
+	settingsInputThemePrimary
+	settingsInputThemeSecondary
 )
 
 // settingsWizardField identifies the focused field inside a provider edit
@@ -116,23 +118,49 @@ func (m *Model) currentSettingsModel() string {
 	return ""
 }
 
+// activeModelSpec returns the model actually in use for the
+// given session. The live session model (from the daemon's
+// init_state event) wins over the configured default so the
+// status bar and right panel stay in sync with what the LLM
+// is calling.
+func (m *Model) activeModelSpec(sess *SessionState) string {
+	if sess != nil && sess.modelName != "" {
+		return m.canonicalSettingsModel(sess.modelName)
+	}
+	if spec := m.currentSettingsModel(); spec != "" {
+		return m.canonicalSettingsModel(spec)
+	}
+	return ""
+}
+
 func (m *Model) displayNameForModelSpec(spec string) string {
+	spec = m.canonicalSettingsModel(spec)
 	if spec == "" {
 		return ""
 	}
-	if m.cortexCfg != nil {
-		if key, mc, err := m.cortexCfg.GetModel(spec); err == nil && mc != nil {
-			if key == spec {
-				return cortexconfig.ModelSpec(mc.Provider, mc.Model)
-			}
-			return key
+	for _, mod := range AvailableModels {
+		if mod.Spec == spec {
+			return mod.DisplayName
 		}
+	}
+	if m.cortexCfg != nil {
+		provider := ProviderOfFromConfig(spec, m.cortexCfg)
+		if provider != "" {
+			for _, mod := range ModelsForProviderFromConfig(provider, m.cortexCfg) {
+				if mod.Spec == spec {
+					return mod.DisplayName
+				}
+			}
+		}
+	}
+	if _, model, ok := cortexconfig.SplitModelSpec(spec); ok && model != "" {
+		return formatModelName(model)
 	}
 	return spec
 }
 
 func (m *Model) setActiveModelSpec(spec string) {
-	spec = strings.TrimSpace(spec)
+	spec = m.canonicalSettingsModel(strings.TrimSpace(spec))
 	if spec == "" {
 		return
 	}
@@ -803,13 +831,23 @@ func (m *Model) configuredTheme() string {
 	return normalizedTheme(m.cortexCfg.Theme)
 }
 
+func (m *Model) loadThemeColors() config.ThemeConfig {
+	if m.cfg != nil {
+		return config.LoadThemeConfig(m.cfg.Paths)
+	}
+	return config.LoadThemeConfig(config.NewCortexPaths("", config.HomeCortexDir(), m.cwd))
+}
+
 func (m *Model) applyConfiguredTheme() {
+	ApplyTheme(m.themeColors)
 	theme := m.configuredTheme()
 	switch theme {
 	case "dark":
 		m.hasDarkBG = true
 	case "light":
 		m.hasDarkBG = false
+	default:
+		// auto: keep background from tea.RequestBackgroundColor when set
 	}
 	m.styles = NewStyles(m.hasDarkBG)
 	width := 80
@@ -817,6 +855,43 @@ func (m *Model) applyConfiguredTheme() {
 		width = m.mdRenderer.width
 	}
 	m.mdRenderer = NewMarkdownRenderer(width, m.hasDarkBG, m.styles.CodeBoxBorderStyle)
+}
+
+func formatThemeColorLabel(stored, fallback string) string {
+	if strings.TrimSpace(stored) == "" {
+		return "default (" + fallback + ")"
+	}
+	return stored
+}
+
+func (m *Model) setThemePrimaryColor(primary string) error {
+	p, err := config.NormalizeHexColor(primary)
+	if err != nil {
+		return err
+	}
+	tc := m.themeColors
+	tc.Primary = p
+	if err := config.SetThemeColors(tc.Primary, tc.Secondary); err != nil {
+		return err
+	}
+	m.themeColors = tc
+	m.applyConfiguredTheme()
+	return nil
+}
+
+func (m *Model) setThemeSecondaryColor(secondary string) error {
+	s, err := config.NormalizeHexColor(secondary)
+	if err != nil {
+		return err
+	}
+	tc := m.themeColors
+	tc.Secondary = s
+	if err := config.SetThemeColors(tc.Primary, tc.Secondary); err != nil {
+		return err
+	}
+	m.themeColors = tc
+	m.applyConfiguredTheme()
+	return nil
 }
 
 func (m *Model) currentReasoningEffort() string {
@@ -889,7 +964,7 @@ func (m *Model) setConfiguredShowUsage(v bool) {
 
 // settingsOtherOptionCount matches the row count rendered in renderSettingsView
 // for the "Other Settings" section. Keep in sync with tabs.go.
-const settingsOtherOptionCount = 5
+const settingsOtherOptionCount = 7
 
 func (m *Model) setAllSessionsShowThinking(show bool) {
 	for _, sess := range m.sessions {

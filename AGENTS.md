@@ -30,7 +30,7 @@ internal/
   protocol/             # Shared types between client + daemon
   session/              # In-process chat session (replaces vixd)
   swarm/                # Multi-agent orchestrator (planner/developer/...)
-  tools/                # Built-in tool set (read_file, write_file, bash, ...)
+  tools/                # Built-in tool set (read_file, write_file, bash, ..., web_search)
   ui/                   # Bubble Tea TUI components
 ```
 

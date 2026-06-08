@@ -157,6 +157,30 @@ func TestSettingsSectionProviders_HighlightedWhenActive(t *testing.T) {
 	}
 }
 
+func TestSettingsOtherSettings_IncludesColorRows(t *testing.T) {
+	s := NewStyles(true)
+	other := SettingsOtherView{
+		Theme:          "auto",
+		PrimaryColor:   "default (#3B82F6)",
+		SecondaryColor: "#60A5FA",
+	}
+	view := renderSettingsView(120, 40, s,
+		1, 0, 0, 0,
+		"GPT-5.5", "codex",
+		nil, nil,
+		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
+		0, 1, other, SettingsInspectView{},
+		false, "", "",
+		SettingsWizardView{},
+	)
+	if !strings.Contains(view, "Primary color") {
+		t.Errorf("expected Primary color row, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Secondary color") {
+		t.Errorf("expected Secondary color row, got:\n%s", view)
+	}
+}
+
 // TestSettingsOtherSettings_IncludesAutoCompactRow pins the
 // new "Auto-compact context" row in the Other Settings list.
 // This is the user-facing toggle for the auto-compact feature
@@ -176,7 +200,7 @@ func TestSettingsOtherSettings_IncludesAutoCompactRow(t *testing.T) {
 		"GPT-5.5", "codex",
 		nil, nil,
 		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
-		0, 4,    // otherSel=4 is the Auto-compact row
+		0, 6,    // otherSel=6 is the Auto-compact row
 		other, SettingsInspectView{},
 		false, "", "",
 		SettingsWizardView{},

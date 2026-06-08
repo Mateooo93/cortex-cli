@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -164,6 +165,42 @@ func TestSendCancel_OverridesDelayedCancel(t *testing.T) {
 	// Give goroutines a moment to settle (in case anything async
 	// is observing the state).
 	time.Sleep(10 * time.Millisecond)
+}
+
+func TestSend_EnsuresSystemPromptWithWorkdir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cfg := cortexconfig.Default()
+	sess, err := New(Config{CortexCfg: cfg, ActiveModel: "cortex", Workdir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Drain events so runTurn can emit without blocking.
+	go func() {
+		for range sess.Events() {
+		}
+	}()
+
+	sess.Send("hello", nil)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		h := sess.History()
+		if len(h) >= 2 && h[0].Role == "system" && strings.Contains(h[0].Content, dir) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	h := sess.History()
+	if len(h) == 0 || h[0].Role != "system" {
+		t.Fatalf("expected system message in history, got %+v", h)
+	}
+	if !strings.Contains(h[0].Content, dir) {
+		t.Fatalf("system prompt missing workdir %q, got:\n%s", dir, h[0].Content)
+	}
 }
 
 // TestRestoreHistory_ReplacesHistory verifies that RestoreHistory

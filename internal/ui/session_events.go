@@ -29,7 +29,7 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		json.Unmarshal(data, &state)
 		sess.initState = protocol.InitState(state.State)
 		if state.Model != "" {
-			sess.modelName = state.Model
+			sess.modelName = m.canonicalSettingsModel(state.Model)
 		}
 
 	case "event.stream_chunk":

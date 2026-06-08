@@ -16,7 +16,7 @@ session storage.
 - **Swarm orchestrator** — planner / developer / reviewer / tester
   / fixer roles for larger refactors.
 - **Tools** — `read_file`, `write_file`, `edit_file`, `list_dir`,
-  `search`, `run_shell`.
+  `search`, `run_shell`, `web_search`.
 - **Persistent sessions** — chat history survives across CLI
   restarts; `~/.cortex/` holds sessions, plans, history, and
   LLM logs.
