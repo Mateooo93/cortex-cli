@@ -476,7 +476,6 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	for i := keyStart; i < keyEnd; i++ {
 		pk := keys[i]
 		isCursor := activeSection == 0 && inspect.Provider == "" && i == keySel
-		isActiveProvider := pk.Provider == activeProviderName
 		prefix := "  "
 		if isCursor {
 			prefix = "▸ "
@@ -485,8 +484,6 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		rowStyle := providerNameStyle
 		if isCursor {
 			rowStyle = selectedStyle
-		} else if isActiveProvider {
-			rowStyle = activeStyle
 		}
 		if isCursor {
 			lines = append(lines, renderSettingsSelectLine(rowStyle, row, innerWidth))

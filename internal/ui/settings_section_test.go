@@ -153,6 +153,33 @@ func TestSettingsSectionProviders_HighlightedWhenActive(t *testing.T) {
 	}
 }
 
+func TestSettingsProviderRows_AllBoldUnlessCursor(t *testing.T) {
+	s := NewStyles(true)
+	view := renderSettingsView(120, 40, s,
+		0, 1, 0, 0,
+		"GPT-5.5", "codex",
+		nil, nil,
+		[]ProviderSettingsView{
+			{Provider: "codex", DisplayName: "ChatGPT (codex)"},
+			{Provider: "openai", DisplayName: "OpenAI"},
+			{Provider: "anthropic", DisplayName: "Anthropic"},
+		},
+		1, 0, SettingsOtherView{}, SettingsInspectView{},
+		false, "", "",
+		SettingsWizardView{},
+	)
+	plain := stripANSI(view)
+	for _, name := range []string{"ChatGPT (codex)", "OpenAI", "Anthropic"} {
+		if !strings.Contains(plain, name) {
+			t.Fatalf("missing provider %q in view", name)
+		}
+	}
+	// Active provider (codex) must not be the only dim/non-bold row.
+	if strings.Contains(view, "\x1b[2m") {
+		t.Fatalf("provider rows should not use dim style, got:\n%s", view)
+	}
+}
+
 func TestSettingsSelectedRowHighlightsTextOnly(t *testing.T) {
 	s := NewStyles(true)
 	innerWidth := 80
