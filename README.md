@@ -13,77 +13,81 @@
 
 ## Install
 
-| Platform | Command |
-|----------|---------|
-| **npm** (all OS) | `npm install -g @mateooo93/cortex-cli` |
-| **Bun** (all OS) | `bun install -g @mateooo93/cortex-cli` |
-| **Homebrew** | `brew tap Mateooo93/cortex && brew install cortex` |
-| **Windows** | `irm https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.ps1 \| iex` |
+### npm (macOS, Linux, Windows)
 
-Then run `cortex`. One-shot mode: `cortex -p "your prompt"`.
-
-<details>
-<summary>winget (Windows — after catalog approval)</summary>
-
-`winget install Mateooo93.Cortex` works once the package is merged into [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). Until then, use the PowerShell installer above.
-
-Repo maintainers: add a `WINGET_TOKEN` secret and run the **Submit winget manifest** GitHub Action.
-
-</details>
-
-<details>
-<summary>Direct download (curl)</summary>
-
-**Linux**
 ```bash
-# amd64
-curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-amd64
-chmod +x cortex && sudo mv cortex /usr/local/bin/
-
-# arm64
-curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-arm64
-chmod +x cortex && sudo mv cortex /usr/local/bin/
+npm uninstall -g cortex-cli
+npm install -g @mateooo93/cortex-cli
+cortex
 ```
 
-**macOS** (Apple Silicon)
+### Bun (macOS, Linux, Windows)
+
+```bash
+bun install -g @mateooo93/cortex-cli
+cortex
+```
+
+### Homebrew (macOS, Linux)
+
+```bash
+brew tap Mateooo93/cortex
+brew install cortex
+cortex
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.ps1 | iex
+cortex
+```
+
+### winget (Windows)
+
+```powershell
+winget install Mateooo93.Cortex
+cortex
+```
+
+> `winget install` works after [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) merges our manifest. Until then, use the PowerShell installer above.
+
+### Linux — amd64
+
+```bash
+curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-amd64
+chmod +x cortex && sudo mv cortex /usr/local/bin/
+cortex
+```
+
+### Linux — arm64
+
+```bash
+curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-arm64
+chmod +x cortex && sudo mv cortex /usr/local/bin/
+cortex
+```
+
+### macOS — Apple Silicon
+
 ```bash
 curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-darwin-arm64
 chmod +x cortex && sudo mv cortex /usr/local/bin/
+cortex
 ```
 
-**Windows** (PowerShell — use Windows Terminal)
-```powershell
-irm https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.ps1 | iex
-```
-
-All binaries: [Releases](https://github.com/Mateooo93/cortex-cli/releases)
-
-</details>
-
-<details>
-<summary>Build from source</summary>
+### Build from source
 
 ```bash
-git clone https://github.com/Mateooo93/cortex-cli.git && cd cortex-cli
-go build -o cortex ./cmd/cortex   # Windows: -o cortex.exe
+git clone https://github.com/Mateooo93/cortex-cli.git
+cd cortex-cli
+go build -o cortex ./cmd/cortex
+./cortex
 ```
 
-Requires Go 1.26+.
+One-shot prompt (no TUI): `cortex -p "your prompt"`
 
-</details>
-
-> **npm note:** The unscoped package `cortex-cli` is a different product (CognitiveScale). If `cortex --help` shows pipelines or missions, run `npm uninstall -g cortex-cli` and install `@mateooo93/cortex-cli` instead.
-
-## First run
-
-Creates `~/.cortex/` (Windows: `%USERPROFILE%\.cortex\`). Open the Settings tab or `/model` to pick a provider. Subscription sign-in (ChatGPT, Claude, Copilot) uses your OS keychain — no API key required.
-
-**API keys** (optional — set one or use the Settings tab):
-
-```bash
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=sk-ant-...
-```
+> **npm note:** The unscoped package `cortex-cli` is a different product (CognitiveScale). If `cortex --help` shows pipelines or missions, uninstall it and use `@mateooo93/cortex-cli`.
 
 ## Features
 
