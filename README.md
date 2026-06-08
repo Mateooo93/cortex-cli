@@ -18,16 +18,13 @@
 
 <h2 align="center">Install</h2>
 
-<p align="center">
-  <code><big>npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com</big></code>
-</p>
+```bash
+npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com
+cortex
+```
 
 <p align="center">
-  <code><big>cortex</big></code>
-</p>
-
-<p align="center">
-  <big>macOS · Linux · Windows — <a href="#installation">curl, manual, and source builds</a></big>
+  macOS · Linux · Windows — <a href="#installation">curl, manual, and source builds</a>
 </p>
 
 ---
