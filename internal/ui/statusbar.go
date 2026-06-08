@@ -35,7 +35,7 @@ func renderStatusBar(
 	dimLabel := lipgloss.NewStyle().Foreground(s.ColorDimGray)
 	modelStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(colorPrimary).
+		Foreground(s.ColorWhite).
 		Padding(0, 1)
 
 	// ── Context · model (center hero) · elapsed ─────────────────────────
