@@ -485,7 +485,7 @@ func summarizeToolOutput(name, output string) string {
 // entry instead of a compact summary or truncated preview.
 func shouldShowFullDirectoryListing(name, toolCallSummary string) bool {
 	switch name {
-	case "list_dir", "glob_files", "glob_file_search":
+	case "glob_files", "glob_file_search":
 		return true
 	case "bash", "run_shell":
 		return isDirectoryListingCommand(toolCallSummary)
@@ -542,23 +542,29 @@ func unquoteArgSummary(s string) string {
 	return s
 }
 
+func truncateToolOutputLines(output string, maxLines int) string {
+	lines := strings.Split(output, "\n")
+	short := output
+	if len(lines) > maxLines {
+		short = strings.Join(lines[:maxLines], "\n")
+	}
+	if len(short) > 2500 {
+		short = short[:2500]
+	}
+	return short
+}
+
 // formatToolResultDisplay chooses the text shown in the chat viewport.
 // The full output is always preserved in ChatMessage.Text for LLM/history context.
 func formatToolResultDisplay(name, output, toolCallSummary string) string {
 	if shouldShowFullDirectoryListing(name, toolCallSummary) {
 		return output
 	}
+	if name == "list_dir" {
+		return truncateToolOutputLines(output, 5)
+	}
 	if name == "bash" || name == "run_shell" {
-		lines := strings.Split(output, "\n")
-		const maxLines = 5
-		short := output
-		if len(lines) > maxLines {
-			short = strings.Join(lines[:maxLines], "\n")
-		}
-		if len(short) > 2500 {
-			short = short[:2500]
-		}
-		return short
+		return truncateToolOutputLines(output, 5)
 	}
 	if summary := summarizeToolOutput(name, output); summary != "" {
 		return summary
@@ -647,8 +653,8 @@ func renderToolResultWithContext(name, output string, isError bool, showToolName
 		}
 	}
 
-	// Directory listings (list_dir, glob_files, ls) show every entry.
-	// Other shell output is truncated so huge logs don't flood the chat;
+	// glob_files / shell ls show every entry; list_dir and other shell output
+	// are truncated so huge logs don't flood the chat;
 	// the full text stays in .Text for agent/LLM context.
 	display := formatToolResultDisplay(name, output, toolCallSummary)
 	rendered := s.ToolResultStyle.Render(prefix+display) + "\n"

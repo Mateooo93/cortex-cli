@@ -302,12 +302,15 @@ func TestRenderDiffDetailSideBySide(t *testing.T) {
 func TestFormatToolResultDisplay_DirectoryListings(t *testing.T) {
 	entries := strings.Join([]string{"a.go", "b.go", "c.go", "d.go", "e.go", "f.go"}, "\n")
 
-	full := formatToolResultDisplay("list_dir", entries, "")
-	if full != entries {
-		t.Fatalf("list_dir should show full output, got %q", full)
+	truncated := formatToolResultDisplay("list_dir", entries, "")
+	if truncated == entries {
+		t.Fatalf("list_dir should truncate large listings, got full output")
+	}
+	if !strings.Contains(truncated, "a.go") || strings.Contains(truncated, "f.go") {
+		t.Fatalf("list_dir should keep first 5 entries only, got %q", truncated)
 	}
 
-	full = formatToolResultDisplay("glob_files", entries, "")
+	full := formatToolResultDisplay("glob_files", entries, "")
 	if full != entries {
 		t.Fatalf("glob_files should show full output, got %q", full)
 	}
@@ -317,12 +320,12 @@ func TestFormatToolResultDisplay_DirectoryListings(t *testing.T) {
 		t.Fatalf("bash ls should show full output, got %q", full)
 	}
 
-	truncated := formatToolResultDisplay("bash", entries, "$ git status")
-	if truncated == entries {
+	bashTruncated := formatToolResultDisplay("bash", entries, "$ git status")
+	if bashTruncated == entries {
 		t.Fatalf("non-listing bash output should be truncated, got full listing")
 	}
-	if !strings.Contains(truncated, "a.go") || strings.Contains(truncated, "f.go") {
-		t.Fatalf("truncated bash output should keep early lines only, got %q", truncated)
+	if !strings.Contains(bashTruncated, "a.go") || strings.Contains(bashTruncated, "f.go") {
+		t.Fatalf("truncated bash output should keep early lines only, got %q", bashTruncated)
 	}
 }
 
