@@ -11,9 +11,8 @@ import (
 )
 
 const (
-	animFPS           = 30
-	streamRefreshFPS  = 60
-	animNumChars      = 12
+	animFPS      = 30
+	animNumChars = 12
 )
 
 // animFrames are the braille spinner frames each character cycles through.
@@ -33,54 +32,6 @@ var (
 type animStepMsg struct {
 	gen  int
 	anim *ThinkingAnim
-}
-
-// streamRefreshMsg triggers a lightweight streaming preview repaint.
-type streamRefreshMsg struct {
-	gen  int
-	anim *StreamRefresh
-}
-
-// StreamRefresh keeps the assistant streaming preview updating at a smooth
-// cadence between SSE chunks and drives the end-of-line cursor blink.
-type StreamRefresh struct {
-	active  bool
-	gen     int
-	cursorOn bool
-}
-
-func NewStreamRefresh() StreamRefresh {
-	return StreamRefresh{}
-}
-
-func (s *StreamRefresh) Start() tea.Cmd {
-	if s.active {
-		return nil
-	}
-	s.active = true
-	s.cursorOn = true
-	return s.tick()
-}
-
-func (s *StreamRefresh) Stop() {
-	s.active = false
-	s.gen++
-}
-
-func (s *StreamRefresh) Advance(msg streamRefreshMsg) tea.Cmd {
-	if msg.anim != s || !s.active || msg.gen != s.gen {
-		return nil
-	}
-	s.cursorOn = !s.cursorOn
-	return s.tick()
-}
-
-func (s *StreamRefresh) tick() tea.Cmd {
-	gen := s.gen
-	anim := s
-	return tea.Tick(time.Second/streamRefreshFPS, func(time.Time) tea.Msg {
-		return streamRefreshMsg{gen: gen, anim: anim}
-	})
 }
 
 // tabBlinkMsg toggles the tab alert blink phase.

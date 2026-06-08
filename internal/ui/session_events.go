@@ -36,10 +36,12 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var chunk protocol.EventStreamChunk
 		json.Unmarshal(data, &chunk)
+		if chunk.Text == "" {
+			break
+		}
 		sess.assistantBuf += chunk.Text
-		width := m.mdRenderer.width + 4
-		sess.assistantRendered = renderStreamingAssistant(sess.assistantBuf, width, true, sess.streamRefresh.cursorOn)
-		cmds = append(cmds, sess.streamRefresh.Start())
+		updateStreamingDisplay(sess)
+		sess.chatScrollOffset = 0
 
 	case "event.thinking_chunk":
 		data := marshalData(event.Data)
@@ -54,9 +56,9 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var done protocol.EventStreamDone
 		json.Unmarshal(data, &done)
-		sess.streamRefresh.Stop()
 		if sess.assistantBuf != "" {
 			sess.assistantRendered = strings.TrimLeft(m.mdRenderer.Render(sess.assistantBuf), "\n")
+			sess.streamCache.reset()
 		}
 		// Context-window counting fix. The streaming API
 		// reports `InputTokens` as the prompt size of the

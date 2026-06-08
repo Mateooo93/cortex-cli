@@ -120,7 +120,7 @@ func New(cfg Config) (*Session, error) {
 		cfg:          cfg.CortexCfg,
 		active:       cfg.ActiveModel,
 		tools:        tools.NewRegistry(),
-		events:       make(chan protocol.SessionEvent, 64),
+		events:       make(chan protocol.SessionEvent, 512),
 		userAnswerCh: make(chan userAnswer, 1),
 		done:         make(chan struct{}),
 	}
@@ -472,6 +472,18 @@ func (s *Session) safeEmit(ev protocol.SessionEvent) {
 	select {
 	case s.events <- ev:
 	default:
+	}
+}
+
+// emitStreamChunk delivers a streaming text delta. Unlike safeEmit, this
+// blocks so rapid SSE tokens are never dropped when the UI briefly falls
+// behind. The events channel is buffered; the HTTP reader will pace itself
+// via backpressure instead of losing text.
+func (s *Session) emitStreamChunk(text string) {
+	defer func() { _ = recover() }()
+	s.events <- protocol.SessionEvent{
+		Type: "stream_chunk",
+		Data: protocol.EventStreamChunk{Text: text},
 	}
 }
 
@@ -1179,10 +1191,7 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 
 func (s *Session) onChunk(c provider.Chunk) {
 	if c.Content != "" {
-		s.safeEmit(protocol.SessionEvent{
-			Type: "stream_chunk",
-			Data: protocol.EventStreamChunk{Text: c.Content},
-		})
+		s.emitStreamChunk(c.Content)
 	}
 	if c.Usage.TotalTokens > 0 || c.Usage.PromptTokens > 0 || c.FinishReason != "" {
 		s.emitStreamDone(c.Usage, c.FinishReason)

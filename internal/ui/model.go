@@ -118,12 +118,30 @@ func startSessionEventLoop(client *daemon.SessionClient) tea.Cmd {
 			return sessionDisconnectedMsg{daemonSessionID: daemonSessionID}
 		}
 		go func() {
+			ch := client.Events()
+			if ch == nil {
+				teaProgram.Send(sessionDisconnectedMsg{daemonSessionID: daemonSessionID})
+				return
+			}
+			var held *protocol.SessionEvent
 			for {
-				event, err := client.ReadEvent()
-				if err != nil {
-					teaProgram.Send(sessionDisconnectedMsg{daemonSessionID: daemonSessionID})
-					return
+				var event protocol.SessionEvent
+				if held != nil {
+					event = *held
+					held = nil
+				} else {
+					ev, ok := <-ch
+					if !ok {
+						teaProgram.Send(sessionDisconnectedMsg{daemonSessionID: daemonSessionID})
+						return
+					}
+					event = normalizeSessionEvent(ev)
 				}
+
+				if isStreamChunkEvent(event) {
+					event = coalesceStreamChunkEvents(ch, event, &held)
+				}
+
 				teaProgram.Send(sessionEventMsg{daemonSessionID: daemonSessionID, event: event})
 			}
 		}()
@@ -2248,18 +2266,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
-	case streamRefreshMsg:
-		for _, sess := range m.sessions {
-			if cmd := sess.streamRefresh.Advance(msg); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-			if sess.streamRefresh.active && sess.assistantBuf != "" {
-				width := m.mdRenderer.width + 4
-				sess.assistantRendered = renderStreamingAssistant(sess.assistantBuf, width, true, sess.streamRefresh.cursorOn)
-			}
-		}
-		return m, tea.Batch(cmds...)
-
 	case tabBlinkMsg:
 		if msg.gen != m.tabAlertBlinkGen {
 			return m, nil
@@ -2903,7 +2909,7 @@ func (m *Model) flushSessionBuf(sess *SessionState) {
 	}
 	sess.assistantBuf = ""
 	sess.assistantRendered = ""
-	sess.streamRefresh.Stop()
+	sess.streamCache.reset()
 	sess.thinkingBuf = ""
 	sess.thinkingRendered = ""
 }

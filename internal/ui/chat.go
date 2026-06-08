@@ -662,40 +662,6 @@ func renderDiffDetail(detail string, s Styles, width int) string {
 	return sb.String()
 }
 
-// renderStreamingAssistant renders a fast plain-text preview while the model is
-// still streaming. Full Markdown (glamour) runs once on stream_done so the
-// terminal updates on every chunk without expensive re-layout jumps.
-func renderStreamingAssistant(text string, width int, showCursor bool, cursorOn bool) string {
-	const prefix = 2
-	contentWidth := width - prefix - 2
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
-	bodyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(bodyColor))
-	cursorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
-	var sb strings.Builder
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		wrapped := wrapLine(line, contentWidth)
-		if len(wrapped) == 0 {
-			if i < len(lines)-1 {
-				sb.WriteString("\n")
-			}
-			continue
-		}
-		for j, wl := range wrapped {
-			sb.WriteString("  ")
-			sb.WriteString(bodyStyle.Render(wl))
-			isLast := i == len(lines)-1 && j == len(wrapped)-1
-			if showCursor && cursorOn && isLast {
-				sb.WriteString(cursorStyle.Render("▌"))
-			}
-			sb.WriteString("\n")
-		}
-	}
-	return sb.String()
-}
-
 // renderAssistantMessage creates a rendered assistant message using Glamour.
 func renderAssistantMessage(text string, md *MarkdownRenderer) ChatMessage {
 	rendered := strings.TrimLeft(md.Render(text), "\n")

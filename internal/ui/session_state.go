@@ -115,7 +115,7 @@ type SessionState struct {
 	// Live streaming buffers
 	assistantBuf      string
 	assistantRendered string
-	streamRefresh     StreamRefresh
+	streamCache       streamDisplayCache
 	thinkingBuf           string
 	thinkingRendered      string
 	showThinking          bool
@@ -223,8 +223,7 @@ func newSessionState(cfg *config.Config, client *daemon.SessionClient) *SessionS
 	s := &SessionState{
 		agentState:    StateWaitingForInput,
 		input:         newInput(),
-		thinkingAnim:   NewThinkingAnim(),
-		streamRefresh:  NewStreamRefresh(),
+		thinkingAnim: NewThinkingAnim(),
 		questionPanel: NewQuestionPanel(),
 		focus:         FocusEditor,
 		client:        client,
