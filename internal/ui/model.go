@@ -975,7 +975,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMotionMsg:
 		mouse := msg.Mouse()
 		m.noteMousePosition(mouse.X, mouse.Y)
-		m.mouseButtonDown = mouse.Button == tea.MouseLeft
+		// Many terminals omit the pressed button on motion events during
+		// a drag; only set true on left-down, never clear until release.
+		if mouse.Button == tea.MouseLeft {
+			m.mouseButtonDown = true
+		}
 		m.updateMouseHover(mouse.X, mouse.Y)
 		if m.activeTab == TabKindChat && m.mouseButtonDown {
 			m.handleChatMouseDrag(mouse.X, mouse.Y)

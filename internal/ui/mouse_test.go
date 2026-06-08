@@ -200,6 +200,30 @@ func TestApplyChatSelectionHighlightPreservesMarkdownStyle(t *testing.T) {
 	}
 }
 
+func TestMouseMotion_KeepsDragSelectionWithoutButtonBit(t *testing.T) {
+	setupPersistDir(t)
+	m := NewModel(&config.Config{}, cortexconfig.Default(), nil, false, "", false, false)
+	m.width = 100
+	m.height = 40
+	m.activeTab = TabKindChat
+	top, _, left, _ := m.chatInnerBounds()
+	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: left + 2, Y: top})
+	m = updated.(Model)
+	sess := m.currentSession()
+	if sess == nil || !sess.chatSel.active {
+		t.Fatal("expected active selection after mouse down")
+	}
+	// Motion events during drag often carry Button=0.
+	updated, _ = m.Update(tea.MouseMotionMsg{X: left + 8, Y: top})
+	m = updated.(Model)
+	if !sess.chatSel.active {
+		t.Fatal("selection cleared after motion without button bit")
+	}
+	if sess.chatSel.endX < 6 {
+		t.Fatalf("expected drag to extend selection, endX=%d", sess.chatSel.endX)
+	}
+}
+
 func TestMouseToChatCellAccountsForContentOffset(t *testing.T) {
 	m := &Model{
 		width:     100,

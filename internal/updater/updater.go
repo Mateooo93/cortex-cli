@@ -122,6 +122,49 @@ func latestRelease(ctx context.Context, httpClient *http.Client) (*releaseJSON, 
 	return &out, nil
 }
 
+// digestHex parses a GitHub release asset digest (sha256:… or sha256=…).
+func digestHex(digest string) string {
+	d := strings.TrimSpace(digest)
+	if d == "" {
+		return ""
+	}
+	lower := strings.ToLower(d)
+	for _, prefix := range []string{"sha256:", "sha256="} {
+		if strings.HasPrefix(lower, prefix) {
+			return strings.TrimPrefix(lower, prefix)
+		}
+	}
+	return ""
+}
+
+// expectedHashForAsset returns the SHA-256 hex digest for an asset.
+// Uses the digest field from the GitHub API when present (skips a
+// separate SHA256SUMS download); falls back to fetching SHA256SUMS.
+func expectedHashForAsset(ctx context.Context, client *http.Client, rel *releaseJSON, asset *releaseAsset) (string, error) {
+	if h := digestHex(asset.Digest); h != "" {
+		return h, nil
+	}
+	sumsAsset, err := findAsset(rel, "SHA256SUMS")
+	if err != nil {
+		return "", fmt.Errorf("updater: release %s has no digest or SHA256SUMS; refusing to install", rel.TagName)
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", sumsAsset.BrowserDownloadURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "cortex-cli-updater/1.0")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("updater: fetch SHA256SUMS: %w", err)
+	}
+	defer resp.Body.Close()
+	sumsBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return parseSHA256SUMS(sumsBytes, asset.Name)
+}
+
 // findAsset returns the named asset from a release.
 func findAsset(rel *releaseJSON, name string) (*releaseAsset, error) {
 	for i := range rel.Assets {
@@ -245,9 +288,9 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		return Result{Kind: "error", Error: err}
 	}
 
-	// 1. Fetch latest release metadata.
+	// 1. Fetch latest release metadata (one round-trip).
 	if progress != nil {
-		progress("Fetching release metadata…")
+		progress("Checking for updates…")
 	}
 	rel, err := latestRelease(ctx, HTTPClient)
 	if err != nil {
@@ -337,31 +380,12 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
 	}
 
-	// 6. Verify SHA-256 against SHA256SUMS in the same release.
+	// 6. Verify SHA-256 (digest from API when available — skips
+	// fetching SHA256SUMS for a faster update).
 	if progress != nil {
 		progress("Verifying SHA-256…")
 	}
-	sumsAsset, err := findAsset(rel, "SHA256SUMS")
-	if err != nil {
-		// No SHA256SUMS — that's a release bug, not a download
-		// bug, so we fail safe.
-		_ = os.RemoveAll(tmpPath)
-		return Result{Kind: "error", Error: fmt.Errorf("updater: release %s has no SHA256SUMS asset; refusing to install", rel.TagName), NewVersion: rel.TagName, AssetName: assetName}
-	}
-	req, _ := http.NewRequestWithContext(ctx, "GET", sumsAsset.BrowserDownloadURL, nil)
-	req.Header.Set("User-Agent", "cortex-cli-updater/1.0")
-	resp, err := HTTPClient.Do(req)
-	if err != nil {
-		_ = os.RemoveAll(tmpPath)
-		return Result{Kind: "error", Error: fmt.Errorf("updater: fetch SHA256SUMS: %w", err), NewVersion: rel.TagName, AssetName: assetName}
-	}
-	defer resp.Body.Close()
-	sumsBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		_ = os.RemoveAll(tmpPath)
-		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
-	}
-	expectedHash, err := parseSHA256SUMS(sumsBytes, assetName)
+	expectedHash, err := expectedHashForAsset(ctx, HTTPClient, rel, asset)
 	if err != nil {
 		_ = os.RemoveAll(tmpPath)
 		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}

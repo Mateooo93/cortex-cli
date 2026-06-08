@@ -164,7 +164,9 @@ func (m *Model) renderUpdateOverlay() string {
 	footer := ""
 	switch m.updateOverlay.phase {
 	case "running":
-		footer = s.DimLabel.Italic(true).Render("Please don't close the terminal.")
+		footer = s.DimLabel.Italic(true).Render(
+			"Usually under a minute — cortex downloads only the native binary, faster than most Node CLIs. Don't close the terminal.",
+		)
 	case "restarting":
 		footer = s.DimLabel.Italic(true).Render(fmt.Sprintf("Restarting in %d…", m.updateOverlay.restartIn))
 	case "done":

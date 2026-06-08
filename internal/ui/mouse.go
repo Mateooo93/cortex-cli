@@ -113,9 +113,12 @@ func (m *Model) handleChatMouseDown(x, y int) {
 }
 
 func (m *Model) handleChatMouseDrag(x, y int) {
-	if !m.mouseInChatInner(x, y) {
+	sess := m.currentSession()
+	if sess == nil || !sess.chatSel.active {
 		return
 	}
+	// Keep extending when the pointer leaves the inner viewport —
+	// extendChatSelection clamps to the visible line range.
 	m.extendChatSelection(x, y)
 }
 

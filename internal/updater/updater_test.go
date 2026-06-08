@@ -45,6 +45,36 @@ func TestAssetName_IncludesExeOnWindows(t *testing.T) {
 	}
 }
 
+func TestDigestHex(t *testing.T) {
+	if got := digestHex("sha256=ABC123"); got != "abc123" {
+		t.Fatalf("digestHex = %q", got)
+	}
+	if got := digestHex("sha256:DEADBEEF"); got != "deadbeef" {
+		t.Fatalf("digestHex colon = %q", got)
+	}
+	if digestHex("") != "" {
+		t.Fatal("expected empty for blank digest")
+	}
+}
+
+func TestExpectedHashForAsset_PrefersDigest(t *testing.T) {
+	assetName, _ := AssetName()
+	rel := &releaseJSON{
+		TagName: "v1.0.0",
+		Assets: []releaseAsset{{
+			Name:   assetName,
+			Digest: "sha256=abc123",
+		}},
+	}
+	got, err := expectedHashForAsset(context.Background(), HTTPClient, rel, &rel.Assets[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "abc123" {
+		t.Fatalf("got %q, want abc123", got)
+	}
+}
+
 func TestParseSHA256SUMS(t *testing.T) {
 	data := []byte(`abc123  cortex-linux-arm64
 def456  cortex-darwin-arm64
