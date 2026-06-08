@@ -84,9 +84,14 @@ func renderSessionCloseDialog(width, height int, s Styles, selected int, session
 	return s.CommandPaletteStyle.Width(dialogWidth).Render(content)
 }
 
-// renderQuitDialog renders the quit confirmation as a centered overlay box,
-// styled like the command palette. width/height are the terminal dimensions.
-// selected: 0 = Yes, 1 = No.
+// quitDialogStyle matches the Settings tab viewport outline (white rounded
+// border) while keeping a full box suitable for a centered overlay.
+func quitDialogStyle(s Styles) lipgloss.Style {
+	return s.ViewportFocusedStyle.BorderTop(true).Padding(1, 1)
+}
+
+// renderQuitDialog renders the quit confirmation as a centered overlay box.
+// width/height are the terminal dimensions. selected: 0 = Yes, 1 = No.
 func renderQuitDialog(width, height int, s Styles, selected int) string {
 	dialogWidth := 44
 	if dialogWidth > width-4 {
@@ -119,5 +124,5 @@ func renderQuitDialog(width, height int, s Styles, selected int) string {
 
 	content := title + "\n" + sep + "\n" + msg + "\n\n" + buttons
 
-	return s.CommandPaletteStyle.Width(dialogWidth).Render(content)
+	return quitDialogStyle(s).Width(dialogWidth).Render(content)
 }
