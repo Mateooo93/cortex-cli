@@ -15,20 +15,27 @@
 
 <p align="center">
   <a href="https://github.com/Mateooo93/cortex-cli">
-    <img src="assets/cortex-cli-screenshot.jpg" alt="cortex-cli — chat, tool calls, todos, and context panel" width="920" />
+    <img src="assets/cortex-cli-welcome.jpg" alt="cortex-cli welcome screen" width="920" />
   </a>
-</p>
-
-<p align="center">
-  <em>Chat, tool calls, todos, and the context panel in one terminal window.</em>
 </p>
 
 ---
 
 **cortex-cli** is a fast coding agent you run in the terminal. Describe what you want in plain language — it reads your repo, edits files, runs commands, searches the web, and keeps working until the job is done. Everything runs locally as a single Go binary with a polished Bubble Tea interface: no daemon, no Docker, no separate cloud agent.
 
+## See it in action
+
+<p align="center">
+  <img src="assets/cortex-cli-screenshot.jpg" alt="cortex-cli — chat, tool calls, todos, and context panel" width="920" />
+</p>
+
+<p align="center">
+  <em>Chat, tool calls, todos, and the context panel in one terminal window.</em>
+</p>
+
 ## Table of contents
 
+- [See it in action](#see-it-in-action)
 - [Installation](#installation)
 - [Quick start](#quick-start)
 - [Features](#features)
