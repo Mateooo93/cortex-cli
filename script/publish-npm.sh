@@ -66,18 +66,38 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 NPM_DIR="$ROOT_DIR/packaging/npm"
 
-# Load NPM_TOKEN from .env when NODE_AUTH_TOKEN is not already set.
-if [[ -z "${NODE_AUTH_TOKEN:-}" && -f "$ROOT_DIR/.env" ]]; then
-  NPM_TOKEN="$(grep -E '^NPM_TOKEN=' "$ROOT_DIR/.env" | head -n1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
-  if [[ -n "$NPM_TOKEN" ]]; then
-    export NODE_AUTH_TOKEN="$NPM_TOKEN"
+# Resolve auth token. GitHub Packages must use GITHUB_TOKEN / write:packages
+# PAT — never fall back to npmjs NPM_TOKEN from .env (invalid on npm.pkg.github.com).
+resolve_auth_token() {
+  if [[ "$REGISTRY" == "github" ]]; then
+    if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
+      return 0
+    fi
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+      export NODE_AUTH_TOKEN="$GITHUB_TOKEN"
+      return 0
+    fi
+    return 1
   fi
-fi
-
-# GitHub Actions: prefer GITHUB_TOKEN for GitHub Packages publish.
-if [[ "$REGISTRY" == "github" && -z "${NODE_AUTH_TOKEN:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
-  export NODE_AUTH_TOKEN="$GITHUB_TOKEN"
-fi
+  # npmjs.org
+  if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
+    return 0
+  fi
+  if [[ -n "${NPM_TOKEN:-}" ]]; then
+    export NODE_AUTH_TOKEN="$NPM_TOKEN"
+    return 0
+  fi
+  if [[ -f "$ROOT_DIR/.env" ]]; then
+    local from_env
+    from_env="$(grep -E '^NPM_TOKEN=' "$ROOT_DIR/.env" | head -n1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+    if [[ -n "$from_env" ]]; then
+      export NODE_AUTH_TOKEN="$from_env"
+      return 0
+    fi
+  fi
+  return 1
+}
+resolve_auth_token || true
 
 configure_npm_auth() {
   if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
@@ -154,7 +174,7 @@ if [[ "$YES" != true ]]; then
   fi
 fi
 
-if ! configure_npm_auth; then
+if ! resolve_auth_token || ! configure_npm_auth; then
   case "$REGISTRY" in
     github)
       echo "!! NODE_AUTH_TOKEN or GITHUB_TOKEN required (PAT with write:packages, or GITHUB_TOKEN in Actions)"
@@ -166,12 +186,23 @@ if ! configure_npm_auth; then
   exit 1
 fi
 
-NPM_USER="$(npm whoami --registry "$PUBLISH_REGISTRY" 2>/dev/null || true)"
-if [[ -z "$NPM_USER" ]]; then
-  echo "!! npm whoami failed for $PUBLISH_REGISTRY — token is missing or invalid"
+if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+  echo "!! auth token is empty after configure"
   exit 1
 fi
-echo "==> npm auth ($PUBLISH_REGISTRY): $NPM_USER"
+
+# npm whoami is unreliable against GitHub Packages even with a valid
+# GITHUB_TOKEN — skip the hard gate and let npm publish report errors.
+if [[ "$REGISTRY" == "github" ]]; then
+  echo "==> npm auth: GitHub Packages (NODE_AUTH_TOKEN set, ${#NODE_AUTH_TOKEN} chars)"
+else
+  NPM_USER="$(npm whoami --registry "$PUBLISH_REGISTRY" 2>/dev/null || true)"
+  if [[ -z "$NPM_USER" ]]; then
+    echo "!! npm whoami failed for $PUBLISH_REGISTRY — token is missing or invalid"
+    exit 1
+  fi
+  echo "==> npm auth ($PUBLISH_REGISTRY): $NPM_USER"
+fi
 
 echo "==> Publishing $PACKAGE_NAME@$SEMVER..."
 set +e
@@ -183,6 +214,16 @@ PUBLISH_RC=$?
 set -e
 if [[ $PUBLISH_RC -ne 0 ]]; then
   echo "$PUBLISH_OUT"
+  if [[ "$REGISTRY" == "github" ]] && echo "$PUBLISH_OUT" | grep -qE 'E401|401|E403|403'; then
+    cat <<'EOF' >&2
+
+!! GitHub Packages publish failed. Check:
+  • Workflow job has permissions.packages: write
+  • NODE_AUTH_TOKEN / GITHUB_TOKEN is set in the publish step
+  • package.json repository.url matches this GitHub repo
+
+EOF
+  fi
   if [[ "$REGISTRY" == "npmjs" ]] && echo "$PUBLISH_OUT" | grep -qE 'E403|403 Forbidden|bypass 2fa|two-factor'; then
     cat <<'EOF' >&2
 

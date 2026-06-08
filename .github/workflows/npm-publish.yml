@@ -29,15 +29,10 @@ jobs:
           node-version: "20"
           registry-url: https://npm.pkg.github.com
           scope: "@mateooo93"
-
-      - name: Verify GitHub Packages auth
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          echo "npm user: $(npm whoami --registry https://npm.pkg.github.com)"
+          always-auth: true
 
       - name: Publish to GitHub Packages
         env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./script/publish-npm.sh "${{ inputs.release-tag }}" --yes --registry github

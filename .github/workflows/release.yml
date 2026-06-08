@@ -187,10 +187,12 @@ jobs:
           node-version: "20"
           registry-url: https://npm.pkg.github.com
           scope: "@mateooo93"
+          always-auth: true
 
       - name: Publish @mateooo93/cortex (GitHub Packages)
         if: steps.version.outputs.skip != 'true'
         env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
