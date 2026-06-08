@@ -1,1 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="cortex-cli logo">
+  <title>cortex-cli</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0B1020"/>
+      <stop offset="100%" stop-color="#1A2348"/>
+    </linearGradient>
+    <linearGradient id="cortex" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00E5FF"/>
+      <stop offset="50%" stop-color="#3D8BFF"/>
+      <stop offset="100%" stop-color="#7C5BFF"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#7C5BFF" stop-opacity="0.4"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
 
+  <rect x="0" y="0" width="320" height="320" rx="64" fill="url(#bg)"/>
+
+  <g stroke="#2A3464" stroke-width="1" fill="none" opacity="0.55">
+    <polygon points="60,40 80,28 100,40 100,64 80,76 60,64"/>
+    <polygon points="100,40 120,28 140,40 140,64 120,76 100,64"/>
+    <polygon points="220,40 240,28 260,40 260,64 240,76 220,64"/>
+    <polygon points="260,40 280,28 300,40 300,64 280,76 260,64"/>
+    <polygon points="60,256 80,244 100,256 100,280 80,292 60,280"/>
+    <polygon points="100,256 120,244 140,256 140,280 120,292 100,280"/>
+    <polygon points="220,256 240,244 260,256 260,280 240,292 220,280"/>
+    <polygon points="260,256 280,244 300,256 300,280 280,292 260,280"/>
+  </g>
+
+  <circle cx="160" cy="160" r="108" fill="none" stroke="url(#ring)" stroke-width="2" opacity="0.7"/>
+  <circle cx="160" cy="160" r="92" fill="none" stroke="url(#ring)" stroke-width="1.2" opacity="0.45" stroke-dasharray="3 6"/>
+
+  <g filter="url(#glow)">
+    <path d="M160,80
+             C120,80 92,108 92,150
+             C92,178 104,196 122,206
+             C112,220 116,240 132,244
+             C146,250 156,238 160,232
+             Z"
+          fill="none" stroke="url(#cortex)" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M160,80
+             C200,80 228,108 228,150
+             C228,178 216,196 198,206
+             C208,220 204,240 188,244
+             C174,250 164,238 160,232
+             Z"
+          fill="none" stroke="url(#cortex)" stroke-width="3" stroke-linejoin="round"/>
+
+    <path d="M108,130 C124,124 138,134 146,128" fill="none" stroke="url(#cortex)" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M102,156 C124,150 142,162 152,154" fill="none" stroke="url(#cortex)" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M114,182 C130,178 144,188 152,182" fill="none" stroke="url(#cortex)" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M126,208 C140,206 150,216 156,212" fill="none" stroke="url(#cortex)" stroke-width="2.4" stroke-linecap="round"/>
+
+    <path d="M212,130 C196,124 182,134 174,128" fill="none" stroke="url(#cortex)" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M218,156 C196,150 178,162 168,154" fill="none" stroke="url(#cortex)" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M206,182 C190,178 176,188 168,182" fill="none" stroke="url(#cortex)" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M194,208 C180,206 170,216 164,212" fill="none" stroke="url(#cortex)" stroke-width="2.4" stroke-linecap="round"/>
+  </g>
+
+  <circle cx="160" cy="158" r="6" fill="#FFFFFF" filter="url(#glow)"/>
+  <circle cx="160" cy="158" r="3" fill="#00E5FF"/>
+
+  <g fill="#00E5FF" filter="url(#glow)">
+    <circle cx="160" cy="52" r="3"/>
+    <circle cx="268" cy="160" r="3"/>
+    <circle cx="160" cy="268" r="3"/>
+    <circle cx="52" cy="160" r="3"/>
+  </g>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" text-anchor="middle">
+    <text x="160" y="304" font-size="22" font-weight="700" letter-spacing="2" fill="#FFFFFF">cortex-cli</text>
+  </g>
+</svg>
