@@ -56,19 +56,18 @@ func centerDisplayLine(line string, width int) string {
 	return strings.Repeat(" ", pad) + line
 }
 
-// renderWelcomeInline renders a centered welcome message for the empty chat state.
-// Each output line is kept within width so resize does not re-wrap the ASCII logo.
-func renderWelcomeInline(width, height int, s Styles) string {
+// buildWelcomeLines returns horizontally centered welcome content (logo, version,
+// subtitle, shortcuts). Vertical placement is handled by welcomeViewportLines.
+func buildWelcomeLines(width int, s Styles) []string {
 	if width < 1 {
 		width = 1
-	}
-	if height < 1 {
-		height = 1
 	}
 
 	var lines []string
 	if width >= cortexBannerWidth {
-		lines = append(lines, renderCortexBanner()...)
+		for _, line := range renderCortexBanner() {
+			lines = append(lines, centerDisplayLine(line, width))
+		}
 	} else {
 		lines = append(lines, centerDisplayLine(renderCortexBannerCompact(s), width))
 	}
@@ -111,21 +110,40 @@ func renderWelcomeInline(width, height int, s Styles) string {
 		row := lipgloss.NewStyle().Width(rowWidth).Render(key + "  " + desc)
 		lines = append(lines, centerDisplayLine(row, width))
 	}
+	return lines
+}
 
-	// Vertical centering without lipgloss Height(), which re-wraps content on resize.
-	contentRows := 0
-	for _, line := range lines {
-		contentRows += visualRows(line, width)
+// welcomeViewportLines vertically centers welcome content inside the chat viewport.
+func welcomeViewportLines(width, contentHeight int, s Styles) []string {
+	if contentHeight < 1 {
+		contentHeight = 1
 	}
-	if height > contentRows {
-		topPad := (height - contentRows) / 2
-		padded := make([]string, 0, topPad+len(lines))
-		for i := 0; i < topPad; i++ {
-			padded = append(padded, "")
-		}
-		padded = append(padded, lines...)
-		lines = padded
+	lines := buildWelcomeLines(width, s)
+	if len(lines) >= contentHeight {
+		return lines[:contentHeight]
 	}
+	top := (contentHeight - len(lines)) / 2
+	out := make([]string, contentHeight)
+	for i := range out {
+		out[i] = ""
+	}
+	copy(out[top:], lines)
+	return out
+}
 
-	return strings.Join(lines, "\n")
+// isWelcomeScreen reports whether the session is showing the empty-state welcome view.
+func (m Model) isWelcomeScreen(sess *SessionState) bool {
+	if m.testMode || sess == nil {
+		return false
+	}
+	if len(sess.chatMessages) > 0 {
+		return false
+	}
+	if sess.thinkingRendered != "" || sess.assistantRendered != "" {
+		return false
+	}
+	if anim := sess.thinkingAnim.View(); anim != "" {
+		return false
+	}
+	return true
 }

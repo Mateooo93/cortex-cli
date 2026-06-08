@@ -1951,12 +1951,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "down", "j":
 					sess.chatScrollOffset -= 3
 					didScroll = true
-				case "pgup", "b":
+				case "pgup":
 					sess.chatScrollOffset += 20
 					didScroll = true
-				case "pgdown", "f":
+				case "b":
+					if strings.TrimSpace(sess.input.Value()) == "" {
+						sess.chatScrollOffset += 20
+						didScroll = true
+					}
+				case "pgdown":
 					sess.chatScrollOffset -= 20
 					didScroll = true
+				case "f":
+					if strings.TrimSpace(sess.input.Value()) == "" {
+						sess.chatScrollOffset -= 20
+						didScroll = true
+					}
 				case "home", "g":
 					sess.chatScrollOffset = m.sessionMaxScrollOffset(sess)
 					didScroll = true
@@ -2976,8 +2986,13 @@ func (m *Model) sessionMaxScrollOffset(sess *SessionState) int {
 	if sess.assistantRendered != "" {
 		chatContent += sess.assistantRendered
 	}
-	if chatContent == "" && !m.testMode {
-		chatContent = renderWelcomeInline(m.mdRenderer.width, contentHeight, m.styles)
+	if m.isWelcomeScreen(sess) {
+		lines := buildWelcomeLines(m.mdRenderer.width, m.styles)
+		maxOff := len(lines) - contentHeight
+		if maxOff < 0 {
+			return 0
+		}
+		return maxOff
 	}
 	innerWidth := m.mdRenderer.width
 	totalVisualRows := 0

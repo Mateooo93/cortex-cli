@@ -22,11 +22,14 @@ func (m *Model) visibleChatLines(sess *SessionState, layout Layout) []string {
 			chatContent += animFrame + "\n"
 		}
 	}
-	if chatContent == "" && !m.testMode {
-		chatContent = renderWelcomeInline(m.mdRenderer.width, layout.ChatHeight-1, m.styles)
+	contentHeight := layout.ChatHeight - 1
+	if m.isWelcomeScreen(sess) {
+		return welcomeViewportLines(m.mdRenderer.width, contentHeight, m.styles)
 	}
 
-	contentHeight := layout.ChatHeight - 1
+	if chatContent == "" && !m.testMode {
+		return welcomeViewportLines(m.mdRenderer.width, contentHeight, m.styles)
+	}
 	innerWidth := m.mdRenderer.width
 	allLines := strings.Split(chatContent, "\n")
 
