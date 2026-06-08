@@ -2728,10 +2728,12 @@ func (m Model) View() tea.View {
 		inputLines = sess.questionPanel.Height()
 	}
 	activityStripRows := 0
+	inputHintRows := 0
 	if sess != nil {
 		activityStripRows = sess.activityStripRows()
+		inputHintRows = m.inputKeybindHintRows(sess)
 	}
-	layout := computeLayout(m.width, m.height, inputLines, activityStripRows, panelHeights...)
+	layout := computeLayout(m.width, m.height, inputLines, activityStripRows, inputHintRows, panelHeights...)
 
 	if sess != nil && sess.rightPanel.IsVisible() {
 		layout.ChatWidth = m.width - sess.rightPanel.PanelWidth()
@@ -2840,6 +2842,9 @@ func (m Model) View() tea.View {
 			inputSection = renderInputBox("Chat", false, sess.input.View(), m.width, sess.focus == FocusEditor, m.styles.ColorBlurBorder)
 		} else {
 			inputSection = renderInputBox("Chat", false, "", m.width, false, m.styles.ColorBlurBorder)
+		}
+		if inputHintRows > 0 {
+			inputSection += "\n" + renderInputKeybindHint(m.width)
 		}
 
 		uv.NewStyledString(inputSection).Draw(canvas, image.Rect(0, y, m.width, y+layout.InputHeight))
@@ -3024,6 +3029,17 @@ func (m *Model) flushSessionBuf(sess *SessionState) {
 	sess.thinkingRendered = ""
 }
 
+// inputKeybindHintRows returns 1 when the Enter/Tab/Esc hint row is shown under chat input.
+func (m *Model) inputKeybindHintRows(sess *SessionState) int {
+	if m.activeTab != TabKindChat || sess == nil || m.state == StateQuitConfirm {
+		return 0
+	}
+	if (sess.agentState == StateUserQuestion || sess.agentState == StateConfirmPending) && sess.questionPanel.IsVisible() {
+		return 0
+	}
+	return 1
+}
+
 // visualLineCount returns the display line count for the current session's input.
 func (m *Model) visualLineCount() int {
 	sess := m.currentSession()
@@ -3054,7 +3070,7 @@ func (m *Model) visualLineCount() int {
 
 // sessionMaxScrollOffset returns the max scroll offset for a session's chat.
 func (m *Model) sessionMaxScrollOffset(sess *SessionState) int {
-	layout := computeLayout(m.width, m.height, m.visualLineCount(), sess.activityStripRows())
+	layout := computeLayout(m.width, m.height, m.visualLineCount(), sess.activityStripRows(), m.inputKeybindHintRows(sess))
 	contentHeight := layout.ChatHeight - 1
 	chatContent := buildRenderedChat(sess.chatMessages, m.styles, m.mdRenderer.width, sess.showThinking)
 	if sess.showThinking && sess.thinkingRendered != "" {
@@ -3098,7 +3114,7 @@ func (m *Model) sessionActiveForkSep(sess *SessionState) (TurnSepInfo, bool) {
 	if sess.chatScrollOffset == 0 || sess.client == nil {
 		return TurnSepInfo{}, false
 	}
-	layout := computeLayout(m.width, m.height, m.visualLineCount(), sess.activityStripRows())
+	layout := computeLayout(m.width, m.height, m.visualLineCount(), sess.activityStripRows(), m.inputKeybindHintRows(sess))
 	contentHeight := layout.ChatHeight - 1
 	chatContent := buildRenderedChat(sess.chatMessages, m.styles, m.mdRenderer.width, sess.showThinking)
 	if sess.showThinking && sess.thinkingRendered != "" {
@@ -3249,7 +3265,7 @@ func (m *Model) updateChatWidth() {
 	if sess := m.currentSession(); sess != nil {
 		activityStripRows = sess.activityStripRows()
 	}
-	chatWidth := computeLayout(m.width, m.height, m.visualLineCount(), activityStripRows).ChatWidth
+	chatWidth := computeLayout(m.width, m.height, m.visualLineCount(), activityStripRows, m.inputKeybindHintRows(sess)).ChatWidth
 	if sess != nil && sess.rightPanel.IsVisible() {
 		chatWidth = m.width - sess.rightPanel.PanelWidth()
 		if chatWidth < 10 {

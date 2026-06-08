@@ -20,8 +20,9 @@ type Layout struct {
 
 // computeLayout calculates the vertical space allocation.
 // activityStripRows is 0 or 1 for the compact tool-activity footer.
+// inputHintRows is 0 or 1 for the Enter/Tab/Esc row under the input box.
 // panelHeights are optional heights for attachment panel, history panel, etc.
-func computeLayout(width, height, inputLineCount, activityStripRows int, panelHeights ...int) Layout {
+func computeLayout(width, height, inputLineCount, activityStripRows, inputHintRows int, panelHeights ...int) Layout {
 	// Status bar: 1 line (slim footer with connection ·
 	// model · ctx% · ⏱). The status bar is ALWAYS 1
 	// line tall, even when a transient message is
@@ -38,8 +39,8 @@ func computeLayout(width, height, inputLineCount, activityStripRows int, panelHe
 	const statusBarHeight = 1
 	const tabBarHeight = 3
 
-	// Input area: textarea lines + 2 for top/bottom border.
-	inputHeight := inputLineCount + 2
+	// Input area: textarea lines + 2 for top/bottom border + optional keybind hint row.
+	inputHeight := inputLineCount + 2 + inputHintRows
 	if inputHeight < 4 {
 		inputHeight = 4
 	}
@@ -56,8 +57,14 @@ func computeLayout(width, height, inputLineCount, activityStripRows int, panelHe
 	if activityStripRows > 1 {
 		activityStripRows = 1
 	}
+	if inputHintRows < 0 {
+		inputHintRows = 0
+	}
+	if inputHintRows > 1 {
+		inputHintRows = 1
+	}
 
-	chatHeight := height - inputHeight - statusBarHeight - tabBarHeight - panelHeight - activityStripRows
+	chatHeight := height - inputHeight - statusBarHeight - tabBarHeight - panelHeight - activityStripRows - inputHintRows
 	if chatHeight < 3 {
 		chatHeight = 3
 	}

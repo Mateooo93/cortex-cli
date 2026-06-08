@@ -29,10 +29,12 @@ func (m *Model) currentLayout() Layout {
 	}
 
 	activityStripRows := 0
+	inputHintRows := 0
 	if sess != nil {
 		activityStripRows = sess.activityStripRows()
+		inputHintRows = m.inputKeybindHintRows(sess)
 	}
-	layout := computeLayout(m.width, m.height, inputLines, activityStripRows, panelHeights...)
+	layout := computeLayout(m.width, m.height, inputLines, activityStripRows, inputHintRows, panelHeights...)
 	if sess != nil && sess.rightPanel.IsVisible() {
 		layout.ChatWidth = m.width - sess.rightPanel.PanelWidth()
 		if layout.ChatWidth < 10 {

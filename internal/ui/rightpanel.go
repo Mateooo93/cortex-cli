@@ -480,6 +480,7 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
 	primaryStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
 	whiteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
+	badgeStyle := lipgloss.NewStyle().Background(colorSecondary).Foreground(lipgloss.Color("0")).Bold(true)
 	warnStyle := lipgloss.NewStyle().Foreground(colorWarning)
 	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	okStyle := lipgloss.NewStyle().Foreground(colorSuccess)
@@ -619,6 +620,10 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 			lines = append(lines, renderTodoOrStepLine(t.Content, string(t.Status), innerWidth))
 		}
 	}
+
+	lines = append(lines, "")
+	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Keys"))
+	lines = append(lines, badgeStyle.Render(" Ctrl+C ")+" "+dimStyle.Render(truncateRight("quit", innerWidth-10)))
 
 	return lines, processLineIdx
 }

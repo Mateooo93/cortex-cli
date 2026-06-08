@@ -65,12 +65,12 @@ func TestRightPanel_InfoMode_ShowsContextBar(t *testing.T) {
 	}
 	view := rp.View(40, s, true, "GPT-5.5", nil, info)
 	// Should contain "Model", "Context", "6%" (12k/200k),
-	for _, want := range []string{"Model", "Context", "6%", "2:13"} {
+	for _, want := range []string{"Model", "Context", "6%", "2:13", "Keys", "Ctrl+C"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("info panel missing %q, got:\n%s", want, view)
 		}
 	}
-	for _, unwanted := range []string{"connected", "Keys", "Ctrl+T", "F1 Sessions", "F2 Chat", "F4 Settings"} {
+	for _, unwanted := range []string{"connected", "Ctrl+T", "F1 Sessions", "F2 Chat", "F4 Settings"} {
 		if strings.Contains(view, unwanted) {
 			t.Errorf("info panel should not contain %q (moved to tab bar), got:\n%s", unwanted, view)
 		}
