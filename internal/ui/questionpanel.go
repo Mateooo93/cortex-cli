@@ -37,6 +37,17 @@ type questionTab struct {
 // maxQuestionLines is the maximum number of question-text lines shown at once in the panel.
 const maxQuestionLines = 5
 
+// maxBatchQuestionLines caps question text height per item when several
+// questions are shown together in one panel.
+const maxBatchQuestionLines = 2
+
+// questionPanelCustomOption is always appended as the last choice so the
+// user can type a free-form answer. The model should not duplicate this.
+var questionPanelCustomOption = protocol.EventQuestionOption{
+	Title:        "Type something.",
+	HasUserInput: true,
+}
+
 // QuestionPanel is a dedicated input panel for answering questions with selectable options.
 type QuestionPanel struct {
 	visible           bool
@@ -112,20 +123,25 @@ func (qp *QuestionPanel) Open(event protocol.EventUserQuestion, width int, md *M
 
 	// Build tabs from event
 	if len(event.Questions) > 0 {
-		// Multi-question batch mode
+		// Multi-question batch mode — all questions appear in one panel.
 		qp.tabs = make([]questionTab, len(event.Questions))
 		for i, q := range event.Questions {
-			opts := make([]string, len(q.Options))
-			copy(opts, q.Options)
-			opts = append(opts, "Type something.")
-			qp.tabs[i] = questionTab{
+			tab := questionTab{
 				id:            q.ID,
 				category:      q.Category,
 				question:      q.Question,
 				questionLines: renderQuestionLines(q.Question, innerWidth, md),
-				options:       opts,
 				selected:      0,
 			}
+			if len(q.RichOptions) > 0 {
+				tab.richOptions = appendRichOptionsWithCustom(q.RichOptions)
+			} else {
+				opts := make([]string, len(q.Options))
+				copy(opts, q.Options)
+				opts = append(opts, "Type something.")
+				tab.options = opts
+			}
+			qp.tabs[i] = tab
 		}
 	} else if len(event.RichOptions) > 0 {
 		// Rich options mode (workflow tool steps)
@@ -137,7 +153,7 @@ func (qp *QuestionPanel) Open(event protocol.EventUserQuestion, width int, md *M
 			id:          "single",
 			category:    cat,
 			question:    event.Question,
-			richOptions: event.RichOptions,
+			richOptions: appendRichOptionsWithCustom(event.RichOptions),
 			selected:    0,
 		}}
 	} else {
@@ -321,6 +337,15 @@ func (qp *QuestionPanel) CurrentAnswerText() string {
 		return qp.tabs[qp.currentTab].answerText
 	}
 	return ""
+}
+
+func appendRichOptionsWithCustom(opts []protocol.EventQuestionOption) []protocol.EventQuestionOption {
+	out := make([]protocol.EventQuestionOption, len(opts))
+	copy(out, opts)
+	if len(out) == 0 || !out[len(out)-1].HasUserInput {
+		out = append(out, questionPanelCustomOption)
+	}
+	return out
 }
 
 // optionCount returns the number of selectable options in the given tab.
@@ -517,13 +542,19 @@ func (qp *QuestionPanel) handleEnter() (QuestionPanelResult, string, map[string]
 			return QPNoop, "", nil
 		}
 		opt := tab.richOptions[tab.selected]
-		answer = opt.Title
 		if opt.HasUserInput {
 			text := strings.TrimSpace(qp.textInput.Value())
 			if text == "" {
 				return QPNoop, "", nil // don't submit empty text on has_user_input
 			}
-			tab.answerText = text
+			if opt.Title == questionPanelCustomOption.Title {
+				answer = text
+			} else {
+				answer = opt.Title
+				tab.answerText = text
+			}
+		} else {
+			answer = opt.Title
 		}
 	} else if qp.isOnTextOption() {
 		text := strings.TrimSpace(qp.textInput.Value())
@@ -580,38 +611,51 @@ func (qp *QuestionPanel) Height() int {
 	}
 
 	h := 0
-	// Tab bar (multi-tab)
 	if qp.isMultiTab() {
-		h++ // tab bar line
-	}
-
-	// Question text lines: prefer the current tab's lines (populated for
-	// single- and multi-question batches), falling back to the panel-level
-	// lines used by rich-option and confirm modes.
-	activeLines := qp.activeQuestionLines()
-	qLines := len(activeLines)
-	if qLines > 0 {
-		shown := qLines
-		if shown > maxQuestionLines {
-			shown = maxQuestionLines
+		for i := range qp.tabs {
+			t := &qp.tabs[i]
+			h++ // section header
+			qShown := len(t.questionLines)
+			if qShown > maxBatchQuestionLines {
+				qShown = maxBatchQuestionLines
+			}
+			h += qShown
+			if t.answered {
+				h++ // answered summary
+			} else if i == qp.currentTab {
+				visible := t.optionCount()
+				if visible > qp.maxVisible {
+					visible = qp.maxVisible
+				}
+				h += visible
+				if qp.isOnTextOption() {
+					h++
+				}
+			}
+			h++ // section spacer
 		}
-		h += shown
-		if shown == 1 {
-			h++ // leading blank line added for single-line vertical centering
+	} else {
+		activeLines := qp.activeQuestionLines()
+		qLines := len(activeLines)
+		if qLines > 0 {
+			shown := qLines
+			if shown > maxQuestionLines {
+				shown = maxQuestionLines
+			}
+			h += shown
+			if shown == 1 {
+				h++
+			}
+			h++
 		}
-		h++ // blank separator
-	}
-
-	// Options (capped by maxVisible)
-	visible := tab.optionCount()
-	if visible > qp.maxVisible {
-		visible = qp.maxVisible
-	}
-	h += visible
-
-	// Text input line if on text option
-	if qp.isOnTextOption() {
-		h++ // the text input itself
+		visible := tab.optionCount()
+		if visible > qp.maxVisible {
+			visible = qp.maxVisible
+		}
+		h += visible
+		if qp.isOnTextOption() {
+			h++
+		}
 	}
 
 	h++ // divider
@@ -648,16 +692,16 @@ func (qp *QuestionPanel) Render(s Styles, focused bool, md *MarkdownRenderer) st
 	// falling back to the panel-level lines used by rich-option and confirm modes.
 	activeQuestionLines := qp.activeQuestionLines()
 
-	// Top border with category or tab bar
+	// Top border with category label
 	scrollable := len(activeQuestionLines) > maxQuestionLines
 	if qp.isMultiTab() {
-		tabBar := qp.renderTabBar(s)
-		tabLen := lipgloss.Width(tabBar)
-		remaining := innerWidth + 2 - tabLen
+		catRendered := questionPanelCategoryStyle.Render(" Questions ")
+		labelLen := lipgloss.Width(catRendered)
+		remaining := innerWidth + 2 - labelLen - 1
 		if remaining < 0 {
 			remaining = 0
 		}
-		topBorder := borderStyle.Render("╭─") + tabBar + borderStyle.Render(strings.Repeat("─", remaining)+"╮")
+		topBorder := borderStyle.Render("╭─") + catRendered + borderStyle.Render(strings.Repeat("─", remaining)+"╮")
 		sb.WriteString(topBorder + "\n")
 	} else {
 		dimStyle := lipgloss.NewStyle().Foreground(colorDim)
@@ -683,70 +727,32 @@ func (qp *QuestionPanel) Render(s Styles, focused bool, md *MarkdownRenderer) st
 		sb.WriteString(borderStyle.Render("│") + " " + padded + " " + borderStyle.Render("│") + "\n")
 	}
 
-	// Question text lines
-	if len(activeQuestionLines) > 0 {
-		end := qp.questionOffset + maxQuestionLines
-		if end > len(activeQuestionLines) {
-			end = len(activeQuestionLines)
-		}
-		// Add a leading blank line when the question fits on a single line,
-		// so it appears vertically centred rather than flush against the top border.
-		visibleLines := end - qp.questionOffset
-		if visibleLines == 1 {
-			writeLine("")
-		}
-		for _, line := range activeQuestionLines[qp.questionOffset:end] {
-			writeLine(line)
-		}
-		writeLine("")
-	}
-
-	// Options with scrolling
-	optCount := tab.optionCount()
-	visStart := qp.offset
-	visEnd := visStart + qp.maxVisible
-	if visEnd > optCount {
-		visEnd = optCount
-	}
-
 	answeredStyle := lipgloss.NewStyle().Foreground(colorSuccess).Bold(true)
 
-	if len(tab.richOptions) > 0 {
-		// Rich options: title in bold, description in dim
-		for i := visStart; i < visEnd; i++ {
-			opt := tab.richOptions[i]
-			num := fmt.Sprintf("%d. ", i+1)
-
-			if tab.answered && i == tab.selected {
-				writeLine("  " + answeredStyle.Render("✓ "+num+opt.Title) + "  " + s.QuestionPanelDescStyle.Render(opt.Description))
-			} else if i == tab.selected {
-				cursor := questionPanelCursorStyle.Render("› ")
-				writeLine(cursor + s.QuestionPanelSelectedStyle.Render(num+opt.Title) + "  " + s.QuestionPanelDescStyle.Render(opt.Description))
-			} else {
-				writeLine("  " + s.QuestionPanelUnselectedStyle.Render(num+opt.Title) + "  " + s.QuestionPanelDescStyle.Render(opt.Description))
-			}
-		}
+	if qp.isMultiTab() {
+		qp.renderStackedQuestions(s, writeLine, answeredStyle)
 	} else {
-		// Simple string options
-		for i := visStart; i < visEnd; i++ {
-			opt := tab.options[i]
-			num := fmt.Sprintf("%d. ", i+1)
-
-			if tab.answered && i == tab.selected {
-				writeLine("  " + answeredStyle.Render("✓ "+num+opt))
-			} else if i == tab.selected {
-				cursor := questionPanelCursorStyle.Render("› ")
-				writeLine(cursor + s.QuestionPanelSelectedStyle.Render(num+opt))
-			} else {
-				writeLine("  " + s.QuestionPanelUnselectedStyle.Render(num+opt))
+		// Question text lines
+		if len(activeQuestionLines) > 0 {
+			end := qp.questionOffset + maxQuestionLines
+			if end > len(activeQuestionLines) {
+				end = len(activeQuestionLines)
 			}
+			visibleLines := end - qp.questionOffset
+			if visibleLines == 1 {
+				writeLine("")
+			}
+			for _, line := range activeQuestionLines[qp.questionOffset:end] {
+				writeLine(line)
+			}
+			writeLine("")
 		}
+		qp.renderTabOptions(s, tab, writeLine, answeredStyle)
 	}
 
-	// Text input area (shown when cursor is on text option)
-	if qp.isOnTextOption() {
-		inputView := qp.textInput.View()
-		writeLine("     " + inputView)
+	// Text input for single-question mode (batch mode renders it inline).
+	if !qp.isMultiTab() && qp.isOnTextOption() {
+		writeLine("     " + qp.textInput.View())
 	}
 
 	// Divider
@@ -756,7 +762,7 @@ func (qp *QuestionPanel) Render(s Styles, focused bool, md *MarkdownRenderer) st
 	// Help text
 	var help string
 	if qp.isMultiTab() {
-		help = "Enter to select · ↑/↓ to navigate · ←/→ for tabs · Esc to cancel"
+		help = "Enter to select · ↑/↓ options · ←/→ switch question · Esc to cancel"
 	} else {
 		help = "Enter to select · ↑/↓ to navigate · Esc to cancel"
 	}
@@ -771,6 +777,85 @@ func (qp *QuestionPanel) Render(s Styles, focused bool, md *MarkdownRenderer) st
 	return sb.String()
 }
 
+
+func (qp *QuestionPanel) renderTabOptions(s Styles, tab *questionTab, writeLine func(string), answeredStyle lipgloss.Style) {
+	optCount := tab.optionCount()
+	visStart := qp.offset
+	visEnd := visStart + qp.maxVisible
+	if visEnd > optCount {
+		visEnd = optCount
+	}
+
+	if len(tab.richOptions) > 0 {
+		for i := visStart; i < visEnd; i++ {
+			opt := tab.richOptions[i]
+			num := fmt.Sprintf("%d. ", i+1)
+			if tab.answered && i == tab.selected {
+				writeLine("  " + answeredStyle.Render("✓ "+num+opt.Title) + "  " + s.QuestionPanelDescStyle.Render(opt.Description))
+			} else if i == tab.selected {
+				cursor := questionPanelCursorStyle.Render("› ")
+				writeLine(cursor + s.QuestionPanelSelectedStyle.Render(num+opt.Title) + "  " + s.QuestionPanelDescStyle.Render(opt.Description))
+			} else {
+				writeLine("  " + s.QuestionPanelUnselectedStyle.Render(num+opt.Title) + "  " + s.QuestionPanelDescStyle.Render(opt.Description))
+			}
+		}
+		return
+	}
+
+	for i := visStart; i < visEnd; i++ {
+		opt := tab.options[i]
+		num := fmt.Sprintf("%d. ", i+1)
+		if tab.answered && i == tab.selected {
+			writeLine("  " + answeredStyle.Render("✓ "+num+opt))
+		} else if i == tab.selected {
+			cursor := questionPanelCursorStyle.Render("› ")
+			writeLine(cursor + s.QuestionPanelSelectedStyle.Render(num+opt))
+		} else {
+			writeLine("  " + s.QuestionPanelUnselectedStyle.Render(num+opt))
+		}
+	}
+}
+
+func (qp *QuestionPanel) renderStackedQuestions(s Styles, writeLine func(string), answeredStyle lipgloss.Style) {
+	for i := range qp.tabs {
+		t := &qp.tabs[i]
+		var indicator string
+		switch {
+		case t.answered:
+			indicator = answeredStyle.Render("✓")
+		case i == qp.currentTab:
+			indicator = questionPanelCursorStyle.Render("›")
+		default:
+			indicator = " "
+		}
+		header := fmt.Sprintf("%s %s", indicator, t.category)
+		if i == qp.currentTab {
+			writeLine(questionPanelTabActiveStyle.Render(header))
+		} else if t.answered {
+			writeLine(answeredStyle.Render(header))
+		} else {
+			writeLine(s.QuestionPanelUnselectedStyle.Render(header))
+		}
+
+		end := maxBatchQuestionLines
+		if end > len(t.questionLines) {
+			end = len(t.questionLines)
+		}
+		for _, line := range t.questionLines[:end] {
+			writeLine("  " + line)
+		}
+
+		if t.answered {
+			writeLine("  " + answeredStyle.Render("Answer: "+t.answer))
+		} else if i == qp.currentTab {
+			qp.renderTabOptions(s, t, writeLine, answeredStyle)
+			if qp.isOnTextOption() {
+				writeLine("     " + qp.textInput.View())
+			}
+		}
+		writeLine("")
+	}
+}
 
 // renderTabBar builds the tab bar for multi-question mode.
 func (qp *QuestionPanel) renderTabBar(s Styles) string {

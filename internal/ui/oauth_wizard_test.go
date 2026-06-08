@@ -17,7 +17,7 @@ import (
 // caller (the Settings tab enter handler) is responsible for
 // firing the OAuth flow instead.
 func TestOpenSettingsWizard_RejectsOAuthProviders(t *testing.T) {
-	oauth := []string{"codex", "claude-sub", "copilot"}
+	oauth := []string{"codex", "xai-sub", "claude-sub", "copilot"}
 	for _, name := range oauth {
 		auth := cortexconfig.ProviderAuthKind(name)
 		if auth != "oauth" {

@@ -80,12 +80,53 @@ func TestRightPanel_CodexNeverReturnsModelSelectedDirectly(t *testing.T) {
 	}
 }
 
+func TestRightPanel_XaiSubAutoTriggersOAuth(t *testing.T) {
+	var idx int
+	var spec string
+	for i, m := range AvailableModels {
+		if m.Provider == "xai-sub" {
+			idx = i
+			spec = m.Spec
+			break
+		}
+	}
+	if spec == "" {
+		t.Fatal("no xai-sub model in AvailableModels")
+	}
+	rp := RightPanel{}
+	rp.modelSel = idx
+	action, payload := rp.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if action != rpActionCodexSignIn {
+		t.Errorf("action = %d, want rpActionCodexSignIn", action)
+	}
+	if payload != spec {
+		t.Errorf("payload = %q, want %q", payload, spec)
+	}
+	if rp.oauthSignInProvider != "xai-sub" {
+		t.Errorf("oauthSignInProvider = %q, want xai-sub", rp.oauthSignInProvider)
+	}
+}
+
+func TestRightPanel_XaiSubNeverReturnsNeedKey(t *testing.T) {
+	for i, m := range AvailableModels {
+		if m.Provider != "xai-sub" {
+			continue
+		}
+		rp := RightPanel{}
+		rp.modelSel = i
+		action, _ := rp.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+		if action == rpActionNeedKey {
+			t.Errorf("xai-sub model %q returned rpActionNeedKey — must use OAuth subscription", m.Spec)
+		}
+	}
+}
+
 // TestRightPanel_NonCodexNeedsAPIKey confirms the inverse: picking a
 // normal API-key provider (e.g. openai) does NOT trigger the codex
 // OAuth path.
 func TestRightPanel_NonCodexNeedsAPIKey(t *testing.T) {
 	for i, m := range AvailableModels {
-		if m.Provider == "codex" {
+		if m.Provider == "codex" || m.Provider == "xai-sub" {
 			continue
 		}
 		rp := RightPanel{}

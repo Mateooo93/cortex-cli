@@ -5,14 +5,14 @@ import (
 )
 
 // TestLoginPicker_BuildsOAuthOnly verifies the /login picker
-// contains exactly the three OAuth providers (codex, claude-sub,
+// contains the OAuth providers (codex, xai-sub, claude-sub,
 // copilot). API-key providers (openai, anthropic, etc.) must NOT
 // be in the list — those are configured through the right-panel
 // key input form, not through a subscription sign-in flow.
 func TestLoginPicker_BuildsOAuthOnly(t *testing.T) {
 	entries := buildLoginPickerEntries()
-	if len(entries) != 3 {
-		t.Errorf("entries = %d, want 3 (codex, claude-sub, copilot)", len(entries))
+	if len(entries) != 4 {
+		t.Errorf("entries = %d, want 4 (codex, xai-sub, claude-sub, copilot)", len(entries))
 	}
 	seen := map[string]bool{}
 	for _, e := range entries {
@@ -21,7 +21,7 @@ func TestLoginPicker_BuildsOAuthOnly(t *testing.T) {
 			t.Errorf("%s: AuthMethod empty", e.Provider)
 		}
 	}
-	for _, want := range []string{"codex", "claude-sub", "copilot"} {
+	for _, want := range []string{"codex", "xai-sub", "claude-sub", "copilot"} {
 		if !seen[want] {
 			t.Errorf("missing provider %q in picker", want)
 		}
@@ -44,8 +44,8 @@ func TestLoginPicker_FilterByQuery(t *testing.T) {
 		t.Errorf("filter 'device' = %v, want [codex]", providersOf(got2))
 	}
 	// Empty query returns all.
-	if got3 := filterLoginPickerEntries(all, ""); len(got3) != 3 {
-		t.Errorf("empty filter = %d, want 3", len(got3))
+	if got3 := filterLoginPickerEntries(all, ""); len(got3) != 4 {
+		t.Errorf("empty filter = %d, want 4", len(got3))
 	}
 }
 

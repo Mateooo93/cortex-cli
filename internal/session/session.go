@@ -725,22 +725,38 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) *provider.Messag
 	summary := summarizeArgs(call.Arguments)
 	s.emitToolCall(call.ID, call.Name, call.Arguments, summary)
 
-	question, _ := call.Arguments["question"].(string)
-	if question == "" {
-		s.emitToolResult(call.ID, call.Name, "", true, "question is required", nil)
-		return toolHistoryMessage(call.ID, call.Name, "", true, "question is required")
-	}
-	opts := parseAskUserQuestionOptions(call.Arguments["options"])
-	if len(opts) < 2 {
-		s.emitToolResult(call.ID, call.Name, "", true, "options: need at least 2 options", nil)
-		return toolHistoryMessage(call.ID, call.Name, "", true, "options: need at least 2 options")
-	}
-	if len(opts) > 4 {
-		opts = opts[:4]
-	}
-	header, _ := call.Arguments["header"].(string)
-	if header == "" {
-		header = "Question"
+	var event protocol.EventUserQuestion
+	if batch := parseAskUserQuestionBatch(call.Arguments["questions"]); len(batch) > 0 {
+		for i := range batch {
+			if err := normalizeQuestionDef(&batch[i], i); err != nil {
+				s.emitToolResult(call.ID, call.Name, "", true, err.Error(), nil)
+				return toolHistoryMessage(call.ID, call.Name, "", true, err.Error())
+			}
+		}
+		event = protocol.EventUserQuestion{Questions: batch}
+	} else {
+		question, _ := call.Arguments["question"].(string)
+		if question == "" {
+			s.emitToolResult(call.ID, call.Name, "", true, "question or questions is required", nil)
+			return toolHistoryMessage(call.ID, call.Name, "", true, "question or questions is required")
+		}
+		opts := parseAskUserQuestionOptions(call.Arguments["options"])
+		if len(opts) < 2 {
+			s.emitToolResult(call.ID, call.Name, "", true, "options: need at least 2 options", nil)
+			return toolHistoryMessage(call.ID, call.Name, "", true, "options: need at least 2 options")
+		}
+		if len(opts) > 4 {
+			opts = opts[:4]
+		}
+		header, _ := call.Arguments["header"].(string)
+		if header == "" {
+			header = "Question"
+		}
+		event = protocol.EventUserQuestion{
+			Question:    question,
+			RichOptions: opts,
+			Category:    header,
+		}
 	}
 
 	// Emit the question event so the TUI pops the panel.
@@ -754,12 +770,7 @@ func (s *Session) handleAskUserQuestion(call provider.ToolCall) *provider.Messag
 	select {
 	case s.events <- protocol.SessionEvent{
 		Type: "user_question",
-		Data: protocol.EventUserQuestion{
-			Question:    question,
-			Options:     nil,
-			RichOptions: opts,
-			Category:    header,
-		},
+		Data: event,
 	}:
 		sent = true
 	default:
@@ -911,6 +922,149 @@ func toEventOptions(arr []struct {
 		})
 	}
 	return out
+}
+
+// parseAskUserQuestionBatch normalises the `questions` argument into
+// []protocol.QuestionDef. Accepts a JSON string, a []any of objects,
+// or wrapper maps like {"item": [...]}.
+func parseAskUserQuestionBatch(raw any) []protocol.QuestionDef {
+	if raw == nil {
+		return nil
+	}
+	if s, ok := raw.(string); ok {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return nil
+		}
+		var arr []json.RawMessage
+		if err := json.Unmarshal([]byte(s), &arr); err != nil {
+			return nil
+		}
+		return parseAskUserQuestionBatchItems(arr)
+	}
+	if arr, ok := raw.([]any); ok {
+		items := make([]json.RawMessage, 0, len(arr))
+		for _, item := range arr {
+			b, err := json.Marshal(item)
+			if err != nil {
+				continue
+			}
+			items = append(items, b)
+		}
+		return parseAskUserQuestionBatchItems(items)
+	}
+	if m, ok := raw.(map[string]any); ok {
+		for _, key := range []string{"item", "items", "questions"} {
+			if v, ok := m[key]; ok {
+				if batch := parseAskUserQuestionBatch(v); len(batch) > 0 {
+					return batch
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func parseAskUserQuestionBatchItems(items []json.RawMessage) []protocol.QuestionDef {
+	out := make([]protocol.QuestionDef, 0, len(items))
+	for _, raw := range items {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			continue
+		}
+		q := protocol.QuestionDef{
+			ID:       stringFromAny(m["id"]),
+			Category: firstNonEmpty(stringFromAny(m["category"]), stringFromAny(m["header"])),
+			Question: stringFromAny(m["question"]),
+		}
+		if opts := parseAskUserQuestionOptions(m["options"]); len(opts) > 0 {
+			q.RichOptions = opts
+		} else if simple := parseSimpleQuestionOptions(m["options"]); len(simple) > 0 {
+			q.Options = simple
+		}
+		if q.Question == "" {
+			continue
+		}
+		out = append(out, q)
+	}
+	return out
+}
+
+func parseSimpleQuestionOptions(raw any) []string {
+	if raw == nil {
+		return nil
+	}
+	if s, ok := raw.(string); ok {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return nil
+		}
+		var arr []string
+		if err := json.Unmarshal([]byte(s), &arr); err == nil {
+			return filterNonEmptyStrings(arr)
+		}
+		return nil
+	}
+	if arr, ok := raw.([]any); ok {
+		out := make([]string, 0, len(arr))
+		for _, item := range arr {
+			if str, ok := item.(string); ok && strings.TrimSpace(str) != "" {
+				out = append(out, str)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func filterNonEmptyStrings(arr []string) []string {
+	out := make([]string, 0, len(arr))
+	for _, s := range arr {
+		if strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func stringFromAny(v any) string {
+	if s, ok := v.(string); ok {
+		return strings.TrimSpace(s)
+	}
+	return ""
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func normalizeQuestionDef(q *protocol.QuestionDef, idx int) error {
+	if q.ID == "" {
+		q.ID = fmt.Sprintf("q%d", idx)
+	}
+	if q.Category == "" {
+		q.Category = fmt.Sprintf("Question %d", idx+1)
+	}
+	optCount := len(q.Options)
+	if len(q.RichOptions) > 0 {
+		optCount = len(q.RichOptions)
+		if optCount > 4 {
+			q.RichOptions = q.RichOptions[:4]
+			optCount = 4
+		}
+	} else if optCount > 4 {
+		q.Options = q.Options[:4]
+		optCount = 4
+	}
+	if optCount < 2 {
+		return fmt.Errorf("questions[%d]: need at least 2 options", idx)
+	}
+	return nil
 }
 
 // maybeFireDelayedCancel cancels the running turn's context if the

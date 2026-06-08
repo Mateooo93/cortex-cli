@@ -102,6 +102,12 @@ func buildLoginPickerEntries() []LoginPickerEntry {
 			Help:       "Opens auth.openai.com in your browser. Type \"codex --device\" for the device-code fallback.",
 		},
 		{
+			Provider:   "xai-sub",
+			Label:      "xAI Grok (SuperGrok) \u2014 Grok 4.3, Grok Build, etc.",
+			AuthMethod: "browser",
+			Help:       "Opens accounts.x.ai in your browser. Uses your SuperGrok or X Premium+ subscription (same flow as Grok Build).",
+		},
+		{
 			Provider:   "claude-sub",
 			Label:      "Claude Pro / Max \u2014 Claude Opus 4.8, etc.",
 			AuthMethod: "env-var",

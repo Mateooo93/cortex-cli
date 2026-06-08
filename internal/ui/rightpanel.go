@@ -59,8 +59,9 @@ type RightPanel struct {
 	keyInputPending  string // model name waiting for the key
 	keyInput         textinput.Model
 
-	// Codex sign-in state
-	codexSignInPending string // model name waiting for the OAuth flow
+	// OAuth sign-in state (codex, xai-sub, …)
+	oauthSignInProvider string // provider waiting for OAuth (e.g. "codex", "xai-sub")
+	codexSignInPending  string // model spec to switch to after OAuth succeeds
 }
 
 // NewRightPanel returns a panel that is visible in info mode by
@@ -156,14 +157,14 @@ func (rp *RightPanel) OpenKeyInput(provider, pendingModel string, height int) {
 	rp.keyInput = ti
 }
 
-// OpenCodexSignIn opens the inline "Sign in with ChatGPT" prompt. Pressing
-// enter launches the OAuth flow; the panel is closed while the
-// browser is in the foreground. pendingModel is the model the user
-// wants to switch to after the token is saved.
-func (rp *RightPanel) OpenCodexSignIn(pendingModel string, height int) {
+// OpenCodexSignIn opens the inline OAuth sign-in prompt for provider.
+// Pressing enter launches the browser OAuth flow. pendingModel is the
+// model spec to switch to after the token is saved (may be empty).
+func (rp *RightPanel) OpenCodexSignIn(provider, pendingModel string, height int) {
 	rp.visible = true
 	rp.mode = rpModeCodexSignIn
 	rp.height = height
+	rp.oauthSignInProvider = provider
 	rp.codexSignInPending = pendingModel
 }
 
@@ -198,7 +199,8 @@ func (rp *RightPanel) HandleKey(msg tea.KeyPressMsg) (RightPanelAction, string) 
 				m := AvailableModels[rp.modelSel]
 				// Codex has its own auth path: ChatGPT OAuth, not a
 				// pasted API key. Short-circuit to the sign-in prompt.
-				if m.Provider == "codex" {
+				if m.Provider == "codex" || m.Provider == "xai-sub" {
+					rp.oauthSignInProvider = m.Provider
 					return rpActionCodexSignIn, m.Spec
 				}
 				apiKey, _ := config.ResolveProviderKey(m.Provider, true)
@@ -229,6 +231,7 @@ func (rp *RightPanel) HandleKey(msg tea.KeyPressMsg) (RightPanelAction, string) 
 				// a "paste your key" form. The handler in
 				// model.go fires the browser OAuth flow.
 				if cortexconfig.ProviderAuthKind(provider) == "oauth" {
+					rp.oauthSignInProvider = provider
 					return rpActionCodexSignIn, provider + ":"
 				}
 				return rpActionNeedKey, provider + ":"
@@ -366,12 +369,14 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 		lines = append(lines, title, sub, sep, inputView, "", hint)
 
 	case rpModeCodexSignIn:
-		title := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Width(innerWidth).Render("Sign in with ChatGPT")
+		provider := rp.oauthSignInProvider
+		if provider == "" {
+			provider = "codex"
+		}
+		titleText, bodyText := oauthSignInCopy(provider)
+		title := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Width(innerWidth).Render(titleText)
 		sep := lipgloss.NewStyle().Foreground(colorDim).Width(innerWidth).Render(strings.Repeat("─", innerWidth))
-		body := lipgloss.NewStyle().Foreground(s.ColorWhite).Width(innerWidth).Render(
-			"Use your ChatGPT subscription to power cortex-cli. Press " +
-				"Enter to open the sign-in page in your browser. After you " +
-				"approve, cortex-cli stores the token in your OS keychain.")
+		body := lipgloss.NewStyle().Foreground(s.ColorWhite).Width(innerWidth).Render(bodyText)
 		warn := lipgloss.NewStyle().Foreground(colorSecondary).Width(innerWidth).Render(
 			"Requires xdg-open / open / wslview (Linux, macOS, WSL).")
 		del := lipgloss.NewStyle().Foreground(colorDim).Width(innerWidth).Render(
@@ -672,4 +677,19 @@ func renderTodoOrStepLine(label, status string, innerWidth int) string {
 		result += "\n  " + l
 	}
 	return result
+}
+
+func oauthSignInCopy(provider string) (title, body string) {
+	switch provider {
+	case "xai-sub":
+		return "Connect SuperGrok / X",
+			"Use your SuperGrok or X Premium+ subscription — no API key from console.x.ai. " +
+				"Press Enter to open accounts.x.ai in your browser. After you approve, " +
+				"cortex-cli stores the token in your OS keychain (same flow as Grok Build)."
+	default:
+		return "Sign in with ChatGPT",
+			"Use your ChatGPT subscription to power cortex-cli — no OpenAI API key. " +
+				"Press Enter to open the sign-in page in your browser. After you approve, " +
+				"cortex-cli stores the token in your OS keychain."
+	}
 }

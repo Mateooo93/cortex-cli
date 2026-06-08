@@ -298,3 +298,48 @@ func TestRenderDiffDetailSideBySide(t *testing.T) {
 		t.Error("expected shared 'Function()' suffix to appear in the rendered diff line")
 	}
 }
+
+func TestFormatToolResultDisplay_DirectoryListings(t *testing.T) {
+	entries := strings.Join([]string{"a.go", "b.go", "c.go", "d.go", "e.go", "f.go"}, "\n")
+
+	full := formatToolResultDisplay("list_dir", entries, "")
+	if full != entries {
+		t.Fatalf("list_dir should show full output, got %q", full)
+	}
+
+	full = formatToolResultDisplay("glob_files", entries, "")
+	if full != entries {
+		t.Fatalf("glob_files should show full output, got %q", full)
+	}
+
+	full = formatToolResultDisplay("bash", entries, "$ ls")
+	if full != entries {
+		t.Fatalf("bash ls should show full output, got %q", full)
+	}
+
+	truncated := formatToolResultDisplay("bash", entries, "$ git status")
+	if truncated == entries {
+		t.Fatalf("non-listing bash output should be truncated, got full listing")
+	}
+	if !strings.Contains(truncated, "a.go") || strings.Contains(truncated, "f.go") {
+		t.Fatalf("truncated bash output should keep early lines only, got %q", truncated)
+	}
+}
+
+func TestIsDirectoryListingCommand(t *testing.T) {
+	tests := []struct {
+		summary string
+		want    bool
+	}{
+		{"$ ls", true},
+		{"$ ls -la internal/ui", true},
+		{`command="ls -la"`, true},
+		{"$ git status", false},
+		{"$ make test", false},
+	}
+	for _, tt := range tests {
+		if got := isDirectoryListingCommand(tt.summary); got != tt.want {
+			t.Errorf("isDirectoryListingCommand(%q) = %v, want %v", tt.summary, got, tt.want)
+		}
+	}
+}

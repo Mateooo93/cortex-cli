@@ -60,10 +60,9 @@ type ModelConfig struct {
 // New constructs the right Provider for a given model config. Empty API
 // key is allowed (Ollama doesn't require one).
 //
-// For the "codex" provider, the cfg.APIKey is ignored: authentication
-// comes from a ChatGPT OAuth token stored in the OS keychain (see
-// internal/provider/codex). cfg.APIKey may be set non-empty to keep
-// the Settings tab from prompting; the value isn't sent on the wire.
+// For subscription OAuth providers ("codex", "xai-sub"), cfg.APIKey is
+// ignored: authentication comes from the OAuth token in the OS keychain
+// (see internal/provider/codex and internal/provider/xaisub).
 func New(cfg ModelConfig) (Provider, error) {
 	apiKey := cfg.APIKey
 	baseURL := cfg.BaseURL

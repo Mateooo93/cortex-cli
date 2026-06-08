@@ -222,10 +222,11 @@ type EventPlanComplete struct {
 
 // QuestionDef defines a single question in a batch.
 type QuestionDef struct {
-	ID       string   `json:"id"`
-	Category string   `json:"category"`
-	Question string   `json:"question"`
-	Options  []string `json:"options,omitempty"`
+	ID          string                `json:"id"`
+	Category    string                `json:"category,omitempty"`
+	Question    string                `json:"question"`
+	Options     []string              `json:"options,omitempty"`
+	RichOptions []EventQuestionOption `json:"rich_options,omitempty"`
 }
 
 // EventQuestionOption is a structured option for ask_user_question tool steps.

@@ -8,17 +8,9 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// renderCodexAuthOverlay renders the full-screen "waiting for
-// ChatGPT sign-in" overlay. We use it whenever a codex OAuth
-// flow is in flight so the user has the authorize URL handy —
-// in case the browser doesn't auto-open (headless / WSL /
-// SSH), the user can copy the URL into any browser manually.
-//
-// The overlay also has a "Switch to device-code flow" hint if
-// the standard browser-callback flow keeps failing (e.g. the
-// "Invalid authorize request" phone-verification gate the
-// user reported).
-func (m *Model) renderCodexAuthOverlay() string {
+// renderOAuthAuthOverlay renders the full-screen "waiting for sign-in"
+// overlay while an OAuth flow is in flight.
+func (m *Model) renderOAuthAuthOverlay() string {
 	width := m.width
 	height := m.height
 	s := m.styles
@@ -31,11 +23,20 @@ func (m *Model) renderCodexAuthOverlay() string {
 		boxW = 30
 	}
 
-	elapsed := time.Since(m.codexAuthStartedAt).Truncate(time.Second)
-	title := s.SectionTitle.Render("Waiting for ChatGPT sign-in")
-	subtitle := s.DimLabel.Render(fmt.Sprintf("Switching to %s · %s elapsed", m.codexAuthModel, formatDuration(elapsed)))
+	elapsed := time.Since(m.oauthAuthStartedAt).Truncate(time.Second)
+	providerLabel := "ChatGPT"
+	accountHost := "auth.openai.com"
+	deviceHint := "If you see \"Invalid authorize request\" (phone-verification gate), run /login codex --device instead."
+	if m.oauthAuthProvider == "xai-sub" {
+		providerLabel = "xAI Grok"
+		accountHost = "accounts.x.ai"
+		deviceHint = "Sign in with your SuperGrok or X Premium+ account (same flow as Grok Build)."
+	}
 
-	url := m.codexAuthURL
+	title := s.SectionTitle.Render("Waiting for " + providerLabel + " sign-in")
+	subtitle := s.DimLabel.Render(fmt.Sprintf("Switching to %s · %s elapsed", m.oauthAuthModel, formatDuration(elapsed)))
+
+	url := m.oauthAuthURL
 	if url == "" {
 		url = "(no URL generated)"
 	}
@@ -49,12 +50,9 @@ func (m *Model) renderCodexAuthOverlay() string {
 	header := s.Accent.Render("Open this URL in any browser:")
 	hint1 := s.DimLabel.Render("The browser should open automatically. If it doesn't,")
 	hint2 := s.DimLabel.Render("copy the URL above into Chrome / Safari / Firefox.")
-	spacer := ""
-	hint3 := s.DimLabel.Render("If you see \"Invalid authorize request\" (phone-verification")
-	hint4 := s.DimLabel.Render("gate), run ")
-	deviceHint := s.Bold.Render("/login codex --device")
-	hint5 := s.DimLabel.Render(" instead — it uses a one-time")
-	hint6 := s.DimLabel.Render("code that works on any account, no callback required.")
+	hint3 := s.DimLabel.Render(deviceHint)
+	hint4 := s.DimLabel.Render("Remote session? Forward port 56121 (xAI) or 1455 (ChatGPT) over SSH.")
+	hint5 := s.DimLabel.Render("OAuth host: " + accountHost)
 	escHint := s.DimLabel.Italic(true).Render("Esc to dismiss this overlay (sign-in continues in background)")
 
 	lines := []string{
@@ -66,12 +64,10 @@ func (m *Model) renderCodexAuthOverlay() string {
 		"",
 		hint1,
 		hint2,
-		spacer,
+		"",
 		hint3,
 		hint4,
-		deviceHint,
 		hint5,
-		hint6,
 		"",
 		escHint,
 	}

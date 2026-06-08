@@ -37,7 +37,7 @@ func (m Model) handleFunctionKey(n int) (Model, tea.Cmd, bool) {
 	if m.state == StateQuitConfirm || m.state == StateSessionCloseConfirm {
 		return m, nil, false
 	}
-	if m.updateOverlay.active || m.codexAuthPending {
+	if m.updateOverlay.active || m.oauthAuthPending {
 		return m, nil, false
 	}
 

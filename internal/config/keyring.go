@@ -191,6 +191,11 @@ func ListStoredProviderKeys() []ProviderKey {
 			result = append(result, ProviderKey{Provider: "codex", Prefix: "(oauth)"})
 		}
 	}
+	if k, err := keyring.Get(keyringService, "xai-sub-oauth-token"); err == nil && k != "" {
+		if strings.HasPrefix(k, `{"access_token":`) {
+			result = append(result, ProviderKey{Provider: "xai-sub", Prefix: "(oauth)"})
+		}
+	}
 	return result
 }
 

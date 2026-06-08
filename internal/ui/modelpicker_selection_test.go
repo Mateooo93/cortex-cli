@@ -48,6 +48,24 @@ func TestApplyModelPickerSelection_CodexFiresOAuth(t *testing.T) {
 	}
 }
 
+func TestApplyModelPickerSelection_XaiSubFiresOAuth(t *testing.T) {
+	cfg := &cortexconfig.Config{}
+	cfg.DefaultModel = "openai/gpt-5.5"
+	m := NewModel(&config.Config{}, cfg, nil, true, "", true, true)
+
+	cmd := m.applyModelPickerSelection("xai-sub/grok-4.3")
+	if cmd == nil {
+		t.Fatal("applyModelPickerSelection(xai-sub) returned nil; should fire OAuth flow")
+	}
+	if m.settingsWizard.active {
+		t.Error("wizard became active for xai-sub — must not (subscription OAuth)")
+	}
+	sess := m.currentSession()
+	if sess != nil && sess.rightPanel.mode == rpModeKeyInput {
+		t.Error("right-panel key input opened for xai-sub — must not (subscription OAuth)")
+	}
+}
+
 // TestApplyModelPickerSelection_LocalSwitchesDirectly covers
 // the "no key needed" auth kind (Ollama, LM Studio, vLLM).
 // Picking a local model should set the active model and

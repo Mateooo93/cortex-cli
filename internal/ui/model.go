@@ -20,6 +20,7 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/daemon"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
 	"github.com/Mateooo93/cortex-cli/internal/provider/codex"
+	"github.com/Mateooo93/cortex-cli/internal/provider/xaisub"
 )
 
 // teaProgram holds the Bubble Tea program reference for event injection via Send().
@@ -44,26 +45,26 @@ type sessionDisconnectedMsg struct {
 	daemonSessionID string
 }
 
-// codexLoginStartedMsg is fired when the codex OAuth flow begins, so
-// the UI can show a status line ("Signing in with ChatGPT…").
-type codexLoginStartedMsg struct {
+// oauthLoginStartedMsg is fired when an OAuth flow begins.
+type oauthLoginStartedMsg struct {
+	provider     string
 	pendingModel string
 	authorizeURL string
 }
 
-// codexLoginSuccessMsg is fired when the OAuth flow completes and the
-// token is in the keychain. The UI then switches the active model.
-type codexLoginSuccessMsg struct {
+// oauthLoginSuccessMsg is fired when OAuth completes and the token is stored.
+type oauthLoginSuccessMsg struct {
+	provider     string
 	pendingModel string
 	email        string
 	planType     string
 }
 
-// codexLoginFailedMsg is fired when OAuth fails (browser can't open,
-// user denied, etc.). The UI shows the error in the status bar.
-type codexLoginFailedMsg struct {
+// oauthLoginFailedMsg is fired when OAuth fails.
+type oauthLoginFailedMsg struct {
+	provider     string
 	err          error
-	authorizeURL string // empty if no URL was generated
+	authorizeURL string
 }
 
 // reconnectSuccessMsg is sent when reconnection succeeds.
@@ -273,15 +274,12 @@ type Model struct {
 	// tui has been updated". See update_overlay.go for
 	// the rendering and phase machine.
 	updateOverlay updateOverlayState
-	// codexAuthPending is true while the codex OAuth flow
-	// is in flight. The View() shows a full-screen
-	// "waiting for auth" overlay with the authorize URL
-	// so the user can copy it into a browser manually if
-	// the auto-open fails.
-	codexAuthPending   bool
-	codexAuthURL       string
-	codexAuthModel     string
-	codexAuthStartedAt time.Time
+	// oauthAuthPending is true while an OAuth flow is in flight.
+	oauthAuthPending   bool
+	oauthAuthProvider string
+	oauthAuthURL       string
+	oauthAuthModel     string
+	oauthAuthStartedAt time.Time
 
 	// Shared rendering
 	mdRenderer     *MarkdownRenderer
@@ -498,7 +496,7 @@ func (m *Model) startCodexLoginCmd(pendingModel string) tea.Cmd {
 			// before we kick off the round-trip so the UI
 			// can show it; we pre-build it via codex.AuthURL().
 			authURL := codex.AuthURL()
-			return codexLoginStartedMsg{pendingModel: pendingModel, authorizeURL: authURL}
+			return oauthLoginStartedMsg{provider: "codex", pendingModel: pendingModel, authorizeURL: authURL}
 		},
 		func() tea.Msg {
 			// Give the user a 5-minute window to complete the OAuth flow.
@@ -507,9 +505,10 @@ func (m *Model) startCodexLoginCmd(pendingModel string) tea.Cmd {
 			res, err := codex.Login(ctx)
 			if err == nil && res != nil && res.Token != nil {
 				if saveErr := codex.Save(res.Token); saveErr != nil {
-					return codexLoginFailedMsg{err: fmt.Errorf("codex: save token: %w", saveErr)}
+					return oauthLoginFailedMsg{provider: "codex", err: fmt.Errorf("codex: save token: %w", saveErr)}
 				}
-				return codexLoginSuccessMsg{
+				return oauthLoginSuccessMsg{
+					provider:     "codex",
 					pendingModel: pendingModel,
 					email:        res.Token.Email,
 					planType:     res.Token.PlanType,
@@ -519,7 +518,42 @@ func (m *Model) startCodexLoginCmd(pendingModel string) tea.Cmd {
 			if res != nil {
 				authURL = res.AuthorizeURL
 			}
-			return codexLoginFailedMsg{err: err, authorizeURL: authURL}
+			return oauthLoginFailedMsg{provider: "codex", err: err, authorizeURL: authURL}
+		},
+	)
+}
+
+// startXaiSubLoginCmd kicks off the xAI Grok OAuth flow (Grok Build auth).
+func (m *Model) startXaiSubLoginCmd(pendingModel string) tea.Cmd {
+	return tea.Batch(
+		func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			authURL, err := xaisub.AuthURL(ctx)
+			if err != nil {
+				return oauthLoginFailedMsg{provider: "xai-sub", err: err}
+			}
+			return oauthLoginStartedMsg{provider: "xai-sub", pendingModel: pendingModel, authorizeURL: authURL}
+		},
+		func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			res, err := xaisub.Login(ctx)
+			if err == nil && res != nil && res.Token != nil {
+				if saveErr := xaisub.Save(res.Token); saveErr != nil {
+					return oauthLoginFailedMsg{provider: "xai-sub", err: fmt.Errorf("xaisub: save token: %w", saveErr)}
+				}
+				return oauthLoginSuccessMsg{
+					provider:     "xai-sub",
+					pendingModel: pendingModel,
+					email:        res.Token.Email,
+				}
+			}
+			authURL := ""
+			if res != nil {
+				authURL = res.AuthorizeURL
+			}
+			return oauthLoginFailedMsg{provider: "xai-sub", err: err, authorizeURL: authURL}
 		},
 	)
 }
@@ -549,9 +583,10 @@ func (m *Model) startCodexDeviceLoginCmd(pendingModel string) tea.Cmd {
 		res, err := codex.DeviceLogin(ctx)
 		if err == nil && res != nil && res.Token != nil {
 			if saveErr := codex.Save(res.Token); saveErr != nil {
-				return codexLoginFailedMsg{err: fmt.Errorf("codex: save token: %w", saveErr)}
+				return oauthLoginFailedMsg{provider: "codex", err: fmt.Errorf("codex: save token: %w", saveErr)}
 			}
-			return codexLoginSuccessMsg{
+			return oauthLoginSuccessMsg{
+				provider:     "codex",
 				pendingModel: pendingModel,
 				email:        res.Token.Email,
 				planType:     res.Token.PlanType,
@@ -561,7 +596,7 @@ func (m *Model) startCodexDeviceLoginCmd(pendingModel string) tea.Cmd {
 		if res != nil {
 			authURL = res.AuthorizeURL
 		}
-		return codexLoginFailedMsg{err: err, authorizeURL: authURL}
+		return oauthLoginFailedMsg{provider: "codex", err: err, authorizeURL: authURL}
 	}
 }
 
@@ -601,6 +636,11 @@ func (m *Model) startOAuthLoginCmd(providerName string) tea.Cmd {
 	switch providerName {
 	case "codex":
 		return m.startCodexLoginCmd("")
+	case "xai-sub":
+		return tea.Batch(
+			m.emitStatusMsg("Opening xAI Grok sign-in in your browser\u2026", StatusMsgInfo),
+			m.startXaiSubLoginCmd(""),
+		)
 	case "claude-sub":
 		return m.emitStatusMsg("Claude Pro/Max: set CLAUDE_CODE_OAUTH_TOKEN=<token> in your environment, then restart cortex-cli", StatusMsgInfo)
 	case "copilot":
@@ -663,6 +703,12 @@ func (m *Model) applyModelPickerSelection(spec string) tea.Cmd {
 			return tea.Batch(
 				m.emitStatusMsg("Opening ChatGPT (codex) sign-in in your browser\u2026", StatusMsgInfo),
 				m.startCodexLoginCmd(spec),
+			)
+		}
+		if provider == "xai-sub" {
+			return tea.Batch(
+				m.emitStatusMsg("Opening xAI Grok sign-in in your browser\u2026", StatusMsgInfo),
+				m.startXaiSubLoginCmd(spec),
 			)
 		}
 		// claude-sub / copilot: no browser flow yet; tell the
@@ -731,29 +777,45 @@ func (m *Model) applyModelPickerSelection(spec string) tea.Cmd {
 	return m.emitStatusMsg("API key needed for "+provider+" — paste it in the right panel", StatusMsgInfo)
 }
 
-// handleCodexLoginSuccess applies the freshly saved OAuth token by
-// switching the active model to pendingModel. Mirrors the API-key
-// "key stored" path.
-func (m *Model) handleCodexLoginSuccess(pendingModel, email, planType string) tea.Cmd {
+func oauthProviderFromPayload(payload string) (provider, pendingModel string) {
+	if payload == "" {
+		return "codex", ""
+	}
+	if strings.HasSuffix(payload, ":") {
+		return strings.TrimSuffix(payload, ":"), ""
+	}
+	provider, _, _ = cortexconfig.SplitModelSpec(payload)
+	if provider == "" {
+		return "codex", payload
+	}
+	return provider, payload
+}
+
+// handleOAuthLoginSuccess applies the freshly saved OAuth token.
+func (m *Model) handleOAuthLoginSuccess(msg oauthLoginSuccessMsg) tea.Cmd {
 	sess := m.currentSession()
-	if pendingModel != "" {
-		m.setActiveModelSpec(pendingModel)
+	if msg.pendingModel != "" {
+		m.setActiveModelSpec(msg.pendingModel)
 		if m.cortexCfg != nil {
-			m.cortexCfg.DefaultModel = pendingModel
+			m.cortexCfg.DefaultModel = msg.pendingModel
 			_ = cortexconfig.Save(m.cortexCfg)
 		}
 		if sess != nil && sess.client != nil {
-			_ = sess.client.SendSetModel(pendingModel)
+			_ = sess.client.SendSetModel(msg.pendingModel)
 		}
 		m.refreshSettingsKeys()
-		m.settingsProviderSel, m.settingsModelSel = locateActiveModelFromConfig(pendingModel, m.cortexCfg)
+		m.settingsProviderSel, m.settingsModelSel = locateActiveModelFromConfig(msg.pendingModel, m.cortexCfg)
 	}
-	who := email
+	who := msg.email
 	if who == "" {
-		who = "ChatGPT account"
+		if msg.provider == "xai-sub" {
+			who = "xAI Grok account"
+		} else {
+			who = "ChatGPT account"
+		}
 	}
-	if planType != "" {
-		who = who + " (" + planType + ")"
+	if msg.planType != "" {
+		who = who + " (" + msg.planType + ")"
 	}
 	return m.emitStatusMsg("Signed in to "+who, StatusMsgInfo)
 }
@@ -766,26 +828,25 @@ func (m *Model) handleCodexLoginSuccess(pendingModel, email, planType string) te
 // `kind` is one of "start", "step_start", "step_done",
 // "step_progress:<msg>", or "complete". `stepID` is the
 // affected step (empty for workflow-level events).
-// handleCodexLoginFailed surfaces the failure in the status bar.
-// If the browser couldn't be opened, include the authorize URL so the
-// user can copy it from the status message and paste into a browser
-// manually (e.g. on a headless server).
-func (m *Model) handleCodexLoginFailed(err error, authorizeURL string) tea.Cmd {
-	msg := "ChatGPT sign-in failed: " + err.Error()
-	if authorizeURL != "" {
-		msg += " — open " + authorizeURL + " manually"
+func (m *Model) handleOAuthLoginFailed(msg oauthLoginFailedMsg) tea.Cmd {
+	label := "OAuth sign-in"
+	if msg.provider == "xai-sub" {
+		label = "xAI Grok sign-in"
+	} else if msg.provider == "codex" {
+		label = "ChatGPT sign-in"
 	}
-	// If the auth server bounced us with the "Invalid authorize
-	// request" / "add phone number" gate, give the user a
-	// pointer to the device-code fallback so they're not stuck.
-	if strings.Contains(err.Error(), "Invalid authorize") ||
-		strings.Contains(err.Error(), "add phone") ||
-		strings.Contains(err.Error(), "phone number") {
-		msg += " — if the browser shows a phone-verification gate, " +
+	out := label + " failed: " + msg.err.Error()
+	if msg.authorizeURL != "" {
+		out += " — open " + msg.authorizeURL + " manually"
+	}
+	if msg.provider == "codex" && (strings.Contains(msg.err.Error(), "Invalid authorize") ||
+		strings.Contains(msg.err.Error(), "add phone") ||
+		strings.Contains(msg.err.Error(), "phone number")) {
+		out += " — if the browser shows a phone-verification gate, " +
 			"type /login codex --device to use the device-code flow " +
 			"instead (works on SSH/WSL and accounts without a phone on file)"
 	}
-	return m.emitStatusMsg(msg, StatusMsgError)
+	return m.emitStatusMsg(out, StatusMsgError)
 }
 
 
@@ -889,7 +950,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.activeTab == TabKindChat && msg.Button == tea.MouseLeft {
-			m.handleChatMouseDown(mouse.X, mouse.Y)
+			if msg.Mod&tea.ModCtrl != 0 {
+				if cmd := m.handleChatLinkClick(mouse.X, mouse.Y); cmd != nil {
+					return m, cmd
+				}
+			} else {
+				m.handleChatMouseDown(mouse.X, mouse.Y)
+			}
 		}
 
 	case tea.MouseMotionMsg:
@@ -979,8 +1046,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// running in the background and will surface its
 		// result through the existing codexLoginSuccessMsg
 		// / codexLoginFailedMsg handlers.
-		if m.codexAuthPending && (msg.String() == "esc" || msg.String() == "Esc") {
-			m.codexAuthPending = false
+		if m.oauthAuthPending && (msg.String() == "esc" || msg.String() == "Esc") {
+			m.oauthAuthPending = false
 			return m, nil
 		}
 
@@ -1116,7 +1183,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			case rpActionKeyDeleted:
-				_ = config.DeleteProviderKey(payload)
+				switch payload {
+				case "codex":
+					_ = codex.Delete()
+				case "xai-sub":
+					_ = xaisub.Delete()
+				default:
+					_ = config.DeleteProviderKey(payload)
+				}
 				sess.rightPanel.OpenKeyManager(m.height)
 				sess.focus = FocusRightPanel
 				sess.input.Blur()
@@ -1148,15 +1222,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// don't auto-switch the active model afterwards.
 				// startCodexLoginCmd handles "" as "no pending
 				// model" already.
-				if pendingModel == "codex:" {
-					pendingModel = ""
+				provider, pendingModel := oauthProviderFromPayload(payload)
+				switch provider {
+				case "xai-sub":
+					return m, tea.Batch(
+						m.emitStatusMsg("Opening xAI Grok sign-in in your browser…", StatusMsgInfo),
+						m.startXaiSubLoginCmd(pendingModel),
+					)
+				default:
+					return m, tea.Batch(
+						m.emitStatusMsg("Opening ChatGPT sign-in in your browser…", StatusMsgInfo),
+						m.startCodexLoginCmd(pendingModel),
+					)
 				}
-				return m, tea.Batch(
-					m.emitStatusMsg("Opening ChatGPT sign-in in your browser…", StatusMsgInfo),
-					m.startCodexLoginCmd(pendingModel),
-				)
 			case rpActionCodexSignOut:
-				_ = codex.Delete()
+				provider := sess.rightPanel.oauthSignInProvider
+				if provider == "" {
+					provider = "codex"
+				}
+				switch provider {
+				case "xai-sub":
+					_ = xaisub.Delete()
+				default:
+					_ = codex.Delete()
+				}
 				sess.rightPanel.OpenKeyManager(m.height)
 				sess.focus = FocusRightPanel
 				sess.input.Blur()
@@ -1624,6 +1713,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(
 						m.emitStatusMsg("Opening ChatGPT (codex) sign-in in your browser…", StatusMsgInfo),
 						m.startCodexLoginCmd(""),
+					)
+				} else if provider == "xai-sub" {
+					return m, tea.Batch(
+						m.emitStatusMsg("Opening xAI Grok sign-in in your browser…", StatusMsgInfo),
+						m.startXaiSubLoginCmd(""),
 					)
 				} else {
 					// claude-sub / copilot: env-var hint
@@ -2179,29 +2273,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.emitStatusMsg(fmt.Sprintf("Loaded %d model(s) for %s", len(msg.models), providerName), StatusMsgInfo)
 
-	case codexLoginStartedMsg:
-		// The codex OAuth flow has just been kicked off.
-		// Show the full-screen "waiting for auth" overlay
-		// with the URL so the user can copy it into a
-		// browser manually if the auto-open fails (headless
-		// / WSL / SSH).
-		m.codexAuthPending = true
-		m.codexAuthURL = msg.authorizeURL
-		m.codexAuthModel = msg.pendingModel
-		m.codexAuthStartedAt = time.Now()
-		// Also surface a quick status-bar line so the
-		// user knows the flow has started even before
-		// they look at the overlay.
-		return m, m.emitStatusMsg("Waiting for ChatGPT sign-in. If your browser didn't open, copy the URL from the overlay.", StatusMsgInfo)
+	case oauthLoginStartedMsg:
+		m.oauthAuthPending = true
+		m.oauthAuthProvider = msg.provider
+		m.oauthAuthURL = msg.authorizeURL
+		m.oauthAuthModel = msg.pendingModel
+		m.oauthAuthStartedAt = time.Now()
+		status := "Waiting for ChatGPT sign-in."
+		if msg.provider == "xai-sub" {
+			status = "Waiting for xAI Grok sign-in."
+		}
+		return m, m.emitStatusMsg(status+" If your browser didn't open, copy the URL from the overlay.", StatusMsgInfo)
 
-	case codexLoginSuccessMsg:
-		// Clear the "waiting for auth" overlay.
-		m.codexAuthPending = false
-		return m, m.handleCodexLoginSuccess(msg.pendingModel, msg.email, msg.planType)
+	case oauthLoginSuccessMsg:
+		m.oauthAuthPending = false
+		return m, m.handleOAuthLoginSuccess(msg)
 
-	case codexLoginFailedMsg:
-		m.codexAuthPending = false
-		return m, m.handleCodexLoginFailed(msg.err, msg.authorizeURL)
+	case oauthLoginFailedMsg:
+		m.oauthAuthPending = false
+		return m, m.handleOAuthLoginFailed(msg)
 
 	case compactMsg:
 		// /compact (or auto-compact) finished. Show the
@@ -2600,8 +2690,8 @@ func (m Model) View() tea.View {
 	// user is doing. They can dismiss it with Esc to
 	// continue using the TUI while the browser round-trip
 	// continues in the background.
-	if m.codexAuthPending {
-		v := tea.NewView(m.renderCodexAuthOverlay())
+	if m.oauthAuthPending {
+		v := tea.NewView(m.renderOAuthAuthOverlay())
 		v.AltScreen = true
 		v.MouseMode = m.viewMouseMode()
 		return v

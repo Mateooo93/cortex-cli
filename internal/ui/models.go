@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Mateooo93/cortex-cli/internal/config"
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 )
 
@@ -44,6 +45,7 @@ type ProviderSettingsView struct {
 // this slice is only used when no config is loaded yet.
 var AvailableProviders = []ProviderInfo{
 	{Name: "codex", DisplayName: "ChatGPT (codex)"},
+	{Name: "xai-sub", DisplayName: "xAI Grok (SuperGrok)"},
 	{Name: "claude-sub", DisplayName: "Claude (Pro/Max)"},
 	{Name: "openai", DisplayName: "OpenAI"},
 	{Name: "anthropic", DisplayName: "Anthropic"},
@@ -128,10 +130,15 @@ var AvailableModels = []ModelInfo{
 	{Spec: "gemini/gemini-2.5-pro", Provider: "gemini", DisplayName: "Gemini 2.5 Pro"},
 	{Spec: "gemini/gemini-2.5-flash", Provider: "gemini", DisplayName: "Gemini 2.5 Flash"},
 	{Spec: "gemini/gemini-3.1-pro-preview", Provider: "gemini", DisplayName: "Gemini 3.1 Pro Preview"},
-	// xAI (Grok)
-	{Spec: "xai/grok-4", Provider: "xai", DisplayName: "Grok 4"},
-	{Spec: "xai/grok-4-fast", Provider: "xai", DisplayName: "Grok 4 Fast"},
-	{Spec: "xai/grok-3", Provider: "xai", DisplayName: "Grok 3"},
+	// xAI (Grok) — paid API key from console.x.ai (not a subscription)
+	{Spec: "xai/grok-4", Provider: "xai", DisplayName: "Grok 4 (API key)"},
+	{Spec: "xai/grok-4-fast", Provider: "xai", DisplayName: "Grok 4 Fast (API key)"},
+	{Spec: "xai/grok-3", Provider: "xai", DisplayName: "Grok 3 (API key)"},
+	// xAI Grok (SuperGrok) — OAuth via accounts.x.ai (same flow as Grok Build)
+	{Spec: "xai-sub/grok-4.3", Provider: "xai-sub", DisplayName: "Grok 4.3 (SuperGrok)"},
+	{Spec: "xai-sub/grok-4", Provider: "xai-sub", DisplayName: "Grok 4 (SuperGrok)"},
+	{Spec: "xai-sub/grok-4-fast", Provider: "xai-sub", DisplayName: "Grok 4 Fast (SuperGrok)"},
+	{Spec: "xai-sub/grok-build", Provider: "xai-sub", DisplayName: "Grok Build (SuperGrok)"},
 	// DeepSeek
 	{Spec: "deepseek/deepseek-chat", Provider: "deepseek", DisplayName: "DeepSeek-V3 Chat"},
 	{Spec: "deepseek/deepseek-reasoner", Provider: "deepseek", DisplayName: "DeepSeek-R1 Reasoner"},
@@ -217,16 +224,21 @@ func ProviderSettingsRows(cfg *cortexconfig.Config) []ProviderSettingsView {
 		if baseURL == "" {
 			baseURL = cortexconfig.DefaultBaseURL(p.Name)
 		}
+		authKind := cortexconfig.ProviderAuthKind(p.Name)
 		envVar := cortexconfig.ProviderEnvVar(p.Name)
-		key := pc.APIKey
-		if key == "" && envVar != "" {
-			key = os.Getenv(envVar)
-		}
 		prefix := ""
-		if key != "" {
-			prefix = key
-			if len(prefix) > 10 {
-				prefix = prefix[:10]
+		if authKind == "oauth" {
+			prefix = config.OAuthProviderStatusPrefix(p.Name)
+		} else {
+			key := pc.APIKey
+			if key == "" && envVar != "" {
+				key = os.Getenv(envVar)
+			}
+			if key != "" {
+				prefix = key
+				if len(prefix) > 10 {
+					prefix = prefix[:10]
+				}
 			}
 		}
 		rows = append(rows, ProviderSettingsView{
@@ -236,8 +248,8 @@ func ProviderSettingsRows(cfg *cortexconfig.Config) []ProviderSettingsView {
 			KeyPrefix:   prefix,
 			EnvVar:      envVar,
 			NeedsAPIKey: cortexconfig.ProviderNeedsAPIKey(p.Name),
-			AuthKind:    cortexconfig.ProviderAuthKind(p.Name),
-			AuthLabel:   authLabel(cortexconfig.ProviderAuthKind(p.Name)),
+			AuthKind:    authKind,
+			AuthLabel:   authLabel(authKind),
 			HelpURL:     cortexconfig.ProviderHelpURL(p.Name),
 		})
 	}

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -138,6 +139,19 @@ func TestApplyChatSelectionHighlight(t *testing.T) {
 	}
 	if got := chatSelectionPlainText(lines, sel); got != "llo " {
 		t.Fatalf("unexpected plain selection text %q", got)
+	}
+}
+
+func TestApplyChatSelectionHighlightPreservesMarkdownStyle(t *testing.T) {
+	styled := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD080")).Bold(true).Render("hello") + " world"
+	sel := chatSelection{active: true, anchorLine: 0, anchorX: 0, endLine: 0, endX: 2}
+	selStyle := lipgloss.NewStyle().Background(lipgloss.Color("#2A4A7F"))
+	got := applyChatSelectionHighlight([]string{styled}, sel, selStyle)
+	if !strings.Contains(got[0], "\x1b[") {
+		t.Fatalf("expected ANSI styling to be preserved, got %q", got[0])
+	}
+	if strings.Contains(got[0], "hello world") && got[0] == styled {
+		t.Fatalf("expected selection background overlay, got unchanged %q", got[0])
 	}
 }
 

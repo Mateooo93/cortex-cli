@@ -403,6 +403,128 @@ func drainQuestionEvents(t *testing.T, sess *Session) protocol.EventUserQuestion
 	}
 }
 
+// TestHandleAskUserQuestion_BatchMode verifies that a
+// questions array is emitted as one EventUserQuestion and
+// batch answers are serialised back to the model.
+func TestHandleAskUserQuestion_BatchMode(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, ".cortex"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cfg := cortexconfig.Default()
+	sess, err := New(Config{CortexCfg: cfg, ActiveModel: "cortex"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	go func() {
+		call := provider.ToolCall{
+			ID:   "call-batch",
+			Name: "ask_user_question",
+			Arguments: map[string]any{
+				"questions": `[
+					{"id":"scope","header":"Scope","question":"How big?","options":[{"label":"Small","description":"MVP"},{"label":"Large","description":"Full build"}]},
+					{"id":"style","header":"Style","question":"Which style?","options":[{"label":"Minimal"},{"label":"Bold"}]}
+				]`,
+			},
+		}
+		if msg := sess.handleAskUserQuestion(call); msg != nil {
+			sess.mu.Lock()
+			sess.history = append(sess.history, *msg)
+			sess.mu.Unlock()
+		}
+	}()
+
+	uq := drainQuestionEvents(t, sess)
+	if len(uq.Questions) != 2 {
+		t.Fatalf("expected 2 batch questions, got %d", len(uq.Questions))
+	}
+	if uq.Questions[0].ID != "scope" || uq.Questions[1].ID != "style" {
+		t.Fatalf("unexpected question ids: %+v", uq.Questions)
+	}
+
+	sess.SendUserAnswerBatch(map[string]string{
+		"scope": "Small",
+		"style": "Bold",
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	want := "[tool ask_user_question] ok\nscope=Small\nstyle=Bold"
+	var found bool
+	for time.Now().Before(deadline) {
+		for _, m := range sess.History() {
+			if m.Role == "tool" && m.ToolCallID == "call-batch" {
+				if m.Content != want {
+					t.Errorf("expected tool result %q, got %q", want, m.Content)
+				}
+				found = true
+			}
+		}
+		if found {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !found {
+		t.Fatal("expected batch tool result in history")
+	}
+}
+
+// TestParseAskUserQuestionBatch_TableDriven exercises batch parsing.
+func TestParseAskUserQuestionBatch_TableDriven(t *testing.T) {
+	tests := []struct {
+		name      string
+		raw       any
+		wantCount int
+		wantID    string
+	}{
+		{
+			name: "json string",
+			raw: `[{"id":"a","question":"Q1?","header":"H1","options":[{"label":"X"},{"label":"Y"}]}]`,
+			wantCount: 1,
+			wantID:    "a",
+		},
+		{
+			name: "parsed array",
+			raw: []any{
+				map[string]any{
+					"id":       "b",
+					"question": "Q2?",
+					"options": []any{
+						map[string]any{"label": "One"},
+						map[string]any{"label": "Two"},
+					},
+				},
+			},
+			wantCount: 1,
+			wantID:    "b",
+		},
+		{
+			name: "simple string options",
+			raw: []any{
+				map[string]any{
+					"question": "Pick",
+					"options":  []any{"A", "B"},
+				},
+			},
+			wantCount: 1,
+			wantID:    "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseAskUserQuestionBatch(tt.raw)
+			if len(got) != tt.wantCount {
+				t.Fatalf("got %d questions, want %d", len(got), tt.wantCount)
+			}
+			if tt.wantCount > 0 && got[0].ID != tt.wantID {
+				t.Errorf("id = %q, want %q", got[0].ID, tt.wantID)
+			}
+		})
+	}
+}
+
 // TestParseAskUserQuestionOptions_TableDriven exercises the
 // three accepted input shapes plus the error cases (too few
 // options, invalid JSON).

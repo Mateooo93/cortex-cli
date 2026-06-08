@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -281,14 +282,27 @@ func styleWidthRange(line string, x0, x1 int, style lipgloss.Style) string {
 	if x0 >= x1 {
 		return line
 	}
-	plain := stripANSI(line)
-	if x0 >= runewidth.StringWidth(plain) {
+	plainWidth := ansi.StringWidth(ansi.Strip(line))
+	if x0 >= plainWidth {
 		return line
 	}
-	prefix := plainWidthSlice(plain, 0, x0)
-	mid := plainWidthSlice(plain, x0, x1)
-	suffix := plainWidthSlice(plain, x1, runewidth.StringWidth(plain))
-	return prefix + style.Render(mid) + suffix
+	if x1 > plainWidth {
+		x1 = plainWidth
+	}
+	prefix := ansi.Cut(line, 0, x0)
+	mid := ansi.Cut(line, x0, x1)
+	suffix := ansi.TruncateLeft(line, x1, "")
+	return prefix + selectionBackgroundPrefix(style) + mid + "\x1b[49m" + suffix
+}
+
+// selectionBackgroundPrefix returns an ANSI sequence that applies only the
+// selection background so existing foreground styles stay visible underneath.
+func selectionBackgroundPrefix(style lipgloss.Style) string {
+	bg := lipgloss.NewStyle().Background(style.GetBackground()).Render("")
+	if idx := strings.Index(bg, "\x1b[0m"); idx >= 0 {
+		bg = bg[:idx]
+	}
+	return bg
 }
 
 func stripANSI(s string) string {

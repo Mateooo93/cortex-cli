@@ -120,6 +120,8 @@ func (m *MarkdownRenderer) Render(md string) string {
 	// Use a plain alphanumeric marker to avoid markdown interpretation
 	// (e.g. __ would be treated as bold).
 	var blocks []codeBlock
+	md = autolinkBareURLs(md)
+
 	replaced := codeBlockRe.ReplaceAllStringFunc(md, func(match string) string {
 		sub := codeBlockRe.FindStringSubmatch(match)
 		lang := sub[1]

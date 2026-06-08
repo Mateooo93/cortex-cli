@@ -138,7 +138,13 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 			detail = ""
 			sess.confirmDetailShown = false
 		}
-		result := renderToolResultWithContext(tr.Name, tr.Output, tr.IsError, tr.ShowToolName, detail, m.styles, m.mdRenderer, m.mdRenderer.width)
+		var toolCallSummary string
+		if tr.ToolID != "" && sess.pendingTools != nil {
+			if callIdx, ok := sess.pendingTools[tr.ToolID]; ok && callIdx < len(sess.chatMessages) {
+				toolCallSummary = sess.chatMessages[callIdx].Text
+			}
+		}
+		result := renderToolResultWithContext(tr.Name, tr.Output, tr.IsError, tr.ShowToolName, detail, toolCallSummary, m.styles, m.mdRenderer, m.mdRenderer.width)
 
 		if tr.ToolID != "" && sess.pendingTools != nil {
 			if callIdx, ok := sess.pendingTools[tr.ToolID]; ok {
@@ -173,7 +179,7 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		sess.thinkingAnim.Stop()
 		if cr.Detail != "" {
 			sess.chatMessages = append(sess.chatMessages,
-				renderToolResultWithContext(cr.ToolName, "", false, false, cr.Detail, m.styles, m.mdRenderer, m.mdRenderer.width))
+				renderToolResultWithContext(cr.ToolName, "", false, false, cr.Detail, "", m.styles, m.mdRenderer, m.mdRenderer.width))
 			sess.confirmDetailShown = true
 		}
 		question := buildConfirmQuestion(cr.ToolName, cr.Params)

@@ -216,7 +216,7 @@ func buildModelPickerEntries(cfg *cortexconfig.Config) []ModelPickerEntry {
 		"openai", "anthropic", "gemini", "xai", "deepseek", "mistral",
 		"groq", "cohere", "perplexity", "openrouter", "opengateway",
 		"minimax", "mimo", "bedrock", "cortex", "ollama", "lmstudio",
-		"vllm", "codex", "claude-sub", "copilot",
+		"vllm", "codex", "xai-sub", "claude-sub", "copilot",
 	}
 	for _, prov := range builtinProviders {
 		if customProviders[prov] {
@@ -243,6 +243,13 @@ func buildModelPickerEntries(cfg *cortexconfig.Config) []ModelPickerEntry {
 	// together.
 	sort.SliceStable(entries, func(i, j int) bool {
 		if entries[i].ProviderName != entries[j].ProviderName {
+			// Subscription OAuth providers (codex, xai-sub, …) sort
+			// before API-key providers so "grok" surfaces SuperGrok
+			// before console.x.ai API-key Grok.
+			oi, oj := entries[i].AuthKind == "oauth", entries[j].AuthKind == "oauth"
+			if oi != oj {
+				return oi
+			}
 			return entries[i].ProviderName < entries[j].ProviderName
 		}
 		return entries[i].DisplayName < entries[j].DisplayName
@@ -259,7 +266,7 @@ func providerAuthKindByName(name string) string {
 	// The UI-side mapping lets us format the picker without
 	// pulling in the full cortexconfig import graph.
 	switch name {
-	case "codex", "claude-sub", "copilot":
+	case "codex", "xai-sub", "claude-sub", "copilot":
 		return "oauth"
 	case "ollama", "lmstudio", "vllm", "cortex":
 		return "none"

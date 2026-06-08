@@ -896,26 +896,34 @@ type AskUserQuestionTool struct{}
 
 func (t *AskUserQuestionTool) Name() string { return "ask_user_question" }
 func (t *AskUserQuestionTool) Description() string {
-	return "Ask the user a structured question with 2-4 multiple-choice options. The user picks one (or types a custom answer) and the choice comes back as a normal message. " +
-		"Use this when you need to make a decision that depends on the user's preferences, or when the requirements are ambiguous. " +
-		"Don't use it for things you can figure out from the codebase or the user's previous messages."
+	return "Ask the user structured question(s) with 2-4 multiple-choice options each. " +
+		"The TUI always adds a final 'Type something.' option for a custom answer — do not include that in your options. " +
+		"When you have several related decisions, pass them all in one call via `questions` (do not call this tool multiple times in a row). " +
+		"Use when requirements are ambiguous or depend on user preferences; skip when you can infer the answer from the codebase or prior messages."
 }
 func (t *AskUserQuestionTool) Parameters() map[string]Param {
 	return map[string]Param{
-		"question": {Type: "string", Description: "The question to ask the user. Be concise — under 80 chars is best.", Required: true},
-		"options":  {Type: "string", Description: "JSON array of 2-4 option objects, each with 'label' (1-5 words) and optional 'description' (1 short sentence).", Required: true},
-		"header":   {Type: "string", Description: "Optional short header (max 12 chars) shown above the options. Default: 'Question'.", Required: false},
-		"multi":    {Type: "boolean", Description: "If true, the user can select multiple options. Default: false.", Required: false},
+		"questions": {Type: "string", Description: "Preferred for multiple decisions: JSON array of {id, question, header, options} objects. Each options entry is 2-4 {label, description?} objects or plain strings. Ask every related question in this one array.", Required: false},
+		"question":  {Type: "string", Description: "Single-question mode: the prompt (under 80 chars). Omit when using `questions`.", Required: false},
+		"options":   {Type: "string", Description: "Single-question mode: JSON array of 2-4 {label, description?} objects. Omit when using `questions`.", Required: false},
+		"header":    {Type: "string", Description: "Single-question mode: short header shown above the options. Default: 'Question'.", Required: false},
 	}
 }
 func (t *AskUserQuestionTool) Run(ctx Context, args map[string]any) (Result, error) {
+	questions, _ := args["questions"].(string)
+	if questions != "" {
+		return Result{
+			OK:     true,
+			Output: fmt.Sprintf("questions queued: %s\n\nThe user will answer all of them in one TUI panel.", questions),
+		}, nil
+	}
 	question, _ := args["question"].(string)
 	if question == "" {
-		return Result{OK: false, Error: "question is required"}, nil
+		return Result{OK: false, Error: "question or questions is required"}, nil
 	}
 	options, _ := args["options"].(string)
 	if options == "" {
-		return Result{OK: false, Error: "options is required"}, nil
+		return Result{OK: false, Error: "options is required for single-question mode"}, nil
 	}
 	return Result{
 		OK:     true,

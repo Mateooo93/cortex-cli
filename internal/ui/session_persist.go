@@ -158,8 +158,9 @@ func loadSavedChat(id string) []ChatMessage {
 			FilePath:     r.FilePath,
 			IsGrouped:    r.IsGrouped,
 			GroupIndex:   r.GroupIndex,
-			ShowToolName: r.ShowToolName,
-			TurnModel:    r.TurnModel,
+			ShowToolName:    r.ShowToolName,
+			ToolCallSummary: r.ToolCallSummary,
+			TurnModel:       r.TurnModel,
 			TurnElapsed:  elapsed,
 			TurnCost:     r.TurnCost,
 		})
@@ -195,8 +196,9 @@ type persistedChatMessage struct {
 	FilePath     string    `json:"filePath,omitempty"`
 	IsGrouped    bool      `json:"isGrouped,omitempty"`
 	GroupIndex   int       `json:"groupIndex,omitempty"`
-	ShowToolName bool      `json:"showToolName,omitempty"`
-	TurnModel    string    `json:"turnModel,omitempty"`
+	ShowToolName    bool   `json:"showToolName,omitempty"`
+	ToolCallSummary string `json:"toolCallSummary,omitempty"`
+	TurnModel       string `json:"turnModel,omitempty"`
 	TurnElapsed  string    `json:"turnElapsed,omitempty"`
 	TurnCost     float64   `json:"turnCost,omitempty"`
 }
@@ -230,8 +232,9 @@ func saveChat(id string, msgs []ChatMessage) {
 			FilePath:     m.FilePath,
 			IsGrouped:    m.IsGrouped,
 			GroupIndex:   m.GroupIndex,
-			ShowToolName: m.ShowToolName,
-			TurnModel:    m.TurnModel,
+			ShowToolName:    m.ShowToolName,
+			ToolCallSummary: m.ToolCallSummary,
+			TurnModel:       m.TurnModel,
 			TurnElapsed:  m.TurnElapsed.String(),
 			TurnCost:     m.TurnCost,
 		})

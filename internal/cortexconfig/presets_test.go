@@ -11,7 +11,7 @@ import (
 func TestBuiltinProviderPresets_Coverage(t *testing.T) {
 	want := []string{
 		// OAuth (subscriptions) — no API key
-		"codex", "claude-sub", "copilot",
+		"codex", "xai-sub", "claude-sub", "copilot",
 		// API-key providers (paid)
 		"openai", "anthropic", "gemini", "xai", "deepseek",
 		"mistral", "groq", "cohere", "perplexity",
@@ -59,7 +59,7 @@ func TestBuiltinProviderPresets_NoDuplicateNames(t *testing.T) {
 // preset list: a user who already pays for ChatGPT Plus or Claude
 // Pro must NEVER be asked for an API key.
 func TestAuthKind_SubscriptionProvidersHaveNoKey(t *testing.T) {
-	oauth := []string{"codex", "claude-sub", "copilot"}
+	oauth := []string{"codex", "xai-sub", "claude-sub", "copilot"}
 	for _, name := range oauth {
 		p, ok := presetForProvider(name)
 		if !ok {
@@ -130,7 +130,7 @@ func TestAuthKind_BaseURLsAreHTTPSOrLocal(t *testing.T) {
 		"openai", "anthropic", "gemini", "xai", "deepseek",
 		"mistral", "groq", "cohere", "perplexity",
 		"openrouter", "opengateway", "minimax", "mimo",
-		"codex", "claude-sub", "copilot", "bedrock",
+		"codex", "xai-sub", "claude-sub", "copilot", "bedrock",
 	}
 	for _, name := range cloud {
 		p, ok := presetForProvider(name)
@@ -164,6 +164,15 @@ func TestProviderAuthKind_CodexIsOAuth(t *testing.T) {
 	}
 	if ProviderNeedsAPIKey("codex") {
 		t.Errorf("ProviderNeedsAPIKey(\"codex\") = true, want false (subscription auth)")
+	}
+}
+
+func TestProviderAuthKind_XaiSubIsOAuth(t *testing.T) {
+	if got := ProviderAuthKind("xai-sub"); got != "oauth" {
+		t.Errorf("ProviderAuthKind(\"xai-sub\") = %q, want \"oauth\"", got)
+	}
+	if ProviderNeedsAPIKey("xai-sub") {
+		t.Errorf("ProviderNeedsAPIKey(\"xai-sub\") = true, want false (SuperGrok subscription)")
 	}
 }
 

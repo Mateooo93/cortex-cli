@@ -35,6 +35,7 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 	cortexdaemon "github.com/Mateooo93/cortex-cli/internal/daemon" // wraps session
 	"github.com/Mateooo93/cortex-cli/internal/provider/codex"
+	"github.com/Mateooo93/cortex-cli/internal/provider/xaisub"
 	"github.com/Mateooo93/cortex-cli/internal/swarm"
 )
 
@@ -45,6 +46,7 @@ func init() {
 	// Register the ChatGPT-subscription (codex) provider so provider.New
 	// can resolve `provider == "codex"` without a config-key API key.
 	codex.Register()
+	xaisub.Register()
 }
 
 func main() {

@@ -501,8 +501,17 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		if baseURLValue == "" {
 			baseURLValue = "(not set — will use provider default)"
 		}
+		keyField := "API key"
 		keyValue := "(not set)"
-		if inspect.HasAPIKey {
+		if inspect.AuthKind == "oauth" {
+			keyField = "Sign-in"
+			switch {
+			case inspect.KeyPrefix != "":
+				keyValue = inspect.KeyPrefix
+			default:
+				keyValue = "(not connected — Enter on provider row opens browser sign-in)"
+			}
+		} else if inspect.HasAPIKey {
 			keyValue = inspect.KeyPrefix + "…"
 		} else if !inspect.NeedsAPIKey {
 			keyValue = "(not required)"
@@ -520,7 +529,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 			mutedStyle.Width(innerWidth).Render(settingsTruncate("    "+inspect.DisplayName, innerWidth)),
 			selectedStyle.Width(innerWidth).Render(fieldLabel(1, "Base URL")),
 			mutedStyle.Width(innerWidth).Render(settingsTruncate("    "+baseURLValue, innerWidth)),
-			selectedStyle.Width(innerWidth).Render(fieldLabel(2, "API key")),
+			selectedStyle.Width(innerWidth).Render(fieldLabel(2, keyField)),
 			mutedStyle.Width(innerWidth).Render(settingsTruncate("    "+keyValue, innerWidth)),
 		)
 		// Show the auth kind as a one-line badge so the user knows

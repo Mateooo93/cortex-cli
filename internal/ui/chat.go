@@ -58,8 +58,9 @@ type ChatMessage struct {
 	GroupIndex int    // index within the group (0 = header, >0 = sub-items)
 
 	// Re-render metadata: fields needed to re-render at a different width.
-	ShowToolName bool          // mirrors the showToolName arg of renderToolResultWithContext
-	TurnModel    string        // model name passed to renderTurnInfo
+	ShowToolName     bool   // mirrors the showToolName arg of renderToolResultWithContext
+	ToolCallSummary  string // paired tool-call summary (e.g. shell command) for result display
+	TurnModel        string // model name passed to renderTurnInfo
 	TurnElapsed  time.Duration // elapsed duration passed to renderTurnInfo
 	TurnCost     float64       // cost value passed to renderTurnInfo
 }
@@ -359,11 +360,6 @@ func summarizeToolOutput(name, output string) string {
 			return "no matches"
 		}
 		return fmt.Sprintf("%d results", lines)
-	case "glob_files":
-		if lines == 0 || output == "" {
-			return "no matches"
-		}
-		return fmt.Sprintf("%d files", lines)
 	case "lsp_query":
 		if lines == 0 || output == "" {
 			return "no results"
@@ -391,9 +387,98 @@ func summarizeToolOutput(name, output string) string {
 	}
 }
 
+// shouldShowFullDirectoryListing reports whether the TUI should show every
+// entry instead of a compact summary or truncated preview.
+func shouldShowFullDirectoryListing(name, toolCallSummary string) bool {
+	switch name {
+	case "list_dir", "glob_files":
+		return true
+	case "bash", "run_shell":
+		return isDirectoryListingCommand(toolCallSummary)
+	default:
+		return false
+	}
+}
+
+// isDirectoryListingCommand returns true when a shell tool-call summary is
+// primarily listing directory contents (e.g. ls, dir).
+func isDirectoryListingCommand(summary string) bool {
+	cmd := extractShellCommand(summary)
+	if cmd == "" {
+		return false
+	}
+	fields := strings.Fields(cmd)
+	for i, f := range fields {
+		switch f {
+		case "ls", "dir":
+			return true
+		case "sudo", "env", "command", "builtin":
+			continue
+		default:
+			if i == 0 && strings.Contains(f, "=") {
+				continue
+			}
+			return false
+		}
+	}
+	return false
+}
+
+func extractShellCommand(summary string) string {
+	summary = strings.TrimSpace(summary)
+	if strings.HasPrefix(summary, "$ ") {
+		return strings.TrimSpace(summary[2:])
+	}
+	if strings.HasPrefix(summary, "command=") {
+		return unquoteArgSummary(summary[len("command="):])
+	}
+	return summary
+}
+
+func unquoteArgSummary(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 {
+		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
+			return s[1 : len(s)-1]
+		}
+	}
+	if strings.HasSuffix(s, "...") {
+		return strings.TrimSuffix(s, "...")
+	}
+	return s
+}
+
+// formatToolResultDisplay chooses the text shown in the chat viewport.
+// The full output is always preserved in ChatMessage.Text for LLM/history context.
+func formatToolResultDisplay(name, output, toolCallSummary string) string {
+	if shouldShowFullDirectoryListing(name, toolCallSummary) {
+		return output
+	}
+	if name == "bash" || name == "run_shell" {
+		lines := strings.Split(output, "\n")
+		const maxLines = 5
+		short := output
+		if len(lines) > maxLines {
+			short = strings.Join(lines[:maxLines], "\n")
+		}
+		if len(short) > 2500 {
+			short = short[:2500]
+		}
+		return short
+	}
+	if summary := summarizeToolOutput(name, output); summary != "" {
+		return summary
+	}
+	short := output
+	if len(short) > 1000 {
+		short = short[:1000] + "..."
+	}
+	return short
+}
+
 // renderToolResult creates a rendered tool result.
 func renderToolResult(name, output string, isError bool, s Styles, md *MarkdownRenderer, width int) ChatMessage {
-	return renderToolResultWithContext(name, output, isError, false, "", s, md, width)
+	return renderToolResultWithContext(name, output, isError, false, "", "", s, md, width)
 }
 
 // renderToolResultWithContext creates a rendered tool result, optionally prefixing
@@ -401,7 +486,7 @@ func renderToolResult(name, output string, isError bool, s Styles, md *MarkdownR
 // detail is an optional rich string (e.g. edit diff) shown below the summary.
 // md is used to render code-block previews (e.g. for write_file); may be nil.
 // width is the inner content width used for side-by-side diff rendering.
-func renderToolResultWithContext(name, output string, isError bool, showToolName bool, detail string, s Styles, md *MarkdownRenderer, width int) ChatMessage {
+func renderToolResultWithContext(name, output string, isError bool, showToolName bool, detail, toolCallSummary string, s Styles, md *MarkdownRenderer, width int) ChatMessage {
 	// Suppress tool_orchestrator preview entirely
 	if name == "tool_orchestrator" {
 		return ChatMessage{
@@ -468,32 +553,11 @@ func renderToolResultWithContext(name, output string, isError bool, showToolName
 		}
 	}
 
-	// bash (and similar command outputs like ls): show truncated actual output
-	// so the user sees useful results (e.g. directory listing) without huge
-	// dumps "infecting" the chat when output is very long (deep dirs, logs, etc.).
-	// The *full* output is still kept in .Text so the agent/LLM context is complete.
-	// Display is limited to first 5 lines max.
-	var rendered string
-	if name == "bash" || name == "run_shell" {
-		short := output
-		lines := strings.Split(output, "\n")
-		maxLines := 5
-		if len(lines) > maxLines {
-			short = strings.Join(lines[:maxLines], "\n")
-		}
-		if len(short) > 2500 {
-			short = short[:2500]
-		}
-		rendered = s.ToolResultStyle.Render(prefix + short) + "\n"
-	} else if summary := summarizeToolOutput(name, output); summary != "" {
-		rendered = s.ToolResultStyle.Render(prefix+summary) + "\n"
-	} else {
-		short := output
-		if len(short) > 1000 {
-			short = short[:1000] + "..."
-		}
-		rendered = s.ToolResultStyle.Render(prefix+short) + "\n"
-	}
+	// Directory listings (list_dir, glob_files, ls) show every entry.
+	// Other shell output is truncated so huge logs don't flood the chat;
+	// the full text stays in .Text for agent/LLM context.
+	display := formatToolResultDisplay(name, output, toolCallSummary)
+	rendered := s.ToolResultStyle.Render(prefix+display) + "\n"
 
 	if detail != "" {
 		diffWidth := width
@@ -505,12 +569,13 @@ func renderToolResultWithContext(name, output string, isError bool, showToolName
 	rendered += "\n"
 
 	return ChatMessage{
-		Type:         MsgToolResult,
-		Text:         output,
-		Rendered:     rendered,
-		ToolName:     name,
-		Detail:       detail,
-		ShowToolName: showToolName,
+		Type:            MsgToolResult,
+		Text:            output,
+		Rendered:        rendered,
+		ToolName:        name,
+		Detail:          detail,
+		ShowToolName:    showToolName,
+		ToolCallSummary: toolCallSummary,
 	}
 }
 
@@ -1048,16 +1113,8 @@ func renderGroupedItem(msg ChatMessage, s Styles, width int) string {
 
 		// Mirror the ungrouped rendering: summary line + optional diff detail
 		prefix := fmt.Sprintf("    ↳ [%s] ", msg.ToolName)
-		var line string
-		if summary := summarizeToolOutput(msg.ToolName, msg.Text); summary != "" {
-			line = s.ToolResultStyle.Render(prefix+summary) + "\n"
-		} else {
-			short := msg.Text
-			if len(short) > 1000 {
-				short = short[:1000] + "..."
-			}
-			line = s.ToolResultStyle.Render(prefix+short) + "\n"
-		}
+		display := formatToolResultDisplay(msg.ToolName, msg.Text, msg.ToolCallSummary)
+		line := s.ToolResultStyle.Render(prefix+display) + "\n"
 		if msg.Detail != "" {
 			line += renderDiffDetail(msg.Detail, s, width)
 		}
@@ -1317,7 +1374,7 @@ func (msg ChatMessage) rerender(md *MarkdownRenderer, s Styles, width int) ChatM
 		// Reasons are not width-sensitive so we skip them on re-render.
 		return renderToolCall(msg.ToolName, msg.Text, "", [4]string{}, s)
 	case MsgToolResult:
-		return renderToolResultWithContext(msg.ToolName, msg.Text, msg.IsError, msg.ShowToolName, msg.Detail, s, md, width)
+		return renderToolResultWithContext(msg.ToolName, msg.Text, msg.IsError, msg.ShowToolName, msg.Detail, msg.ToolCallSummary, s, md, width)
 	case MsgSystem:
 		if msg.TurnModel != "" {
 			return renderTurnInfo(msg.TurnModel, msg.TurnElapsed, msg.TurnCost, width, s)
