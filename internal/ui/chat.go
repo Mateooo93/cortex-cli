@@ -1347,12 +1347,36 @@ func renderForkHintLine(width int, s Styles) string {
 	return "  " + dimStyle.Render(prefix) + hintStyle.Render(forkLabel) + dimStyle.Render(sep) + hintStyle.Render(trimLabel) + dimStyle.Render(strings.Repeat("─", dashCount))
 }
 
+func formatTurnElapsed(d time.Duration) string {
+	if d <= 0 {
+		return "0.0s"
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	m := int(d.Minutes())
+	s := int(d.Seconds()) % 60
+	return fmt.Sprintf("%dm%02ds", m, s)
+}
+
+func formatTurnCost(cost float64) string {
+	if cost <= 0 {
+		return "$0.00"
+	}
+	if cost < 0.01 {
+		return fmt.Sprintf("$%.4f", cost)
+	}
+	return fmt.Sprintf("$%.2f", cost)
+}
+
 // renderTurnInfo renders a turn-end info line with model, elapsed time, cost, and a dim separator.
 func renderTurnInfo(model string, elapsed time.Duration, cost float64, width int, s Styles) ChatMessage {
 	dimStyle := lipgloss.NewStyle().Foreground(s.ColorDimGray)
 
-	secs := int(elapsed.Seconds())
-	info := fmt.Sprintf("◇ %s · %ds · $%.2f ", formatModelName(model), secs, cost)
+	info := fmt.Sprintf("◇ %s · %s · %s ", formatModelName(model), formatTurnElapsed(elapsed), formatTurnCost(cost))
 	infoRendered := dimStyle.Render(info)
 
 	// Fill remaining width with ─

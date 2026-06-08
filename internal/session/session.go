@@ -40,7 +40,8 @@ type Session struct {
 	pendingResults []provider.Message
 
 	// Events
-	events chan protocol.SessionEvent
+	events           chan protocol.SessionEvent
+	llmCallStartedAt time.Time
 
 	// userAnswerCh carries the user's response to a question
 	// the model raised via the ask_user_question tool. The
@@ -1131,10 +1132,16 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 		return provider.Response{}, err
 	}
 
+	modelSpec := mc.Provider + "/" + mc.Model
+	if strings.Contains(canonical, "/") {
+		modelSpec = canonical
+	}
+	s.llmCallStartedAt = time.Now()
+
 	// Emit init state
 	s.safeEmit(protocol.SessionEvent{
 		Type: "init_state",
-		Data: protocol.EventInitState{State: 1, Model: canonical},
+		Data: protocol.EventInitState{State: 1, Model: modelSpec},
 	})
 
 	requestModel := mc.Model
@@ -1199,11 +1206,16 @@ func (s *Session) onChunk(c provider.Chunk) {
 }
 
 func (s *Session) emitStreamDone(u provider.Usage, finish provider.FinishReason) {
+	var elapsedMs int64
+	if !s.llmCallStartedAt.IsZero() {
+		elapsedMs = time.Since(s.llmCallStartedAt).Milliseconds()
+	}
 	s.safeEmit(protocol.SessionEvent{
 		Type: "stream_done",
 		Data: protocol.EventStreamDone{
 			InputTokens:  u.PromptTokens,
 			OutputTokens: u.CompletionTokens,
+			ElapsedMs:    elapsedMs,
 			FinishReason: string(finish),
 		},
 	})

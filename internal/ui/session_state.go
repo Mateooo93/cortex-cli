@@ -116,6 +116,13 @@ type SessionState struct {
 	assistantBuf      string
 	assistantRendered string
 	streamCache       streamDisplayCache
+	streamPending     string
+	streamPlayback    StreamPlayback
+	// Per-turn stats captured from the latest stream_done for the footer line.
+	lastTurnInputTokens  int64
+	lastTurnOutputTokens int64
+	lastTurnCacheCreate  int64
+	lastTurnCacheRead    int64
 	thinkingBuf           string
 	thinkingRendered      string
 	showThinking          bool
@@ -223,7 +230,8 @@ func newSessionState(cfg *config.Config, client *daemon.SessionClient) *SessionS
 	s := &SessionState{
 		agentState:    StateWaitingForInput,
 		input:         newInput(),
-		thinkingAnim: NewThinkingAnim(),
+		thinkingAnim:   NewThinkingAnim(),
+		streamPlayback: NewStreamPlayback(),
 		questionPanel: NewQuestionPanel(),
 		focus:         FocusEditor,
 		client:        client,
@@ -300,6 +308,10 @@ func (s *SessionState) StartTurn() {
 	}
 	s.turnActive = true
 	s.turnStartedAt = time.Now()
+	s.turnStartInputTokens = s.inputTokens
+	s.turnStartOutputTokens = s.outputTokens
+	s.turnStartCacheCreationTokens = s.cacheCreationTokens
+	s.turnStartCacheReadTokens = s.cacheReadTokens
 }
 
 // FinishTurn stops accumulating and returns the final elapsed

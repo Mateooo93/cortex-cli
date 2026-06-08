@@ -324,8 +324,7 @@ type Model struct {
 	lastClickButton tea.MouseButton
 
 	mouseButtonDown bool
-	mouseHover        mouseHover
-	inputBtnHover     inputBtnHover
+	mouseHover mouseHover
 
 	// Right-click context menu (paste/copy) for Linux terminals
 	// where the emulator menu is blocked by mouse capture.
@@ -856,8 +855,6 @@ func (m Model) Init() tea.Cmd {
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
-	m.syncChatInputPrompt()
-
 	switch msg := msg.(type) {
 
 	case tea.MouseClickMsg:
@@ -892,12 +889,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.activeTab == TabKindChat && msg.Button == tea.MouseLeft {
-			if copyBtn, pasteBtn := m.inputClipboardButtonAt(mouse.X, mouse.Y); copyBtn || pasteBtn {
-				if copyBtn {
-					return m.handleInputCopyClick()
-				}
-				return m.handleInputPasteClick()
-			}
 			m.handleChatMouseDown(mouse.X, mouse.Y)
 		}
 
@@ -2266,6 +2257,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case streamPlaybackMsg:
+		for _, sess := range m.sessions {
+			if msg.anim != &sess.streamPlayback || !sess.streamPlayback.active || msg.gen != sess.streamPlayback.gen {
+				continue
+			}
+			if released := releaseStreamPlayback(&sess.streamPending); released != "" {
+				sess.assistantBuf += released
+				updateStreamingDisplay(sess)
+				sess.chatScrollOffset = 0
+			}
+			if sess.streamPending == "" {
+				sess.streamPlayback.Stop()
+				continue
+			}
+			if cmd := sess.streamPlayback.Advance(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
+
 	case tabBlinkMsg:
 		if msg.gen != m.tabAlertBlinkGen {
 			return m, nil
@@ -2909,6 +2920,8 @@ func (m *Model) flushSessionBuf(sess *SessionState) {
 	}
 	sess.assistantBuf = ""
 	sess.assistantRendered = ""
+	sess.streamPending = ""
+	sess.streamPlayback.Stop()
 	sess.streamCache.reset()
 	sess.thinkingBuf = ""
 	sess.thinkingRendered = ""

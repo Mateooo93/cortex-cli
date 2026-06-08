@@ -39,9 +39,8 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		if chunk.Text == "" {
 			break
 		}
-		sess.assistantBuf += chunk.Text
-		updateStreamingDisplay(sess)
-		sess.chatScrollOffset = 0
+		sess.streamPending += chunk.Text
+		cmds = append(cmds, sess.streamPlayback.EnsureTick())
 
 	case "event.thinking_chunk":
 		data := marshalData(event.Data)
@@ -56,6 +55,9 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var done protocol.EventStreamDone
 		json.Unmarshal(data, &done)
+		flushStreamPlayback(sess)
+		sess.streamPlayback.Stop()
+		sess.chatScrollOffset = 0
 		if sess.assistantBuf != "" {
 			sess.assistantRendered = strings.TrimLeft(m.mdRenderer.Render(sess.assistantBuf), "\n")
 			sess.streamCache.reset()
@@ -88,15 +90,19 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		// model emits new tokens each turn, never re-reads
 		// old output), so accumulate them.
 		sess.outputTokens += done.OutputTokens
-		// Finalise the per-turn timer. The accumulator is
-		// reset to 0 for the next turn.
-		sess.FinishTurn()
+		turnElapsed := sess.FinishTurn()
+		if done.ElapsedMs > 0 {
+			sess.elapsed = time.Duration(done.ElapsedMs) * time.Millisecond
+		} else if turnElapsed > 0 {
+			sess.elapsed = turnElapsed
+		}
+		sess.lastTurnInputTokens = done.InputTokens
+		sess.lastTurnOutputTokens = done.OutputTokens
+		sess.lastTurnCacheCreate = done.CacheCreationTokens
+		sess.lastTurnCacheRead = done.CacheReadTokens
+		sess.lastOutputTokens = done.OutputTokens
 		if strings.EqualFold(done.FinishReason, "length") {
 			cmds = append(cmds, m.emitStatusMsg("response hit max output tokens and was cut off — continuing with higher maxTokens or ask 'continue'", StatusMsgWarning))
-		}
-		if done.ElapsedMs > 0 {
-			sess.lastOutputTokens = done.OutputTokens
-			sess.elapsed = time.Duration(done.ElapsedMs) * time.Millisecond
 		}
 		// After every assistant turn, check whether the
 		// session is close to its context window. If
@@ -245,11 +251,29 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		if idx != m.selectedSession || m.activeTab != TabKindChat {
 			sess.unreadCount++
 		}
-		turnInput := sess.inputTokens - sess.turnStartInputTokens
-		turnOutput := sess.outputTokens - sess.turnStartOutputTokens
-		turnCacheCreation := sess.cacheCreationTokens - sess.turnStartCacheCreationTokens
-		turnCacheRead := sess.cacheReadTokens - sess.turnStartCacheReadTokens
-		cost := protocol.CalculateCost(sess.modelName, turnInput, turnOutput, turnCacheCreation, turnCacheRead)
+		pricingSpec := protocol.ResolvePricingSpec(sess.modelName, "", "")
+		if m.cortexCfg != nil {
+			if _, mc, err := m.cortexCfg.GetModel(sess.modelName); err == nil {
+				pricingSpec = protocol.ResolvePricingSpec(sess.modelName, mc.Provider, mc.Model)
+			}
+		}
+		turnInput := sess.lastTurnInputTokens
+		turnOutput := sess.lastTurnOutputTokens
+		if turnInput == 0 {
+			turnInput = sess.inputTokens - sess.turnStartInputTokens
+		}
+		if turnOutput == 0 {
+			turnOutput = sess.outputTokens - sess.turnStartOutputTokens
+		}
+		turnCacheCreation := sess.lastTurnCacheCreate
+		if turnCacheCreation == 0 {
+			turnCacheCreation = sess.cacheCreationTokens - sess.turnStartCacheCreationTokens
+		}
+		turnCacheRead := sess.lastTurnCacheRead
+		if turnCacheRead == 0 {
+			turnCacheRead = sess.cacheReadTokens - sess.turnStartCacheReadTokens
+		}
+		cost := protocol.CalculateCost(pricingSpec, turnInput, turnOutput, turnCacheCreation, turnCacheRead)
 		sess.chatMessages = append(sess.chatMessages, renderTurnInfo(sess.modelName, sess.elapsed, cost, m.mdRenderer.width+4, m.styles))
 		sess.turnStartInputTokens = sess.inputTokens
 		sess.turnStartOutputTokens = sess.outputTokens

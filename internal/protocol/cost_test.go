@@ -106,13 +106,13 @@ func TestCalculateCost(t *testing.T) {
 			wantMin: 0.20, wantMax: 0.22,
 		},
 
-		// --- OpenRouter — no local table; caller is expected to use Usage.CostUSD ---
+		// --- OpenRouter — uses gateway fallback estimate ---
 		{
-			name:    "openrouter returns zero (caller uses Usage.CostUSD)",
+			name:    "openrouter fallback estimate",
 			model:   "openrouter/anthropic/claude-opus-4-8",
 			input:   1_000_000,
 			output:  100_000,
-			wantMin: 0, wantMax: 0,
+			wantMin: 3.4, wantMax: 3.6,
 		},
 
 		// --- Unknown providers / models ---
@@ -124,11 +124,11 @@ func TestCalculateCost(t *testing.T) {
 			wantMin: 0, wantMax: 0,
 		},
 		{
-			name:    "openai unknown model returns zero",
+			name:    "openai unknown model uses provider fallback",
 			model:   "openai/totally-made-up",
 			input:   1_000_000,
 			output:  100_000,
-			wantMin: 0, wantMax: 0,
+			wantMin: 3.4, wantMax: 3.6,
 		},
 		{
 			name:    "completely bare unknown returns zero",
@@ -197,7 +197,7 @@ func TestSplitModelSpec(t *testing.T) {
 		{"openrouter/anthropic/claude-opus-4-8", "openrouter", "anthropic/claude-opus-4-8"},
 		{"minimax/MiniMax-M2.7", "minimax", "MiniMax-M2.7"},
 		{"claude-sonnet-4-6", "anthropic", "claude-sonnet-4-6"}, // legacy bare fallback
-		{"unknown-thing", "", "unknown-thing"},
+		{"unknown-thing", "unknown-thing", "unknown-thing"},
 		{"", "", ""},
 	}
 	for _, c := range cases {
