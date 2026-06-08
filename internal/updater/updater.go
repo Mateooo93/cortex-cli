@@ -281,6 +281,18 @@ type ProgressFunc func(step string)
 // Pass nil to disable progress reporting (the CLI subcommand does
 // this; only the TUI needs the spinner).
 func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
+	currentExe, err := os.Executable()
+	if err != nil {
+		return Result{Kind: "error", Error: fmt.Errorf("updater: locate binary: %w", err)}
+	}
+	currentExe, err = filepath.EvalSymlinks(currentExe)
+	if err != nil {
+		return Result{Kind: "error", Error: fmt.Errorf("updater: resolve symlinks: %w", err)}
+	}
+	if IsNpmInstall(currentExe) {
+		return runNpmInstallUpdate(ctx, progress, currentExe)
+	}
+
 	if progress != nil {
 		progress("Checking for updates…")
 	}
@@ -319,56 +331,10 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		}
 	}
 
-	// 4. Locate the running binary so we know where to write.
-	currentExe, err := os.Executable()
-	if err != nil {
-		return Result{Kind: "error", Error: fmt.Errorf("updater: locate binary: %w", err), NewVersion: rel.TagName}
-	}
-	currentExe, err = filepath.EvalSymlinks(currentExe)
-	if err != nil {
-		return Result{Kind: "error", Error: fmt.Errorf("updater: resolve symlinks: %w", err), NewVersion: rel.TagName}
-	}
-
-	// npm installs: for the legacy npmjs.org package, try `npm update -g`
-	// (bounded timeout). GitHub Packages installs skip npm entirely — npm
-	// update against npm.pkg.github.com hangs without registry auth — and
-	// fall through to a direct GitHub release download into ~/.cortex/npm/.
-	if IsNpmInstall(currentExe) && shouldTryNpmUpdate() {
-		if progress != nil {
-			progress(fmt.Sprintf("Updating %s via npm…", npmPackageName()))
-		}
-		if npmErr := npmUpdate(ctx); npmErr == nil {
-			restart, rerr := restartPathForNpm()
-			if rerr != nil {
-				return Result{Kind: "error", Error: rerr, NewVersion: rel.TagName, AssetName: assetName}
-			}
-			return Result{
-				Kind:       "updated",
-				OldVersion: currentVersion,
-				NewVersion: latestVersion,
-				AssetName:  assetName,
-				OldPath:    currentExe,
-				NewPath:    restart,
-				Message:    npmInstallMessage(rel.TagName),
-			}
-		} else if progress != nil {
-			progress("npm update failed — downloading release directly…")
-		}
-	} else if IsNpmInstall(currentExe) && progress != nil {
-		progress(fmt.Sprintf("Downloading %s…", rel.TagName))
-	}
-
-	// 5. Plan where to install. npm installs always write to the
-	// versioned ~/.cortex/npm/<version>/<asset> cache (matching
-	// postinstall) instead of replacing an older cache directory.
-	// Non-npm installs use the running binary's directory, falling
+	// 4. Plan where to install beside the running binary, falling
 	// back to ~/.local/bin when that directory isn't writable.
 	var plan installPlan
-	if IsNpmInstall(currentExe) {
-		plan, err = planNpmInstall(latestVersion, assetName, currentExe)
-	} else {
-		plan, err = planInstall(currentExe)
-	}
+	plan, err = planInstall(currentExe)
 	if err != nil {
 		return Result{Kind: "error", Error: err, NewVersion: rel.TagName, AssetName: assetName}
 	}
@@ -444,22 +410,6 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		oldPath = finalPlan.targetPath + ".old"
 	}
 
-	msg := installMessage(rel.TagName, finalPlan)
-	if IsNpmInstall(currentExe) {
-		if symErr := updateNpmCurrentSymlink(finalPlan.targetPath, installBinaryName()); symErr != nil {
-			return Result{Kind: "error", Error: symErr, NewVersion: rel.TagName, AssetName: assetName}
-		}
-		if progress != nil {
-			progress(fmt.Sprintf("Syncing %s npm package…", npmPackageName()))
-		}
-		if npmErr := npmInstallGitHub(ctx, rel.TagName); npmErr == nil {
-			if restart, rerr := restartPathForNpm(); rerr == nil {
-				finalPlan.targetPath = restart
-			}
-			msg = npmInstallMessage(rel.TagName)
-		}
-	}
-
 	return Result{
 		Kind:       "updated",
 		OldVersion: currentVersion,
@@ -467,7 +417,45 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		AssetName:  assetName,
 		OldPath:    oldPath,
 		NewPath:    finalPlan.targetPath,
-		Message:    msg,
+		Message:    installMessage(rel.TagName, finalPlan),
+	}
+}
+
+func runNpmInstallUpdate(ctx context.Context, progress ProgressFunc, currentExe string) Result {
+	if progress != nil {
+		progress("Checking for updates…")
+	}
+	rel, err := latestRelease(ctx, HTTPClient)
+	if err != nil {
+		return Result{Kind: "error", Error: err}
+	}
+	currentVersion := strings.TrimPrefix(Version, "v")
+	latestVersion := strings.TrimPrefix(rel.TagName, "v")
+	if currentVersion == latestVersion && currentVersion != "dev" {
+		return Result{
+			Kind:       "up-to-date",
+			OldVersion: currentVersion,
+			NewVersion: latestVersion,
+			Message:    fmt.Sprintf("cortex-cli %s is already the latest", rel.TagName),
+		}
+	}
+	if progress != nil {
+		progress(fmt.Sprintf("Running npm install -g %s…", npmInstallSpec()))
+	}
+	if err := npmInstallLatest(ctx); err != nil {
+		return Result{Kind: "error", Error: err, NewVersion: rel.TagName}
+	}
+	restart, err := restartPathForNpm()
+	if err != nil {
+		return Result{Kind: "error", Error: err, NewVersion: rel.TagName}
+	}
+	return Result{
+		Kind:       "updated",
+		OldVersion: currentVersion,
+		NewVersion: latestVersion,
+		OldPath:    currentExe,
+		NewPath:    restart,
+		Message:    npmInstallMessage(rel.TagName),
 	}
 }
 

@@ -66,12 +66,12 @@ func TestUpdateNpmCurrentSymlink(t *testing.T) {
 	}
 }
 
-func TestNpmInstallGitHub_RegistryConstant(t *testing.T) {
-	spec := NpmPackageName + "@0.25.22"
-	if !strings.Contains(spec, "@") {
-		t.Fatal("unexpected package spec")
+func TestNpmInstallSpec_UsesLatestTag(t *testing.T) {
+	spec := npmInstallSpec()
+	if !strings.HasSuffix(spec, "@latest") {
+		t.Fatalf("spec = %q, want @latest suffix", spec)
 	}
-	if NpmPackageRegistry != "https://npm.pkg.github.com" {
-		t.Fatalf("registry = %q", NpmPackageRegistry)
+	if !strings.Contains(spec, NpmPackageName) {
+		t.Fatalf("spec = %q, want package %s", spec, NpmPackageName)
 	}
 }

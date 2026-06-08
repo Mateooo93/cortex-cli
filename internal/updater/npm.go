@@ -44,37 +44,30 @@ func npmPackageName() string {
 	return NpmPackageName
 }
 
-// shouldTryNpmUpdate reports whether /update should shell out to npm.
-// GitHub Packages (@mateooo93/*) requires registry auth for npm update and
-// commonly hangs in headless installs — we download the GitHub release
-// binary directly into ~/.cortex/npm/ instead.
-func shouldTryNpmUpdate() bool {
-	pkg := npmPackageName()
-	if strings.HasPrefix(pkg, "@mateooo93/") {
-		return false
-	}
-	// Legacy unscoped package on npmjs.org.
-	return pkg == LegacyNpmPackageName
+// npmInstallSpec is the package spec passed to npm install -g for /update.
+func npmInstallSpec() string {
+	return npmPackageName() + "@latest"
 }
 
-func npmUpdate(ctx context.Context) error {
+// npmInstallLatest runs npm install -g @mateooo93/cortex@latest (or the
+// package named by CORTEX_NPM_PACKAGE).
+func npmInstallLatest(ctx context.Context) error {
 	npm, err := exec.LookPath("npm")
 	if err != nil {
 		return fmt.Errorf("updater: npm not found on PATH")
 	}
-	pkg := npmPackageName()
+	spec := npmInstallSpec()
 	ctx, cancel := context.WithTimeout(ctx, npmUpdateTimeout)
 	defer cancel()
-	args := []string{"update", "-g", pkg}
-	cmd := exec.CommandContext(ctx, npm, args...)
+	cmd := exec.CommandContext(ctx, npm, "install", "-g", spec)
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {
-			return fmt.Errorf("updater: npm update -g %s failed: %w", pkg, err)
+			return fmt.Errorf("updater: npm install -g %s failed: %w", spec, err)
 		}
-		return fmt.Errorf("updater: npm update -g %s failed: %s", pkg, msg)
+		return fmt.Errorf("updater: npm install -g %s failed: %s", spec, msg)
 	}
 	return nil
 }
@@ -147,40 +140,4 @@ func updateNpmCurrentSymlink(targetPath, binaryName string) error {
 	return os.Symlink(targetPath, linkPath)
 }
 
-// npmInstallGitHub runs a bounded global npm install for the GitHub Packages
-// wrapper so readPackageVersion() and postinstall stay aligned with the
-// native binary after a direct /update download. Best-effort: failures are
-// ignored by the caller.
-func npmInstallGitHub(ctx context.Context, tagName string) error {
-	npm, err := exec.LookPath("npm")
-	if err != nil {
-		return fmt.Errorf("updater: npm not found on PATH")
-	}
-	pkg := npmPackageName()
-	ver := strings.TrimPrefix(strings.TrimSpace(tagName), "v")
-	ctx, cancel := context.WithTimeout(ctx, npmUpdateTimeout)
-	defer cancel()
-	spec := pkg + "@" + ver
-	args := []string{
-		"install", "-g", spec,
-		"--registry", NpmPackageRegistry,
-		"--prefer-online",
-		"--no-fund",
-		"--no-audit",
-	}
-	cmd := exec.CommandContext(ctx, npm, args...)
-	env := os.Environ()
-	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" && strings.TrimSpace(os.Getenv("NODE_AUTH_TOKEN")) == "" {
-		env = append(env, "NODE_AUTH_TOKEN="+token)
-	}
-	cmd.Env = env
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if msg == "" {
-			return fmt.Errorf("updater: npm install -g %s failed: %w", spec, err)
-		}
-		return fmt.Errorf("updater: npm install -g %s failed: %s", spec, msg)
-	}
-	return nil
-}
+

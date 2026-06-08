@@ -2,23 +2,16 @@ package updater
 
 import "testing"
 
-func TestShouldTryNpmUpdate_GitHubPackagesSkipped(t *testing.T) {
-	t.Setenv("CORTEX_NPM_PACKAGE", "@mateooo93/cortex")
-	if shouldTryNpmUpdate() {
-		t.Fatal("expected GitHub Packages install to skip npm update")
-	}
-}
-
-func TestShouldTryNpmUpdate_LegacyNpmjs(t *testing.T) {
-	t.Setenv("CORTEX_NPM_PACKAGE", LegacyNpmPackageName)
-	if !shouldTryNpmUpdate() {
-		t.Fatal("expected legacy mateooo93-cortex to try npm update")
-	}
-}
-
-func TestShouldTryNpmUpdate_DefaultPackage(t *testing.T) {
+func TestNpmInstallSpec(t *testing.T) {
 	t.Setenv("CORTEX_NPM_PACKAGE", "")
-	if shouldTryNpmUpdate() {
-		t.Fatal("expected default @mateooo93/cortex to skip npm update")
+	if got := npmInstallSpec(); got != "@mateooo93/cortex@latest" {
+		t.Fatalf("spec = %q, want @mateooo93/cortex@latest", got)
+	}
+}
+
+func TestNpmInstallSpec_EnvOverride(t *testing.T) {
+	t.Setenv("CORTEX_NPM_PACKAGE", LegacyNpmPackageName)
+	if got := npmInstallSpec(); got != LegacyNpmPackageName+"@latest" {
+		t.Fatalf("spec = %q, want %s@latest", got, LegacyNpmPackageName)
 	}
 }
