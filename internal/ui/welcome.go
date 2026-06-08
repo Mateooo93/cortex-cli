@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"image/color"
 )
 
 // Version is the cortex-cli version string rendered on the welcome screen.
@@ -13,7 +12,8 @@ var Version = "dev"
 
 const cortexBannerWidth = 58
 
-// renderCortexBanner returns the CORTEX ASCII art with a vertical blue gradient.
+// renderCortexBanner returns the CORTEX ASCII art with a vertical gradient
+// derived from the active theme primary color.
 func renderCortexBanner() []string {
 	lines := []string{
 		" ██████╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗",
@@ -23,14 +23,7 @@ func renderCortexBanner() []string {
 		"╚██████╗╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗",
 		" ╚═════╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝",
 	}
-	ramp := []color.Color{
-		lipgloss.Color("#00E5FF"),
-		lipgloss.Color("#00B4FF"),
-		lipgloss.Color("#0080FF"),
-		lipgloss.Color("#0066FF"),
-		lipgloss.Color("#0047FF"),
-		lipgloss.Color("#0033CC"),
-	}
+	ramp := cortexBannerRamp()
 	out := make([]string, len(lines))
 	for i, line := range lines {
 		style := lipgloss.NewStyle().Foreground(ramp[i])

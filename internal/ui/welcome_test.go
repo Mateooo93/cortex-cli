@@ -36,6 +36,20 @@ func TestWelcomeViewportLinesCentersVertically(t *testing.T) {
 	}
 }
 
+func TestCortexBannerFollowsPrimaryColor(t *testing.T) {
+	oldPrimary := primaryHex
+	t.Cleanup(func() {
+		primaryHex = oldPrimary
+	})
+
+	primaryHex = "#8B5CF6"
+	banner := strings.Join(renderCortexBanner(), "\n")
+	// True-color SGR for violet #8B5CF6 → rgb(139, 92, 246)
+	if !strings.Contains(banner, "139;92;246") {
+		t.Fatalf("expected banner to use theme primary violet, got %q", stripANSI(banner))
+	}
+}
+
 func TestRenderWelcomeInlineNarrowWidthUsesCompactBanner(t *testing.T) {
 	s := NewStyles(true)
 	lines := buildWelcomeLines(40, s)

@@ -18,6 +18,27 @@ func lighten(hex string, factor float64) color.Color {
 	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", int(blended.R*255), int(blended.G*255), int(blended.B*255)))
 }
 
+// darken blends a hex color toward black by the given factor (0.0 = unchanged, 1.0 = black).
+func darken(hex string, factor float64) color.Color {
+	c, _ := colorful.Hex(hex)
+	black := colorful.Color{R: 0, G: 0, B: 0}
+	blended := c.BlendLab(black, factor)
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", int(blended.R*255), int(blended.G*255), int(blended.B*255)))
+}
+
+// cortexBannerRamp returns a vertical gradient for the welcome ASCII logo
+// derived from the active theme primary color.
+func cortexBannerRamp() []color.Color {
+	return []color.Color{
+		lighten(primaryHex, 0.50),
+		lighten(primaryHex, 0.35),
+		lighten(primaryHex, 0.20),
+		lighten(primaryHex, 0.08),
+		lipgloss.Color(primaryHex),
+		darken(primaryHex, 0.30),
+	}
+}
+
 var (
 	// Cortex brand: blue primary, lighter sky-blue secondary
 	primaryHex   = "#3B82F6" // royal blue
