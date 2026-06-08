@@ -699,65 +699,24 @@ type SearchTool struct{}
 
 func (t *SearchTool) Name() string { return "search" }
 func (t *SearchTool) Description() string {
-	return "Search for a string in files (case-insensitive substring)."
+	return "Alias for grep. Search file contents for a pattern."
 }
 func (t *SearchTool) Parameters() map[string]Param {
-	return map[string]Param{
-		"query":     {Type: "string", Description: "String to search for", Required: true},
-		"path":      {Type: "string", Description: "Directory to search (default: cwd)"},
-		"extension": {Type: "string", Description: "Filter by file extension (e.g. 'ts')"},
-	}
+	return (&GrepTool{}).Parameters()
 }
 func (t *SearchTool) Run(ctx Context, args map[string]any) (Result, error) {
-	q, _ := args["query"].(string)
-	if q == "" {
-		return Result{OK: false, Error: "query is required"}, nil
-	}
-	p, _ := args["path"].(string)
-	if p == "" {
-		p = "."
-	}
-	ext, _ := args["extension"].(string)
-	root := filepath.Join(ctx.CWD, p)
-	var matches []string
-	var walk func(path string, depth int) error
-	walk = func(path string, depth int) error {
-		if depth > 8 {
-			return nil
+	if _, ok := args["pattern"]; !ok {
+		if q, ok := args["query"].(string); ok && q != "" {
+			args["pattern"] = q
 		}
-		entries, err := os.ReadDir(path)
-		if err != nil {
-			return nil
+	}
+	if ext, ok := args["extension"].(string); ok && ext != "" {
+		if _, has := args["glob"]; !has {
+			ext = strings.TrimPrefix(ext, ".")
+			args["glob"] = "*." + ext
 		}
-		for _, e := range entries {
-			if e.IsDir() {
-				if e.Name() == "node_modules" || e.Name() == ".git" || e.Name() == "dist" {
-					continue
-				}
-				walk(filepath.Join(path, e.Name()), depth+1)
-			} else {
-				if ext != "" && !strings.HasSuffix(e.Name(), "."+ext) {
-					continue
-				}
-				data, err := os.ReadFile(filepath.Join(path, e.Name()))
-				if err != nil {
-					continue
-				}
-				if strings.Contains(strings.ToLower(string(data)), strings.ToLower(q)) {
-					matches = append(matches, filepath.Join(path, e.Name()))
-				}
-			}
-		}
-		return nil
 	}
-	_ = walk(root, 0)
-	if len(matches) > 100 {
-		matches = matches[:100]
-	}
-	if len(matches) == 0 {
-		return Result{OK: true, Output: "No matches"}, nil
-	}
-	return Result{OK: true, Output: strings.Join(matches, "\n")}, nil
+	return (&GrepTool{}).Run(ctx, args)
 }
 
 // WebSearchTool performs a web search using DuckDuckGo's public JSON API
@@ -1077,11 +1036,15 @@ func shellCommand() string {
 }
 
 func defaultTools() []Tool {
+	globTool := &GlobFileSearchTool{}
 	return []Tool{
 		&ReadFileTool{},
 		&WriteFileTool{},
 		&EditFileTool{},
 		&ListDirTool{},
+		&GrepTool{},
+		globTool,
+		&namedTool{toolName: "glob_files", inner: globTool},
 		&SearchTool{},
 		&ShellTool{},
 		&StopBackgroundProcessTool{},

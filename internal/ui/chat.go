@@ -485,7 +485,7 @@ func summarizeToolOutput(name, output string) string {
 // entry instead of a compact summary or truncated preview.
 func shouldShowFullDirectoryListing(name, toolCallSummary string) bool {
 	switch name {
-	case "list_dir", "glob_files":
+	case "list_dir", "glob_files", "glob_file_search":
 		return true
 	case "bash", "run_shell":
 		return isDirectoryListingCommand(toolCallSummary)

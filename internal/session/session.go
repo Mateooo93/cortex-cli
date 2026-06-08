@@ -1565,6 +1565,20 @@ func summarizeToolCall(name string, args map[string]any) string {
 			return fmt.Sprintf("%s (timeout %ds)", label, sec)
 		}
 		return label
+	case "grep", "search":
+		if p, _ := args["pattern"].(string); p != "" {
+			return p
+		}
+		if q, _ := args["query"].(string); q != "" {
+			return q
+		}
+	case "glob_file_search", "glob_files":
+		if p, _ := args["glob_pattern"].(string); p != "" {
+			return p
+		}
+		if p, _ := args["pattern"].(string); p != "" {
+			return p
+		}
 	case "web_fetch":
 		if u, _ := args["url"].(string); u != "" {
 			return u
