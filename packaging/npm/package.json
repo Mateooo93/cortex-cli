@@ -32,10 +32,10 @@
     "arm64"
   ],
   "bin": {
-    "cortex": "bin/cortex.js"
+    "cortex": "shims/cortex.js"
   },
   "files": [
-    "bin",
+    "shims",
     "lib",
     "README.md"
   ],
