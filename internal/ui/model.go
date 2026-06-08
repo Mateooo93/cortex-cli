@@ -307,6 +307,7 @@ type Model struct {
 
 	mouseButtonDown bool
 	mouseHover        mouseHover
+	inputBtnHover     inputBtnHover
 
 	// Right-click context menu (paste/copy) for Linux terminals
 	// where the emulator menu is blocked by mouse capture.
@@ -837,6 +838,7 @@ func (m Model) Init() tea.Cmd {
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	m.syncChatInputPrompt()
 
 	switch msg := msg.(type) {
 
@@ -872,6 +874,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.activeTab == TabKindChat && msg.Button == tea.MouseLeft {
+			if copyBtn, pasteBtn := m.inputClipboardButtonAt(mouse.X, mouse.Y); copyBtn || pasteBtn {
+				if copyBtn {
+					return m.handleInputCopyClick()
+				}
+				return m.handleInputPasteClick()
+			}
 			m.handleChatMouseDown(mouse.X, mouse.Y)
 		}
 
@@ -990,14 +998,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// --- Global quit confirm overlay ---
-		if msg.String() == "ctrl+c" {
-			if m.activeTab == TabKindChat {
-				if cmd := m.copyChatSelectionCmd(); cmd != nil {
-					return m, cmd
-				}
-			}
-		}
-
 		if msg.String() == "ctrl+c" || msg.String() == "ctrl+d" {
 			if m.state == StateQuitConfirm {
 				sess := m.currentSession()

@@ -15,7 +15,7 @@ func mouseHoverStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Background(lipgloss.Color("#2A3545"))
 }
 
-// updateMouseHover tracks hover for tab-bar labels only.
+// updateMouseHover tracks hover for tab-bar labels and input clipboard buttons.
 func (m *Model) updateMouseHover(x, y int) {
 	m.mouseHover = mouseHover{}
 	if m.mouseInTabBar(y) {
@@ -23,6 +23,8 @@ func (m *Model) updateMouseHover(x, y int) {
 			m.mouseHover = mouseHover{kind: hoverTab, index: int(kind)}
 		}
 	}
+	m.updateInputBtnHover(x, y)
+	m.syncChatInputPrompt()
 }
 
 func (m Model) hoverTabKind() (TabKind, bool) {
