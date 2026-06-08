@@ -126,11 +126,34 @@ func (tc ThemeConfig) EffectiveSecondary() string {
 	return DefaultThemeSecondary
 }
 
+func sanitizeThemePrimary(primary string) string {
+	primary = normalizeStoredColor(primary)
+	if primary != "" && themeColorPresetIndex(primary) < 0 {
+		return ""
+	}
+	return primary
+}
+
+func validateThemePrimaryForStorage(primary string) error {
+	if primary == "" {
+		return nil
+	}
+	if themeColorPresetIndex(primary) < 0 {
+		return fmt.Errorf("primary %q is not a supported theme preset", primary)
+	}
+	return nil
+}
+
 // SetThemeColors writes the primary color to ~/.cortex/settings.json.
 // Secondary is always cleared so the built-in default blue is used.
+// Only preset primary colors may be stored; empty clears the override.
 func SetThemeColors(primary, secondary string) error {
-	primary, err := NormalizeHexColor(primary)
+	var err error
+	primary, err = NormalizeHexColor(primary)
 	if err != nil {
+		return err
+	}
+	if err := validateThemePrimaryForStorage(primary); err != nil {
 		return err
 	}
 	if _, err := NormalizeHexColor(secondary); err != nil {

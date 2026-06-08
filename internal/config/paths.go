@@ -61,6 +61,19 @@ func (p CortexPaths) Layers() []string {
 	return out
 }
 
+// UserThemeSettings returns the settings.json path for theme colors.
+// Theme is a user preference: home settings in normal mode, or the override
+// directory with --config-dir. Project .cortex never contributes theme.
+func (p CortexPaths) UserThemeSettings() string {
+	if p.override != "" {
+		return filepath.Join(p.override, "settings.json")
+	}
+	if p.home == "" {
+		return ""
+	}
+	return filepath.Join(p.home, "settings.json")
+}
+
 // Settings returns the settings.json paths to merge, in load order.
 func (p CortexPaths) Settings() []string {
 	layers := p.Layers()

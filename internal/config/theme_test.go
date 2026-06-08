@@ -29,7 +29,7 @@ func TestSetThemeColors_PersistsToHomeSettings(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 
-	if err := SetThemeColors("#FF00AA", "#00FFAA"); err != nil {
+	if err := SetThemeColors("#8B5CF6", "#00FFAA"); err != nil {
 		t.Fatal(err)
 	}
 	p := filepath.Join(home, ".cortex", "settings.json")
@@ -43,7 +43,7 @@ func TestSetThemeColors_PersistsToHomeSettings(t *testing.T) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Theme.Primary != "#FF00AA" {
+	if cfg.Theme.Primary != "#8B5CF6" {
 		t.Errorf("primary = %q", cfg.Theme.Primary)
 	}
 	if cfg.Theme.Secondary != "" {
@@ -52,7 +52,7 @@ func TestSetThemeColors_PersistsToHomeSettings(t *testing.T) {
 
 	paths := NewCortexPaths("", filepath.Join(home, ".cortex"), t.TempDir())
 	tc := LoadThemeConfig(paths)
-	if tc.Primary != "#FF00AA" || tc.Secondary != "" {
+	if tc.Primary != "#8B5CF6" || tc.Secondary != "" {
 		t.Errorf("LoadThemeConfig() = %+v", tc)
 	}
 }
@@ -86,7 +86,7 @@ func TestSetThemeColors_ClearsSecondaryOverride(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 
-	if err := SetThemeColors("#FF00AA", "#00FFAA"); err != nil {
+	if err := SetThemeColors("#8B5CF6", "#00FFAA"); err != nil {
 		t.Fatal(err)
 	}
 	p := filepath.Join(home, ".cortex", "settings.json")
@@ -104,7 +104,7 @@ func TestSetThemeColors_ClearRestoresDefaults(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 
-	if err := SetThemeColors("#111111", "#222222"); err != nil {
+	if err := SetThemeColors("#8B5CF6", "#222222"); err != nil {
 		t.Fatal(err)
 	}
 	if err := SetThemeColors("", ""); err != nil {
@@ -117,5 +117,66 @@ func TestSetThemeColors_ClearRestoresDefaults(t *testing.T) {
 	}
 	if strings.Contains(string(data), `"theme"`) {
 		t.Errorf("expected theme block removed, got %s", string(data))
+	}
+}
+
+func TestSetThemeColors_RejectsNonPresetPrimary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	if err := SetThemeColors("#FF00AA", ""); err == nil {
+		t.Fatal("expected error for non-preset primary")
+	}
+}
+
+func TestLoadThemeConfig_IgnoresProjectTheme(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	homeSettings := filepath.Join(home, ".cortex")
+	if err := os.MkdirAll(homeSettings, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(homeSettings, "settings.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectSettings := filepath.Join(project, ".cortex")
+	if err := os.MkdirAll(projectSettings, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projectData := `{"theme":{"primary":"#F43F5E","secondary":"#00FF00"}}`
+	if err := os.WriteFile(filepath.Join(projectSettings, "settings.json"), []byte(projectData), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := NewCortexPaths("", filepath.Join(home, ".cortex"), project)
+	tc := LoadThemeConfig(paths)
+	if tc.Primary != "" || tc.Secondary != "" {
+		t.Errorf("LoadThemeConfig() = %+v, want defaults (project theme ignored)", tc)
+	}
+}
+
+func TestLoadThemeConfig_IgnoresUnknownPrimary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	homeSettings := filepath.Join(home, ".cortex")
+	if err := os.MkdirAll(homeSettings, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	homeData := `{"theme":{"primary":"#FF00AA","secondary":"#00FF00"}}`
+	if err := os.WriteFile(filepath.Join(homeSettings, "settings.json"), []byte(homeData), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := NewCortexPaths("", filepath.Join(home, ".cortex"), t.TempDir())
+	tc := LoadThemeConfig(paths)
+	if tc.Primary != "" || tc.Secondary != "" {
+		t.Errorf("LoadThemeConfig() = %+v, want defaults (unknown primary ignored)", tc)
 	}
 }

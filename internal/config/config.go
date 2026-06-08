@@ -240,31 +240,24 @@ func ElevenLabsAuthMode(paths CortexPaths) string {
 	return result
 }
 
-// LoadThemeConfig reads theme colors from settings.json files in the order
-// returned by paths.Settings() — home then project in normal mode, or just
-// the override in config-dir mode.
+// LoadThemeConfig reads the user's theme primary from UserThemeSettings().
+// Project .cortex is ignored. Only preset primaries are honored; unknown or
+// legacy values fall back to the built-in default blue.
 func LoadThemeConfig(paths CortexPaths) ThemeConfig {
-	var tc ThemeConfig
-
-	for _, p := range paths.Settings() {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		var wrapper struct {
-			Theme ThemeConfig `json:"theme"`
-		}
-		if err := json.Unmarshal(data, &wrapper); err != nil {
-			log.Printf("[config] failed to parse theme from %s: %v", p, err)
-			continue
-		}
-		if wrapper.Theme.Primary != "" {
-			tc.Primary = wrapper.Theme.Primary
-		}
-		if wrapper.Theme.Secondary != "" {
-			tc.Secondary = wrapper.Theme.Secondary
-		}
+	p := paths.UserThemeSettings()
+	if p == "" {
+		return ThemeConfig{}
 	}
-
-	return tc
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return ThemeConfig{}
+	}
+	var wrapper struct {
+		Theme ThemeConfig `json:"theme"`
+	}
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		log.Printf("[config] failed to parse theme from %s: %v", p, err)
+		return ThemeConfig{}
+	}
+	return ThemeConfig{Primary: sanitizeThemePrimary(wrapper.Theme.Primary)}
 }
