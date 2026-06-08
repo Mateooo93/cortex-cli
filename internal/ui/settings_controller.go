@@ -559,18 +559,47 @@ func (m *Model) wizardCommitCurrent() tea.Cmd {
 }
 
 func (m *Model) settingsProviderHasKey(providerName string) bool {
-	if !cortexconfig.ProviderNeedsAPIKey(providerName) {
+	return m.providerConfigured(providerName)
+}
+
+// providerConfigured reports whether the provider already has usable
+// credentials: OAuth token for subscription providers, or an API key
+// from Settings (cortexCfg), env, or keychain.
+func (m *Model) providerConfigured(providerName string) bool {
+	providerName = cortexconfig.NormalizeProviderName(providerName)
+	authKind := cortexconfig.ProviderAuthKind(providerName)
+	switch authKind {
+	case "oauth":
+		return config.OAuthProviderSignedIn(providerName)
+	case "none", "env":
 		return true
-	}
-	if m.cortexCfg != nil {
-		if pc, ok := m.cortexCfg.ProviderConfig(providerName); ok && pc.APIKey != "" {
+	default:
+		if m.providerAPIKey(providerName) != "" {
 			return true
 		}
+		key, _ := config.ResolveProviderKey(providerName, false)
+		return key != ""
 	}
-	if envVar := cortexconfig.ProviderEnvVar(providerName); envVar != "" && os.Getenv(envVar) != "" {
-		return true
+}
+
+// switchToModelSpec activates spec, persists it, and notifies the session.
+func (m *Model) switchToModelSpec(spec string) tea.Cmd {
+	if m.cortexCfg != nil {
+		provider, model, _ := cortexconfig.SplitModelSpec(spec)
+		if ensured := m.cortexCfg.EnsureProviderModel(provider, model); ensured != "" {
+			spec = ensured
+		}
 	}
-	return false
+	m.setActiveModelSpec(spec)
+	if m.cortexCfg != nil {
+		m.cortexCfg.DefaultModel = spec
+		_ = cortexconfig.Save(m.cortexCfg)
+	}
+	sess := m.currentSession()
+	if sess != nil && sess.client != nil {
+		_ = sess.client.SendSetModel(spec)
+	}
+	return m.emitStatusMsg("Switched to "+spec, StatusMsgInfo)
 }
 
 func (m *Model) providerAPIKey(providerName string) string {
@@ -623,6 +652,19 @@ func (m *Model) selectSettingsModel(mod ModelInfo) tea.Cmd {
 
 func (m *Model) fetchModelsForProvider(providerName string) tea.Cmd {
 	providerName = cortexconfig.NormalizeProviderName(providerName)
+	// SuperGrok subscription exposes a fixed pair of models (see
+	// `grok models`), not the full console.x.ai catalogue.
+	if providerName == "xai-sub" {
+		return func() tea.Msg {
+			var ids []string
+			for _, mod := range ModelsForProvider(providerName) {
+				if _, model, ok := cortexconfig.SplitModelSpec(mod.Spec); ok && model != "" {
+					ids = append(ids, model)
+				}
+			}
+			return modelsFetchedMsg{provider: providerName, models: ids}
+		}
+	}
 	baseURL := m.providerBaseURL(providerName)
 	apiKey := m.providerAPIKey(providerName)
 	candidates := m.modelRefreshBaseURLCandidates(providerName, baseURL)

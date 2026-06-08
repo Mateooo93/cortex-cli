@@ -1203,6 +1203,10 @@ func recoverArgsFromRaw(toolName string, args map[string]any, raw string) map[st
 
 func summarizeToolCall(name string, args map[string]any) string {
 	switch name {
+	case "web_fetch":
+		if u, _ := args["url"].(string); u != "" {
+			return u
+		}
 	case "write_file", "write_minified_file":
 		path, _ := args["path"].(string)
 		content, _ := args["content"].(string)
@@ -1455,10 +1459,21 @@ func (s *Session) emitToolResult(id, name, output string, isErr bool, errMsg str
 				switch n := details["lines"].(type) {
 				case int:
 					lineCount = n
+				case int64:
+					lineCount = int(n)
 				case float64:
 					lineCount = int(n)
 				}
 				detail = formatWritePreviewDetail(lineCount, preview)
+			}
+		} else if name == "web_fetch" {
+			switch ms := details["elapsed_ms"].(type) {
+			case int64:
+				detail = fmt.Sprintf("%d", ms)
+			case int:
+				detail = fmt.Sprintf("%d", ms)
+			case float64:
+				detail = fmt.Sprintf("%d", int64(ms))
 			}
 		}
 	}

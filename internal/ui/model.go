@@ -696,8 +696,12 @@ func (m *Model) applyModelPickerSelection(spec string) tea.Cmd {
 	provider = cortexconfig.NormalizeProviderName(provider)
 	authKind := cortexconfig.ProviderAuthKind(provider)
 
-	// OAuth providers: fire the browser flow. The user does NOT
-	// see any key/base-URL form.
+	// Already configured — switch immediately without re-prompting.
+	if m.providerConfigured(provider) {
+		return m.switchToModelSpec(spec)
+	}
+
+	// OAuth providers without a stored token: launch browser sign-in.
 	if authKind == "oauth" {
 		if provider == "codex" {
 			return tea.Batch(
@@ -730,40 +734,11 @@ func (m *Model) applyModelPickerSelection(spec string) tea.Cmd {
 
 	// Local / env-var providers: no key to collect, just switch.
 	if authKind == "none" || authKind == "env" {
-		m.setActiveModelSpec(spec)
-		if m.cortexCfg != nil {
-			m.cortexCfg.DefaultModel = spec
-			_ = cortexconfig.Save(m.cortexCfg)
-		}
-		sess := m.currentSession()
-		if sess != nil && sess.client != nil {
-			_ = sess.client.SendSetModel(spec)
-		}
-		return m.emitStatusMsg("Switched to "+spec, StatusMsgInfo)
+		return m.switchToModelSpec(spec)
 	}
 
-	// API-key providers: ensure the provider row exists, then
-	// check if a key is already stored. If yes, switch
-	// immediately. If no, drop the user into the right-panel
-	// key-input form so they can paste one.
-	if m.cortexCfg != nil {
-		_, model, _ := cortexconfig.SplitModelSpec(spec)
-		if ensured := m.cortexCfg.EnsureProviderModel(provider, model); ensured != "" {
-			spec = ensured
-		}
-	}
-	if key, _ := config.ResolveProviderKey(provider, false); key != "" {
-		m.setActiveModelSpec(spec)
-		if m.cortexCfg != nil {
-			m.cortexCfg.DefaultModel = spec
-			_ = cortexconfig.Save(m.cortexCfg)
-		}
-		sess := m.currentSession()
-		if sess != nil && sess.client != nil {
-			_ = sess.client.SendSetModel(spec)
-		}
-		return m.emitStatusMsg("Switched to "+spec, StatusMsgInfo)
-	}
+	// API-key providers without a stored key: open the right-panel
+	// key-input form so the user can paste one.
 	// No key stored — open the right-panel key input form
 	// (which is the only place we ask for an API key now that
 	// the Settings wizard is gone).
@@ -1129,6 +1104,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				sess.input.Focus()
 				return m, nil
 			}
+			sess.rightPanel.providerConfigured = m.providerConfigured
 			action, payload := sess.rightPanel.HandleKey(msg)
 			switch action {
 			case rpActionClose:

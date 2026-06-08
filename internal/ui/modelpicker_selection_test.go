@@ -8,22 +8,11 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 )
 
-// TestApplyModelPickerSelection_CodexFiresOAuth pins the headline
-// fix for the "select codex \u2192 still asks for API key" bug.
-//
-// Before the fix, picking codex from the /model picker would
-// either (a) silently do nothing because open_model_picker wasn't
-// wired up in handleCommandAction, or (b) fall through to the
-// API-key path because the model spec starts with "codex/" \u2014
-// exactly the prefix the old codex key-rotation guard in
-// selectSettingsModel used to short-circuit on the Settings
-// tab path.
-//
-// The picker must route the user to the browser OAuth flow
-// immediately. It must NOT open a key-input form, must NOT
-// open the wizard, and must NOT show the
-// "paste your codex API key" placeholder.
-func TestApplyModelPickerSelection_CodexFiresOAuth(t *testing.T) {
+// TestApplyModelPickerSelection_CodexFiresOAuthWhenUnsigned routes
+// unsigned codex picks to the browser OAuth flow (never an API key form).
+func TestApplyModelPickerSelection_CodexFiresOAuthWhenUnsigned(t *testing.T) {
+	t.Setenv("CODEX_CODEX_TOKEN", "")
+
 	cfg := &cortexconfig.Config{}
 	cfg.DefaultModel = "openai/gpt-5.5"
 	m := NewModel(&config.Config{}, cfg, nil, true, "", true, true)
@@ -32,13 +21,6 @@ func TestApplyModelPickerSelection_CodexFiresOAuth(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("applyModelPickerSelection(codex) returned nil; should fire OAuth flow")
 	}
-	// The returned tea.Cmd resolves to a codexLoginStartedMsg or
-	// the wizard/state should show the OAuth prompt. We can't
-	// execute the cmd here, but we can verify it was wired up.
-	// Sanity-check the user-visible state: no key-input form is
-	// open, no wizard is active, and the active model is still
-	// the pre-selection openai model (codex only flips the
-	// active model AFTER the OAuth flow completes).
 	if m.settingsWizard.active {
 		t.Errorf("wizard became active for codex \u2014 must not (codex is OAuth)")
 	}
@@ -46,14 +28,39 @@ func TestApplyModelPickerSelection_CodexFiresOAuth(t *testing.T) {
 	if sess != nil && sess.rightPanel.mode == rpModeKeyInput {
 		t.Errorf("right-panel key input opened for codex \u2014 must not (codex is OAuth)")
 	}
+	if m.providerConfigured("codex") {
+		if m.currentSettingsModel() != "codex/gpt-5.5" {
+			t.Errorf("signed-in codex: active model = %q, want codex/gpt-5.5", m.currentSettingsModel())
+		}
+	} else if m.currentSettingsModel() != "openai/gpt-5.5" {
+		t.Errorf("unsigned codex: active model = %q, want openai/gpt-5.5 until OAuth completes", m.currentSettingsModel())
+	}
 }
 
-func TestApplyModelPickerSelection_XaiSubFiresOAuth(t *testing.T) {
+func TestApplyModelPickerSelection_CodexSwitchesWhenSignedIn(t *testing.T) {
+	t.Setenv("CODEX_CODEX_TOKEN", "eyJhbGciOiJIUzI1NiJ9.test")
+
 	cfg := &cortexconfig.Config{}
 	cfg.DefaultModel = "openai/gpt-5.5"
 	m := NewModel(&config.Config{}, cfg, nil, true, "", true, true)
 
-	cmd := m.applyModelPickerSelection("xai-sub/grok-4.3")
+	cmd := m.applyModelPickerSelection("codex/gpt-5.5")
+	if cmd == nil {
+		t.Fatal("applyModelPickerSelection(codex signed-in) returned nil")
+	}
+	if m.currentSettingsModel() != "codex/gpt-5.5" {
+		t.Errorf("active model = %q, want codex/gpt-5.5", m.currentSettingsModel())
+	}
+}
+
+func TestApplyModelPickerSelection_XaiSubFiresOAuthWhenUnsigned(t *testing.T) {
+	t.Setenv("XAI_OAUTH_TOKEN", "")
+
+	cfg := &cortexconfig.Config{}
+	cfg.DefaultModel = "openai/gpt-5.5"
+	m := NewModel(&config.Config{}, cfg, nil, true, "", true, true)
+
+	cmd := m.applyModelPickerSelection("xai-sub/grok-build")
 	if cmd == nil {
 		t.Fatal("applyModelPickerSelection(xai-sub) returned nil; should fire OAuth flow")
 	}
@@ -63,6 +70,22 @@ func TestApplyModelPickerSelection_XaiSubFiresOAuth(t *testing.T) {
 	sess := m.currentSession()
 	if sess != nil && sess.rightPanel.mode == rpModeKeyInput {
 		t.Error("right-panel key input opened for xai-sub — must not (subscription OAuth)")
+	}
+}
+
+func TestApplyModelPickerSelection_XaiSubSwitchesWhenSignedIn(t *testing.T) {
+	t.Setenv("XAI_OAUTH_TOKEN", "eyJhbGciOiJIUzI1NiJ9.test")
+
+	cfg := &cortexconfig.Config{}
+	cfg.DefaultModel = "openai/gpt-5.5"
+	m := NewModel(&config.Config{}, cfg, nil, true, "", true, true)
+
+	cmd := m.applyModelPickerSelection("xai-sub/grok-build")
+	if cmd == nil {
+		t.Fatal("applyModelPickerSelection(xai-sub signed-in) returned nil")
+	}
+	if m.currentSettingsModel() != "xai-sub/grok-build" {
+		t.Errorf("active model = %q, want xai-sub/grok-build", m.currentSettingsModel())
 	}
 }
 
@@ -114,10 +137,6 @@ func TestApplyModelPickerSelection_EnvSwitchesDirectly(t *testing.T) {
 // already, the picker switches immediately. The new model is
 // saved to cortexCfg.DefaultModel.
 func TestApplyModelPickerSelection_APIKeyWithStoredKey(t *testing.T) {
-	// Seed the openai env var so ResolveProviderKey returns a
-	// non-empty key. The test runs in CI where the keychain is
-	// empty, so the env-var path is the only way to fake a
-	// "stored" key without touching real keychain state.
 	t.Setenv("OPENAI_API_KEY", "sk-test-1234567890")
 
 	cfg := &cortexconfig.Config{}
@@ -140,12 +159,35 @@ func TestApplyModelPickerSelection_APIKeyWithStoredKey(t *testing.T) {
 	}
 }
 
+// TestApplyModelPickerSelection_APIKeyFromSettings ensures keys saved
+// via the Settings wizard (cortexCfg.Models) are honored by /model.
+func TestApplyModelPickerSelection_APIKeyFromSettings(t *testing.T) {
+	cfg := &cortexconfig.Config{}
+	cfg.DefaultModel = "openai/gpt-5.5"
+	cfg.SetProviderAPIKey("anthropic", "sk-ant-settings-key")
+	m := NewModel(&config.Config{}, cfg, nil, true, "", true, true)
+
+	cmd := m.applyModelPickerSelection("anthropic/claude-opus-4-8")
+	if cmd == nil {
+		t.Fatal("applyModelPickerSelection(anthropic) returned nil")
+	}
+	if m.currentSettingsModel() != "anthropic/claude-opus-4-8" {
+		t.Errorf("active model = %q, want anthropic/claude-opus-4-8", m.currentSettingsModel())
+	}
+	sess := m.currentSession()
+	if sess != nil && sess.rightPanel.mode == rpModeKeyInput {
+		t.Errorf("right-panel key input opened for anthropic with Settings key — must not")
+	}
+}
+
 // TestApplyModelPickerSelection_APIKeyMissingOpensKeyForm covers
 // the only path that should ever open the right-panel key input:
 // a paid API-key provider (openai/anthropic/etc.) where the
 // user hasn't stored a key yet. The picker routes to the
 // right-panel key form, not the (removed) Settings wizard.
 func TestApplyModelPickerSelection_APIKeyMissingOpensKeyForm(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
 	cfg := &cortexconfig.Config{}
 	cfg.DefaultModel = "openai/gpt-4o"
 	m := NewModel(&config.Config{}, cfg, nil, true, "", true, true)

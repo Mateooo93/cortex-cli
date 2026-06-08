@@ -103,9 +103,9 @@ func buildLoginPickerEntries() []LoginPickerEntry {
 		},
 		{
 			Provider:   "xai-sub",
-			Label:      "xAI Grok (SuperGrok) \u2014 Grok 4.3, Grok Build, etc.",
+			Label:      "xAI Grok (SuperGrok) \u2014 Grok Build, Composer 2.5",
 			AuthMethod: "browser",
-			Help:       "Opens accounts.x.ai in your browser. Uses your SuperGrok or X Premium+ subscription (same flow as Grok Build).",
+			Help:       "Opens accounts.x.ai in your browser. Uses your SuperGrok or X Premium+ subscription (Grok Build + Composer 2.5).",
 		},
 		{
 			Provider:   "claude-sub",

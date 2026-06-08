@@ -36,6 +36,19 @@ func TestModelsForProvider_GroupsCorrectly(t *testing.T) {
 	}
 }
 
+func TestXaiSubModelsMatchGrokCLI(t *testing.T) {
+	models := ModelsForProvider("xai-sub")
+	if len(models) != 2 {
+		t.Fatalf("xai-sub models = %d, want 2 (grok-build + grok-composer-2.5-fast)", len(models))
+	}
+	want := []string{"xai-sub/grok-build", "xai-sub/grok-composer-2.5-fast"}
+	for i, spec := range want {
+		if models[i].Spec != spec {
+			t.Errorf("models[%d].Spec = %q, want %q", i, models[i].Spec, spec)
+		}
+	}
+}
+
 // TestProviderOf covers the prefix extraction including the OpenRouter
 // nested-route case (we want the provider WE talk to, not the upstream).
 func TestProviderOf(t *testing.T) {

@@ -62,6 +62,10 @@ type RightPanel struct {
 	// OAuth sign-in state (codex, xai-sub, …)
 	oauthSignInProvider string // provider waiting for OAuth (e.g. "codex", "xai-sub")
 	codexSignInPending  string // model spec to switch to after OAuth succeeds
+
+	// providerConfigured is set by Model before HandleKey. When it
+	// returns true, model selection skips auth prompts.
+	providerConfigured func(provider string) bool
 }
 
 // NewRightPanel returns a panel that is visible in info mode by
@@ -197,8 +201,10 @@ func (rp *RightPanel) HandleKey(msg tea.KeyPressMsg) (RightPanelAction, string) 
 		case "enter":
 			if rp.modelSel < len(AvailableModels) {
 				m := AvailableModels[rp.modelSel]
-				// Codex has its own auth path: ChatGPT OAuth, not a
-				// pasted API key. Short-circuit to the sign-in prompt.
+				if rp.providerConfigured != nil && rp.providerConfigured(m.Provider) {
+					return rpActionModelSelected, m.Spec
+				}
+				// Subscription OAuth: browser sign-in when not connected.
 				if m.Provider == "codex" || m.Provider == "xai-sub" {
 					rp.oauthSignInProvider = m.Provider
 					return rpActionCodexSignIn, m.Spec

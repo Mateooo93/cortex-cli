@@ -8,14 +8,7 @@ import (
 )
 
 // TestRightPanel_CodexAutoTriggersOAuth verifies that pressing Enter
-// on a codex model in the picker immediately returns the
-// rpActionCodexSignIn action — i.e. the user does NOT have to go
-// through a "press Enter again to sign in" intermediate panel.
-//
-// This is the canonical flow documented by OpenAI: the codex CLI
-// opens the browser as soon as you pick a codex model, no extra
-// step. The chatgpt.com sign-in page is the entire user-facing UI
-// for the auth step.
+// on a codex model without a stored token returns rpActionCodexSignIn.
 func TestRightPanel_CodexAutoTriggersOAuth(t *testing.T) {
 	// Find a codex model in the catalogue.
 	var codexIdx int
@@ -62,21 +55,55 @@ func TestRightPanel_CodexNeverReturnsNeedKey(t *testing.T) {
 	}
 }
 
-// TestRightPanel_CodexNeverReturnsModelSelectedWithoutKey checks the
-// corollary: a codex model is NEVER "model selected" just because
-// the keychain happens to contain a token. The codex path is
-// always OAuth-first.
-func TestRightPanel_CodexNeverReturnsModelSelectedDirectly(t *testing.T) {
+func TestRightPanel_CodexSwitchesWhenSignedIn(t *testing.T) {
+	var codexIdx int
+	var codexSpec string
 	for i, m := range AvailableModels {
-		if m.Provider != "codex" {
-			continue
+		if m.Provider == "codex" {
+			codexIdx = i
+			codexSpec = m.Spec
+			break
 		}
-		rp := RightPanel{}
-		rp.modelSel = i
-		action, _ := rp.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-		if action == rpActionModelSelected {
-			t.Errorf("codex model %q returned rpActionModelSelected on first enter — must always go through OAuth", m.Spec)
+	}
+	if codexSpec == "" {
+		t.Fatal("no codex model in AvailableModels")
+	}
+
+	rp := RightPanel{}
+	rp.modelSel = codexIdx
+	rp.providerConfigured = func(provider string) bool { return provider == "codex" }
+
+	action, payload := rp.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if action != rpActionModelSelected {
+		t.Errorf("action = %d, want rpActionModelSelected", action)
+	}
+	if payload != codexSpec {
+		t.Errorf("payload = %q, want %q", payload, codexSpec)
+	}
+}
+
+func TestRightPanel_XaiSubSwitchesWhenSignedIn(t *testing.T) {
+	var idx int
+	var spec string
+	for i, m := range AvailableModels {
+		if m.Provider == "xai-sub" {
+			idx = i
+			spec = m.Spec
+			break
 		}
+	}
+	if spec == "" {
+		t.Fatal("no xai-sub model in AvailableModels")
+	}
+	rp := RightPanel{}
+	rp.modelSel = idx
+	rp.providerConfigured = func(provider string) bool { return provider == "xai-sub" }
+	action, payload := rp.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if action != rpActionModelSelected {
+		t.Errorf("action = %d, want rpActionModelSelected", action)
+	}
+	if payload != spec {
+		t.Errorf("payload = %q, want %q", payload, spec)
 	}
 }
 

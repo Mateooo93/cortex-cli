@@ -134,11 +134,9 @@ var AvailableModels = []ModelInfo{
 	{Spec: "xai/grok-4", Provider: "xai", DisplayName: "Grok 4 (API key)"},
 	{Spec: "xai/grok-4-fast", Provider: "xai", DisplayName: "Grok 4 Fast (API key)"},
 	{Spec: "xai/grok-3", Provider: "xai", DisplayName: "Grok 3 (API key)"},
-	// xAI Grok (SuperGrok) — OAuth via accounts.x.ai (same flow as Grok Build)
-	{Spec: "xai-sub/grok-4.3", Provider: "xai-sub", DisplayName: "Grok 4.3 (SuperGrok)"},
-	{Spec: "xai-sub/grok-4", Provider: "xai-sub", DisplayName: "Grok 4 (SuperGrok)"},
-	{Spec: "xai-sub/grok-4-fast", Provider: "xai-sub", DisplayName: "Grok 4 Fast (SuperGrok)"},
+	// xAI Grok (SuperGrok) — OAuth via accounts.x.ai (same models as `grok models`)
 	{Spec: "xai-sub/grok-build", Provider: "xai-sub", DisplayName: "Grok Build (SuperGrok)"},
+	{Spec: "xai-sub/grok-composer-2.5-fast", Provider: "xai-sub", DisplayName: "Composer 2.5 (SuperGrok)"},
 	// DeepSeek
 	{Spec: "deepseek/deepseek-chat", Provider: "deepseek", DisplayName: "DeepSeek-V3 Chat"},
 	{Spec: "deepseek/deepseek-reasoner", Provider: "deepseek", DisplayName: "DeepSeek-R1 Reasoner"},

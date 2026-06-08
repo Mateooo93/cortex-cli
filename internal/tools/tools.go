@@ -806,6 +806,7 @@ func defaultTools() []Tool {
 		&ListDirTool{},
 		&SearchTool{},
 		&ShellTool{},
+		&WebFetchTool{},
 		&SpawnAgentTool{},
 		&TaskOutputTool{},
 		&AskUserQuestionTool{},

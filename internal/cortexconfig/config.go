@@ -77,7 +77,7 @@ var BuiltinProviderPresets = []ProviderPreset{
 		Name: "xai-sub", DisplayName: "xAI Grok (SuperGrok)",
 		BaseURL:      "https://api.x.ai/v1",
 		APIKeyEnvVar: "XAI_OAUTH_TOKEN",
-		DefaultModel: "grok-4.3",
+		DefaultModel: "grok-build",
 		NeedsAPIKey:  false, AuthKind: "oauth",
 		HelpURL: "https://accounts.x.ai/sign-in",
 	},
