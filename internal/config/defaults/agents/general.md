@@ -1,6 +1,5 @@
 ---
 name: general
-model: anthropic/claude-opus-4-8
 tools: read_file, read_minified_file, write_file, edit_file, edit_minified_file, delete_file, bash, grep, glob_files, lsp_query, web_fetch, spawn_agent, task_output, ask_user_question, todo_write
 max_turns: 100
 ---

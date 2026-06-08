@@ -8,6 +8,54 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
+// chatContentInnerWidth is the drawable width inside the chat viewport border.
+func chatContentInnerWidth(layout Layout) int {
+	w := layout.ChatWidth - 2
+	if w < 1 {
+		return 1
+	}
+	return w
+}
+
+// expandLineToVisualRows splits a styled line into terminal rows that fit innerWidth.
+func expandLineToVisualRows(line string, innerWidth int) []string {
+	if innerWidth <= 0 {
+		return []string{line}
+	}
+	if ansi.StringWidth(ansi.Strip(line)) <= innerWidth {
+		return []string{line}
+	}
+	var rows []string
+	remaining := line
+	for ansi.StringWidth(ansi.Strip(remaining)) > 0 {
+		chunk := ansi.Cut(remaining, 0, innerWidth)
+		if chunk == "" {
+			break
+		}
+		rows = append(rows, chunk)
+		chunkWidth := ansi.StringWidth(ansi.Strip(chunk))
+		if chunkWidth <= 0 {
+			break
+		}
+		remaining = ansi.Cut(remaining, chunkWidth, ansi.StringWidth(ansi.Strip(remaining)))
+	}
+	if len(rows) == 0 {
+		return []string{line}
+	}
+	return rows
+}
+
+func expandLinesToVisualRows(lines []string, innerWidth int) []string {
+	if len(lines) == 0 {
+		return lines
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, expandLineToVisualRows(line, innerWidth)...)
+	}
+	return out
+}
+
 // visibleChatLines returns the chat lines currently shown inside the viewport,
 // matching the scroll/padding logic in View.
 func (m *Model) visibleChatLines(sess *SessionState, layout Layout) []string {
@@ -88,6 +136,12 @@ func (m *Model) visibleChatLines(sess *SessionState, layout Layout) []string {
 	return chatLines
 }
 
+// displayChatLines returns viewport lines expanded to visual terminal rows so
+// mouse hit-testing and selection align with what is drawn.
+func (m *Model) displayChatLines(sess *SessionState, layout Layout) []string {
+	return expandLinesToVisualRows(m.visibleChatLines(sess, layout), chatContentInnerWidth(layout))
+}
+
 // chatSelection tracks a drag-selection inside the chat message viewport.
 // Line indices are relative to the visible chat lines slice; X is relative to
 // the inner left edge of the chat content (past the border).
@@ -147,7 +201,7 @@ func (m *Model) clampChatLineIndex(sess *SessionState, lineIdx int) int {
 		return 0
 	}
 	layout := m.currentLayout()
-	lines := m.visibleChatLines(sess, layout)
+	lines := m.displayChatLines(sess, layout)
 	if len(lines) == 0 {
 		return 0
 	}
@@ -191,7 +245,8 @@ func (m *Model) extendChatSelection(x, y int) {
 	if cellX < 0 {
 		cellX = 0
 	}
-	maxX := m.mdRenderer.width - 1
+	layout := m.currentLayout()
+	maxX := chatContentInnerWidth(layout) - 1
 	if cellX > maxX {
 		cellX = maxX
 	}

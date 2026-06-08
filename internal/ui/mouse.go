@@ -129,7 +129,7 @@ func (m *Model) copyChatSelectionCmd() tea.Cmd {
 		return nil
 	}
 	layout := m.currentLayout()
-	lines := m.visibleChatLines(sess, layout)
+	lines := m.displayChatLines(sess, layout)
 	if len(lines) == 0 {
 		return nil
 	}

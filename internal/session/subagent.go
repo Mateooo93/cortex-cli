@@ -14,6 +14,17 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/tools"
 )
 
+// resolveSubagentModel picks the LLM for a sub-agent. An explicit spawn_agent
+// model override wins; otherwise the parent session's active model is used.
+// Agent definition defaults are intentionally ignored so sub-agents share the
+// same provider credentials as the main chat.
+func resolveSubagentModel(explicitOverride, sessionActive string) string {
+	if strings.TrimSpace(explicitOverride) != "" {
+		return strings.TrimSpace(explicitOverride)
+	}
+	return sessionActive
+}
+
 func (s *Session) loadAgentCatalog() map[string]agents.Agent {
 	catalog := map[string]agents.Agent{}
 	if defaults, err := config.DefaultAgents(); err == nil {
@@ -62,12 +73,14 @@ func (s *Session) handleSpawnAgent(call provider.ToolCall) *provider.Message {
 			ag.Name = "subagent"
 		}
 	}
-	if modelOverride != "" {
-		ag.Model = modelOverride
-	}
+
+	s.mu.Lock()
+	sessionActive := s.active
+	s.mu.Unlock()
+	modelSpec := resolveSubagentModel(modelOverride, sessionActive)
 
 	taskID := s.subagents.RegisterRunning(ag.Name, task)
-	go s.runLocalSubagent(taskID, ag, task)
+	go s.runLocalSubagent(taskID, ag, task, modelSpec)
 
 	out := fmt.Sprintf(
 		"sub-agent dispatched: task_id=%s role=%s\n\nThe sub-agent is running in the background. Use task_output(task_id=%q) to check on it.",
@@ -134,7 +147,7 @@ func (s *Session) finishTaskOutput(call provider.ToolCall, ag subagent.Subagent)
 	return toolHistoryMessage(call.ID, call.Name, out, isErr, ag.Error)
 }
 
-func (s *Session) runLocalSubagent(taskID string, ag agents.Agent, task string) {
+func (s *Session) runLocalSubagent(taskID string, ag agents.Agent, task, modelSpec string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -145,13 +158,6 @@ func (s *Session) runLocalSubagent(taskID string, ag agents.Agent, task string) 
 		case <-ctx.Done():
 		}
 	}()
-
-	modelSpec := ag.Model
-	if modelSpec == "" {
-		s.mu.Lock()
-		modelSpec = s.active
-		s.mu.Unlock()
-	}
 
 	toolReg := tools.NewFilteredRegistry(filterSubagentTools(ag.Tools))
 	sys := agents.FormatSystemPrompt(ag.SystemPrompt, s.workdir)

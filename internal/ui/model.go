@@ -971,6 +971,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.handleChatMouseDown(mouse.X, mouse.Y)
 			}
 		}
+		return m, nil
 
 	case tea.MouseMotionMsg:
 		mouse := msg.Mouse()
@@ -1104,6 +1105,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		// Copy chat drag-selection before global quit handling.
+		if m.activeTab == TabKindChat {
+			switch msg.String() {
+			case "ctrl+c", "ctrl+shift+c", "ctrl+insert":
+				if sess := m.currentSession(); sess != nil && sess.chatSel.active {
+					if cmd := m.copyChatSelectionCmd(); cmd != nil {
+						return m, cmd
+					}
+					return m, m.emitStatusMsg("nothing to copy", StatusMsgInfo)
+				}
+			}
+		}
+
 		// --- Global quit confirm overlay ---
 		if msg.String() == "ctrl+c" || msg.String() == "ctrl+d" {
 			if m.state == StateQuitConfirm {
@@ -3009,7 +3023,7 @@ func (m Model) View() tea.View {
 		y += sessionsHeight
 
 	case TabKindChat:
-		chatLines := m.visibleChatLines(sess, layout)
+		chatLines := m.displayChatLines(sess, layout)
 
 		// Always use the focused border style for the main content area
 		// (chat box) so the outline color is consistent across all tabs
