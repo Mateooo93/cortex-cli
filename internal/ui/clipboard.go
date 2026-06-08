@@ -2,9 +2,11 @@ package ui
 
 import (
 	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
+	xclip "golang.design/x/clipboard"
 )
 
 type pasteTarget int
@@ -18,7 +20,53 @@ const (
 	pasteTargetRightPanelKey
 )
 
-// pasteTarget reports where Ctrl+V paste should land in the current UI state.
+var (
+	clipInitOnce sync.Once
+	clipNativeOK bool
+)
+
+func initNativeClipboard() bool {
+	clipInitOnce.Do(func() {
+		clipNativeOK = xclip.Init() == nil
+	})
+	return clipNativeOK
+}
+
+// readClipboardText reads UTF-8 text from the system clipboard.
+// Order: native (X11/Wayland) → xclip/wl-clipboard → empty.
+func readClipboardText() (string, bool) {
+	if initNativeClipboard() {
+		if b := xclip.Read(xclip.FmtText); len(b) > 0 {
+			return string(b), true
+		}
+	}
+	if txt, err := clipboard.ReadAll(); err == nil && txt != "" {
+		return txt, true
+	}
+	return "", false
+}
+
+// writeClipboardText writes UTF-8 text to the system clipboard.
+func writeClipboardText(text string) bool {
+	if text == "" {
+		return false
+	}
+	if initNativeClipboard() {
+		xclip.Write(xclip.FmtText, []byte(text))
+		return true
+	}
+	return clipboard.WriteAll(text) == nil
+}
+
+func isPasteKey(msg tea.KeyPressMsg) bool {
+	switch msg.String() {
+	case "ctrl+v", "ctrl+shift+v", "shift+insert":
+		return true
+	}
+	return false
+}
+
+// pasteTarget reports where paste should land in the current UI state.
 func (m Model) pasteTarget() pasteTarget {
 	sess := m.currentSession()
 
@@ -52,10 +100,9 @@ func (m Model) pasteTarget() pasteTarget {
 	return pasteTargetNone
 }
 
-// handlePasteKey tries the OS clipboard (xclip/wl-clipboard) and falls back to
-// OSC52 when those tools are unavailable.
+// handlePasteKey reads the clipboard and inserts text into the focused input.
 func (m Model) handlePasteKey() (Model, tea.Cmd) {
-	if text, err := clipboard.ReadAll(); err == nil && text != "" {
+	if text, ok := readClipboardText(); ok {
 		return m.applyPasteText(text)
 	}
 	return m, requestClipboardOSC52Cmd()
@@ -67,14 +114,9 @@ func requestClipboardOSC52Cmd() tea.Cmd {
 	}
 }
 
-// copyToClipboardSync writes text via xclip/wl-clipboard. Returns true on success.
-func copyToClipboardSync(text string) bool {
-	return clipboard.WriteAll(text) == nil
-}
-
-// copyToClipboardCmd copies text via the OS clipboard or OSC52 fallback.
+// copyToClipboardCmd copies text via native/OS clipboard or OSC52 fallback.
 func copyToClipboardCmd(text string) tea.Cmd {
-	if copyToClipboardSync(text) {
+	if writeClipboardText(text) {
 		return nil
 	}
 	return tea.SetClipboard(text)

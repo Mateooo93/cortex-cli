@@ -307,6 +307,10 @@ type Model struct {
 
 	mouseButtonDown bool
 	mouseHover        mouseHover
+
+	// Right-click context menu (paste/copy) for Linux terminals
+	// where the emulator menu is blocked by mouse capture.
+	contextMenu contextMenu
 }
 
 // currentSession returns the selected session, or nil if there is none.
@@ -843,6 +847,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastClickX = m.mouseX
 		m.lastClickY = m.mouseY
 		m.lastClickButton = msg.Button
+
+		if m.contextMenu.active {
+			if msg.Button == tea.MouseLeft {
+				return m.handleContextMenuClick(mouse.X, mouse.Y)
+			}
+			m.closeContextMenu()
+			return m, nil
+		}
+
 		if msg.Button == tea.MouseLeft {
 			m.mouseButtonDown = true
 		}
@@ -851,6 +864,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m, cmd = m.handleTabBarClick()
 			return m, cmd
+		}
+
+		if msg.Button == tea.MouseRight && m.canOpenContextMenu() {
+			m.openContextMenu(mouse.X, mouse.Y, m.buildContextMenuItems())
+			return m, nil
 		}
 
 		if m.activeTab == TabKindChat && msg.Button == tea.MouseLeft {
@@ -919,11 +937,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
-		// Ctrl+V: not every terminal sends tea.PasteMsg for
-		// Ctrl+V, and Linux often lacks xclip/wl-clipboard.
-		// Route paste to the focused input and fall back to
-		// OSC52 when the OS clipboard is unavailable.
-		if msg.String() == "ctrl+v" && m.pasteTarget() != pasteTargetNone {
+		if m.contextMenu.active {
+			return m.handleContextMenuKey(msg)
+		}
+
+		// Paste: Ctrl+V, Ctrl+Shift+V, or Shift+Insert.
+		// Linux terminals often lack xclip; native X11/Wayland
+		// clipboard access is tried first, then OSC52.
+		if isPasteKey(msg) && m.pasteTarget() != pasteTargetNone {
 			return m.handlePasteKey()
 		}
 		// --- Codex "waiting for auth" overlay ---
@@ -2976,6 +2997,8 @@ func (m Model) View() tea.View {
 		}
 		uv.NewStyledString(overlay).Draw(canvas, image.Rect(0, popupY, m.width, popupY+h))
 	}
+
+	m.drawContextMenu(canvas)
 
 	content := strings.ReplaceAll(canvas.Render(), "\r\n", "\n")
 	v := tea.NewView(content)
