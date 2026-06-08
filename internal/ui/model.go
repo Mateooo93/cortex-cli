@@ -2876,19 +2876,7 @@ func (m Model) View() tea.View {
 		y += settingsHeight
 
 	}
-	// Status bar — global: connected if any session is up, reconnecting if none
-	// are connected but at least one is trying.
-	var connected, reconnecting bool
-	for _, s := range m.sessions {
-		if !s.reconnecting && s.client != nil {
-			connected = true
-			break
-		}
-		if s.reconnecting {
-			reconnecting = true
-		}
-	}
-	statusBar := renderStatusBar(m.width, connected, reconnecting, m.statusMsg, m.styles, m.buildStatusBarInfo(m.currentSession()))
+	statusBar := renderStatusBar(m.width, m.statusMsg, m.styles, m.buildStatusBarInfo(m.currentSession()))
 	uv.NewStyledString(statusBar).Draw(canvas, image.Rect(0, y, m.width, m.height))
 
 	// Command palette overlay

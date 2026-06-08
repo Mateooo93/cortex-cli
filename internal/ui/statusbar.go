@@ -23,23 +23,11 @@ type StatusBarInfo struct {
 	AutoCompact bool
 }
 
-// renderStatusBar renders the slim single-line status bar.
-//
-// The previous design was two lines: line 1 a wall of
-// F1/F2/F3/Tab/Enter/Ctrl+T keybind badges, line 2 a keybind
-// hint. That overflowed the available width on terminal < 120
-// cols and looked cluttered. The new design is a single slim
-// footer line: connection status · active model · context
-// usage · elapsed time · F1 F2 F3 tab bar (the only keybinds
-// that still need a persistent reminder).
-//
-// The keybind hint "Tab queue / Enter send / Esc cancel" moved
-// to the right-side info panel (Ctrl+B toggle) where the user
-// can read it without it competing with the rest of the UI.
+// renderStatusBar renders the slim single-line status bar: active
+// model, context usage, elapsed time, and queued message count.
+// Connection state lives in the right panel (Ctrl+B), not here.
 func renderStatusBar(
 	width int,
-	connected bool,
-	reconnecting bool,
 	msg StatusMessage,
 	s Styles,
 	info StatusBarInfo,
@@ -47,17 +35,7 @@ func renderStatusBar(
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 	dimLabel := lipgloss.NewStyle().Foreground(s.ColorDimGray)
 
-	// ── Connection status (left) ───────────────────────────────────────────
-	var connStatus string
-	if connected {
-		connStatus = statusConnectedStyle.Render("● connected")
-	} else if reconnecting {
-		connStatus = statusReconnectingStyle.Render("● reconnecting")
-	} else {
-		connStatus = statusDisconnectedStyle.Render("● disconnected")
-	}
-
-	// ── Center: model + context + elapsed ───────────────────────────────
+	// ── Model + context + elapsed ────────────────────────────────────────
 	centerParts := []string{}
 	if info.ModelName != "" {
 		modelTag := info.ModelName
@@ -103,45 +81,10 @@ func renderStatusBar(
 		centerParts = append(centerParts, lipgloss.NewStyle().Foreground(colorWarning).Render(fmt.Sprintf("%d queued", info.QueuedMsgs)))
 	}
 
-	// ── Right: nothing (F1-F4 moved to the top tab bar) ──────────
-	// The user asked for the F-key tabs at the top of the
-	// screen (in the tab bar with the section names). The
-	// slim footer no longer duplicates them — it stays
-	// focused on connection, model, context, and elapsed.
-	leftSeg := connStatus
-	rightSeg := ""
-	centerSeg := strings.Join(centerParts, dimLabel.Render("  "))
-
-	leftLen := lipgloss.Width(leftSeg)
-	rightLen := lipgloss.Width(rightSeg)
-	centerLen := lipgloss.Width(centerSeg)
-	fixed := leftLen + rightLen + 2
-	remaining := width - fixed
-	if remaining < 0 {
-		remaining = 0
+	line := strings.Join(centerParts, dimLabel.Render("  "))
+	if lipgloss.Width(line) > width-2 {
+		line = lipgloss.NewStyle().MaxWidth(width - 2).Render(line)
 	}
-	if centerLen > remaining {
-		// The center segment is too long for the available
-		// width — truncate from the right. The user can
-		// open the right panel (Ctrl+B) for the full
-		// breakdown.
-		centerSeg = lipgloss.NewStyle().MaxWidth(remaining).Render(centerSeg)
-		centerLen = remaining
-	}
-	leftPad := (remaining - centerLen) / 2
-	if leftPad < 1 {
-		leftPad = 1
-	}
-	rightPad := remaining - centerLen - leftPad
-	if rightPad < 0 {
-		rightPad = 0
-	}
-
-	line := leftSeg +
-		strings.Repeat(" ", leftPad) +
-		centerSeg +
-		strings.Repeat(" ", rightPad) +
-		rightSeg
 
 	// If a transient status message is active, the
 	// status bar collapses to JUST the message line
@@ -156,9 +99,8 @@ func renderStatusBar(
 	// being COVERED by the transient message line.
 	// The fix: drop the slim footer while a message
 	// is active and only show the message. The
-	// connection / model readouts are still visible
-	// in the right panel (Ctrl+B) for the duration
-	// of the message.
+		// model readouts are still visible in the right
+		// panel (Ctrl+B) for the duration of the message.
 	if msg.Text != "" {
 		var msgStyle lipgloss.Style
 		var prefix string
