@@ -127,6 +127,7 @@ update-deps:
 # Run the full test suite
 test:
 	go test ./...
+	./script/derive-version_test.sh
 
 # Publish a release. Usage: make release VERSION=v1.2.3
 # Build these versions: darwin-arm64 + linux-amd64 + linux-arm64, Docker for Linux

@@ -1,7 +1,8 @@
 name: Release
 
 # Auto-release on merge to main (only when CLI code changes).
-# Version is derived from the merged PR's "fixes #N" / "closes #N" reference.
+# Version is derived from the highest v0.25+ tag (patch bump). Legacy v0.2.x
+# and mistaken v0.233.* issue-number tags are ignored.
 # Triggers:
 #   - push to main (filtered to CLI source: *.go, go.mod, Makefile, scripts, etc.)
 #   - manual dispatch (with optional version override)
@@ -27,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Override version (e.g. v1.2.3). Leave empty to auto-derive from PR."
+        description: "Override version (e.g. v0.25.2). Must be > v0.25.0. Leave empty to auto-derive."
         required: false
         default: ""
 
@@ -66,54 +67,46 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Validate version policy
+        run: ./script/derive-version_test.sh
+
       - name: Derive version
         id: version
         run: |
           set -euo pipefail
+          MIN_VERSION="v0.25.0"
+          LEGACY_PREFIX="v0.233"
+
+          validate_version() {
+            local ver="$1"
+            if ! [[ "$ver" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "!! Invalid version: $ver (must be vX.Y.Z)"
+              exit 1
+            fi
+            if [[ "$ver" == "${LEGACY_PREFIX}"* ]]; then
+              echo "!! Refusing legacy tag line: $ver"
+              exit 1
+            fi
+            if [[ "$(printf '%s\n' "$MIN_VERSION" "$ver" | sort -V | tail -1)" != "$ver" ]] || [[ "$ver" == "$MIN_VERSION" ]]; then
+              echo "!! Version must be newer than $MIN_VERSION, got $ver"
+              exit 1
+            fi
+          }
+
           if [[ -n "${{ inputs.version }}" ]]; then
             VERSION="${{ inputs.version }}"
             echo "Using manually supplied version: $VERSION"
           else
-            # Read the issue number from the most recent merge commit on main
-            # and bump the patch version from the latest tag.
-            # Pull "fixes #N" or "closes #N" out of the merge commit subject.
-            MERGE_MSG=$(git log -1 --pretty=%s)
-            echo "Merge commit: $MERGE_MSG"
-            ISSUE_NUM=$(echo "$MERGE_MSG" | grep -oiE '(fixes|closes|resolves)\s+#([0-9]+)' \
-                        | grep -oE '[0-9]+' | head -n1 || true)
-
-            # Latest existing tag (e.g. v0.0.5) — fall back to v0.0.0
-            LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-            echo "Latest tag: $LATEST"
-
-            # Strip leading 'v' and split into parts
-            VER="${LATEST#v}"
-            MAJOR=$(echo "$VER" | cut -d. -f1)
-            MINOR=$(echo "$VER" | cut -d. -f2)
-            PATCH=$(echo "$VER" | cut -d. -f3)
-
-            if [[ -n "$ISSUE_NUM" ]]; then
-              # If we already have a tag matching the issue number, no-op
-              EXPECTED="v$MAJOR.$MINOR.$ISSUE_NUM"
-              if git rev-parse "$EXPECTED" >/dev/null 2>&1; then
-                echo "Tag $EXPECTED already exists; skipping release."
-                echo "skip=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-              PATCH="$ISSUE_NUM"
-            else
-              # No issue number found — bump patch by 1
-              PATCH=$((PATCH + 1))
-            fi
-
-            VERSION="v$MAJOR.$MINOR.$PATCH"
+            VERSION="$(./script/derive-version.sh)"
             echo "Derived version: $VERSION"
           fi
 
-          # Sanity check: must look like vX.Y.Z
-          if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "!! Invalid version: $VERSION (must be vX.Y.Z)"
-            exit 1
+          validate_version "$VERSION"
+
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists; skipping release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
