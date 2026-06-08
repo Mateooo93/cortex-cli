@@ -1,7 +1,9 @@
 name: Publish npm package
 
-# Publishes mateooo93-cortex to the npm registry.
-# Requires repo secret NPM_TOKEN (npm automation token from npmjs.com).
+# Publishes @mateooo93/cortex to GitHub Packages (npm.pkg.github.com).
+# Uses the workflow GITHUB_TOKEN — no NPM_TOKEN or npm 2FA required.
+# Make the package public after first publish:
+#   Repo → Packages → @mateooo93/cortex → Package settings → Change visibility
 
 on:
   workflow_dispatch:
@@ -13,19 +15,29 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   publish:
-    name: Publish mateooo93-cortex
+    name: Publish @mateooo93/cortex
     runs-on: ubuntu-latest
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          registry-url: https://npm.pkg.github.com
+          scope: "@mateooo93"
 
-      - name: Publish
-        run: ./script/publish-npm.sh "${{ inputs.release-tag }}" --yes
+      - name: Verify GitHub Packages auth
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "npm user: $(npm whoami --registry https://npm.pkg.github.com)"
+
+      - name: Publish to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./script/publish-npm.sh "${{ inputs.release-tag }}" --yes --registry github

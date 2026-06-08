@@ -4,6 +4,7 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 
 const { ensureBinary } = require("./install");
+const { name: packageName } = require("../package.json");
 
 async function main() {
   let binaryPath;
@@ -16,14 +17,14 @@ async function main() {
 
   if (!binaryPath || !fs.existsSync(binaryPath)) {
     console.error(
-      "cortex-cli: native binary not installed. Re-run: npm install -g mateooo93-cortex"
+      `cortex-cli: native binary not installed. Re-run: npm install -g ${packageName} --registry=https://npm.pkg.github.com`
     );
     process.exit(1);
   }
 
   const env = {
     ...process.env,
-    CORTEX_NPM_PACKAGE: "mateooo93-cortex",
+    CORTEX_NPM_PACKAGE: packageName,
     CORTEX_NPM_SHIM: __filename,
   };
 

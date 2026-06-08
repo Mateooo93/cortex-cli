@@ -285,7 +285,7 @@ func RunWithProgress(ctx context.Context, progress ProgressFunc) Result {
 		return Result{Kind: "error", Error: fmt.Errorf("updater: resolve symlinks: %w", err), NewVersion: rel.TagName}
 	}
 
-	// npm installs: try `npm update -g mateooo93-cortex` first so the
+	// npm installs: try `npm update -g @mateooo93/cortex` first so the
 	// global package and postinstall binary stay in sync. Fall back to
 	// a direct GitHub download into the cached binary if npm fails
 	// (e.g. package not published yet).

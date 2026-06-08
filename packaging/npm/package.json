@@ -1,6 +1,9 @@
 {
-  "name": "mateooo93-cortex",
+  "name": "@mateooo93/cortex",
   "version": "0.0.0-dev",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "description": "Fast AI coding agent with a polished terminal UI (npm wrapper — downloads the native binary for your OS)",
   "license": "AGPL-3.0-or-later",
   "repository": {

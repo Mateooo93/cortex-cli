@@ -9,8 +9,14 @@ import (
 	"strings"
 )
 
-// NpmPackageName is the global npm package published for cortex-cli.
-const NpmPackageName = "mateooo93-cortex"
+// NpmPackageName is the GitHub Packages npm wrapper for cortex-cli.
+const NpmPackageName = "@mateooo93/cortex"
+
+// NpmPackageRegistry is where @mateooo93/cortex is published.
+const NpmPackageRegistry = "https://npm.pkg.github.com"
+
+// LegacyNpmPackageName is the old unscoped npmjs.org package (pre-GH Packages).
+const LegacyNpmPackageName = "mateooo93-cortex"
 
 // IsNpmInstall reports whether cortex was launched from the npm wrapper.
 // The npm shim sets CORTEX_NPM_PACKAGE; cached binaries live under
@@ -28,20 +34,32 @@ func IsNpmInstall(exe string) bool {
 	return strings.HasPrefix(exe, cache+string(filepath.Separator))
 }
 
+func npmPackageName() string {
+	if n := strings.TrimSpace(os.Getenv("CORTEX_NPM_PACKAGE")); n != "" {
+		return n
+	}
+	return NpmPackageName
+}
+
 func npmUpdate(ctx context.Context) error {
 	npm, err := exec.LookPath("npm")
 	if err != nil {
 		return fmt.Errorf("updater: npm not found on PATH")
 	}
-	cmd := exec.CommandContext(ctx, npm, "update", "-g", NpmPackageName)
+	pkg := npmPackageName()
+	args := []string{"update", "-g", pkg}
+	if strings.HasPrefix(pkg, "@mateooo93/") {
+		args = append(args, "--registry", NpmPackageRegistry)
+	}
+	cmd := exec.CommandContext(ctx, npm, args...)
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {
-			return fmt.Errorf("updater: npm update -g %s failed: %w", NpmPackageName, err)
+			return fmt.Errorf("updater: npm update -g %s failed: %w", pkg, err)
 		}
-		return fmt.Errorf("updater: npm update -g %s failed: %s", NpmPackageName, msg)
+		return fmt.Errorf("updater: npm update -g %s failed: %s", pkg, msg)
 	}
 	return nil
 }
@@ -65,5 +83,5 @@ func restartPathForNpm() (string, error) {
 }
 
 func npmInstallMessage(tagName string) string {
-	return fmt.Sprintf("Updated %s to %s via npm. Restarting…", NpmPackageName, tagName)
+	return fmt.Sprintf("Updated %s to %s via npm. Restarting…", npmPackageName(), tagName)
 }

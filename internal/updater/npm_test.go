@@ -28,7 +28,7 @@ func TestIsNpmInstall_CachePath(t *testing.T) {
 
 func TestNpmInstallMessage(t *testing.T) {
 	msg := npmInstallMessage("v0.25.19")
-	for _, want := range []string{"mateooo93-cortex", "v0.25.19", "npm"} {
+	for _, want := range []string{NpmPackageName, "v0.25.19", "npm"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("message %q missing %q", msg, want)
 		}

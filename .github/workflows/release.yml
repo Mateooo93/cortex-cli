@@ -10,7 +10,7 @@ name: Release
 # Requires these repo secrets:
 #   GITHUB_TOKEN        (auto-provided)
 #   HOMEBREW_TAP_TOKEN  (PAT with 'repo' scope on the homebrew-cortex tap repo)
-#   NPM_TOKEN           (npm automation token for mateooo93-cortex publish)
+#   NPM_TOKEN           (optional — legacy npmjs.org publish only; GitHub Packages uses GITHUB_TOKEN)
 #   WINGET_TOKEN        (PAT for opening PRs to microsoft/winget-pkgs)
 
 on:
@@ -54,6 +54,9 @@ jobs:
   release:
     name: Build & publish release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -177,21 +180,40 @@ jobs:
             --tap "${{ github.repository_owner }}/homebrew-cortex" || \
             echo "!! Tap update failed; the GitHub release is still published."
 
-      - name: Set up Node for npm publish
+      - name: Set up Node for GitHub Packages
+        if: steps.version.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: https://npm.pkg.github.com
+          scope: "@mateooo93"
+
+      - name: Publish @mateooo93/cortex (GitHub Packages)
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "==> Publishing @mateooo93/cortex to GitHub Packages"
+          ./script/publish-npm.sh "$VERSION" --yes --registry github
+
+      - name: Set up Node for npmjs.org (optional)
         if: steps.opt.outputs.npm == 'true' && steps.version.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          registry-url: https://registry.npmjs.org
 
-      - name: Publish npm package
+      - name: Publish mateooo93-cortex (npmjs.org, optional)
         if: steps.opt.outputs.npm == 'true' && steps.version.outputs.skip != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          echo "==> Publishing mateooo93-cortex to npm"
-          ./script/publish-npm.sh "$VERSION" --yes
+          echo "==> Publishing mateooo93-cortex to npmjs.org (optional)"
+          ./script/publish-npm.sh "$VERSION" --yes --registry npmjs
 
       - name: Submit winget manifest PR
         if: steps.opt.outputs.winget == 'true' && steps.version.outputs.skip != 'true'

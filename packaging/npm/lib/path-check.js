@@ -56,14 +56,18 @@ function looksLikeCognitiveScale(target) {
   if (normalized.endsWith("/shims/cortex.js")) {
     return false;
   }
-  if (normalized.includes("/mateooo93-cortex/")) {
+  if (normalized.includes("/mateooo93-cortex/") || normalized.includes("/@mateooo93/cortex/")) {
     return false;
   }
   if (normalized.includes("/.cortex/npm/")) {
     return false;
   }
   // Heuristic: CognitiveScale ships a cortex.js launcher, not our shim layout.
-  if (normalized.endsWith("/cortex.js") && !normalized.includes("mateooo93-cortex")) {
+  if (
+    normalized.endsWith("/cortex.js") &&
+    !normalized.includes("mateooo93-cortex") &&
+    !normalized.includes("@mateooo93/cortex")
+  ) {
     return true;
   }
   return false;
@@ -91,7 +95,7 @@ function warnIfShadowed() {
   console.warn("");
   console.warn("cortex-cli: another `cortex` command comes first on your PATH:");
   console.warn(`  ${firstOnPath}`);
-  console.warn(`mateooo93-cortex shim: ${shimPath}`);
+  console.warn(`@mateooo93/cortex shim: ${shimPath}`);
   console.warn("");
   console.warn("Remove the conflicting CognitiveScale CLI, then open a new terminal:");
   console.warn("  npm uninstall -g cortex-cli");

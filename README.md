@@ -29,7 +29,7 @@ Built for daily development: sessions survive restarts, you can queue messages a
 **npm** (macOS, Linux, Windows):
 
 ```bash
-npm install -g mateooo93-cortex
+npm install -g @mateooo93/cortex --registry=https://npm.pkg.github.com
 cortex
 ```
 
@@ -52,7 +52,7 @@ Then open any project directory and run `cortex`. One-shot without the TUI: `cor
 
 Other platforms and tarballs are on the [latest release](https://github.com/Mateooo93/cortex-cli/releases/latest). To build from source: `git clone`, `go build -o cortex ./cmd/cortex`, `./cortex`.
 
-> **npm note:** The package `cortex-cli` on npm is a different product (CognitiveScale). Use `mateooo93-cortex`. If `cortex` opens the wrong CLI, run `npm uninstall -g cortex-cli && bun remove -g cortex-cli`, then `hash -r` and check `which -a cortex`.
+> **npm note:** Install `@mateooo93/cortex` from GitHub Packages (command above). The package `cortex-cli` on npmjs.org is a different product (CognitiveScale). If `cortex` opens the wrong CLI, run `npm uninstall -g cortex-cli && bun remove -g cortex-cli`, then `hash -r` and check `which -a cortex`.
 
 ## What is cortex-cli?
 
