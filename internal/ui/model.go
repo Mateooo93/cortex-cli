@@ -1632,17 +1632,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.settingsOtherSel < settingsOtherOptionCount-1 {
 						m.settingsOtherSel++
 					}
-				case "enter":
-					switch m.settingsOtherSel {
-					case 0: // Theme — cycle auto → dark → light → auto
-						m.setConfiguredTheme(nextTheme(m.configuredTheme()))
-						cmds = append(cmds, m.emitStatusMsg("Theme: "+m.configuredTheme(), StatusMsgInfo))
-					case 1: // Primary color — cycle presets (secondary stays default blue)
+				case "left", "h":
+					if m.settingsOtherSel == 1 {
+						if err := m.cycleThemeColorsBackward(); err != nil {
+							cmds = append(cmds, m.emitStatusMsg("Color: "+err.Error(), StatusMsgError))
+						} else {
+							name := config.ThemeColorPresetName(m.themeColors.Primary)
+							cmds = append(cmds, m.emitStatusMsg("Color: "+name, StatusMsgInfo))
+						}
+					}
+				case "right", "l":
+					if m.settingsOtherSel == 1 {
 						if err := m.cycleThemeColors(); err != nil {
 							cmds = append(cmds, m.emitStatusMsg("Color: "+err.Error(), StatusMsgError))
 						} else {
 							name := config.ThemeColorPresetName(m.themeColors.Primary)
 							cmds = append(cmds, m.emitStatusMsg("Color: "+name, StatusMsgInfo))
+						}
+					}
+				case "enter":
+					switch m.settingsOtherSel {
+					case 0: // Theme — cycle auto → dark → light → auto
+						m.setConfiguredTheme(nextTheme(m.configuredTheme()))
+						cmds = append(cmds, m.emitStatusMsg("Theme: "+m.configuredTheme(), StatusMsgInfo))
+					case 1: // Primary color — Enter resets to default blue; use ←/→ to cycle presets
+						if err := m.resetThemeColors(); err != nil {
+							cmds = append(cmds, m.emitStatusMsg("Color: "+err.Error(), StatusMsgError))
+						} else {
+							cmds = append(cmds, m.emitStatusMsg("Color: default", StatusMsgInfo))
 						}
 					case 2: // Show extended thinking — toggle
 						if sess := m.currentSession(); sess != nil {

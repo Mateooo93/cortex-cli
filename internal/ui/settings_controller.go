@@ -864,6 +864,15 @@ func (m *Model) cycleThemeColors() error {
 	return m.setThemePrimaryColor(nextPrimary)
 }
 
+func (m *Model) cycleThemeColorsBackward() error {
+	prevPrimary := config.PrevThemeColorPreset(m.themeColors.Primary)
+	return m.setThemePrimaryColor(prevPrimary)
+}
+
+func (m *Model) resetThemeColors() error {
+	return m.setThemePrimaryColor("")
+}
+
 func (m *Model) currentReasoningEffort() string {
 	if m.cortexCfg == nil {
 		return "auto"

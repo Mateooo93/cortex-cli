@@ -60,8 +60,21 @@ func themeColorPresetIndex(primary string) int {
 // NextThemeColorPreset returns the next primary preset after the current value.
 func NextThemeColorPreset(primary string) string {
 	idx := themeColorPresetIndex(primary)
+	if idx < 0 {
+		idx = 0
+	}
 	next := ThemeColorPresets[(idx+1)%len(ThemeColorPresets)]
 	return next.Primary
+}
+
+// PrevThemeColorPreset returns the previous primary preset before the current value.
+func PrevThemeColorPreset(primary string) string {
+	idx := themeColorPresetIndex(primary)
+	if idx < 0 {
+		idx = 0
+	}
+	prev := ThemeColorPresets[(idx-1+len(ThemeColorPresets))%len(ThemeColorPresets)]
+	return prev.Primary
 }
 
 // ThemeColorPresetName returns the display name for a stored primary color.
