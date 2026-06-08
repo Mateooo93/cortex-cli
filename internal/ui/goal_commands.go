@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -68,12 +69,31 @@ func (m *Model) handleGoalCommand(sess *SessionState, arg string) []tea.Cmd {
 	// /goal <condition> → set new goal. The session handles the
 	// autonomous loop internally via its Send("/goal ...") path.
 	sess.chatMessages = append(sess.chatMessages, renderUserMessage("/goal "+arg, 0))
-	sess.chatMessages = append(sess.chatMessages,
-		renderSystemSuccessMessage(fmt.Sprintf(
-			"◎ Goal set. The agent will keep working autonomously until:\n\n%s\n\n"+
-				"A fast evaluator checks progress after each turn. /goal to see status, /goal clear to stop.",
-			arg,
-		)))
+
+	// If the goal looks like a multi-step task, also start a workflow
+	// alongside the goal loop. The workflow handles planning/execution
+	// while the goal evaluator judges the final result.
+	workflowStarted := false
+	lowerGoal := strings.ToLower(arg)
+	if isSubstantivePrompt(lowerGoal) || detectWorkflowIntent(lowerGoal) {
+		engine := sess.EnsureWorkflowEngine(m.cortexCfg)
+		preset := pickWorkflowPreset(lowerGoal)
+		id, err := engine.Start(context.Background(), preset.Name, arg, preset.Strategy, preset.MaxAgents)
+		if err == nil {
+			sess.activeWorkflow = id
+			workflowStarted = true
+		}
+	}
+
+	goalMsg := fmt.Sprintf(
+		"◎ Goal set. The agent will keep working autonomously until:\n\n%s\n\n"+
+			"A fast evaluator checks progress after each turn. /goal to see status, /goal clear to stop.",
+		arg,
+	)
+	if workflowStarted {
+		goalMsg += fmt.Sprintf("\n\n⚡ Workflow started alongside goal. Switch to Workflows tab (F4) to see progress.")
+	}
+	sess.chatMessages = append(sess.chatMessages, renderSystemSuccessMessage(goalMsg))
 
 	if sess.client != nil && sess.agentState == StateWaitingForInput {
 		sess.agentState = StateStreaming

@@ -156,15 +156,16 @@ const (
 // Step is one task inside a workflow. The engine updates its
 // Status as the agent progresses.
 type Step struct {
-	ID          string
-	Description string
-	Role        string
-	Status      string
-	Output      string
-	CurrentMsg  string // "what the agent is doing right now"
-	StartedAt   time.Time
-	EndedAt     time.Time
-	Duration    time.Duration
+	ID            string
+	Description   string
+	Role          string
+	Status        string
+	Output        string
+	CurrentMsg    string // "what the agent is doing right now"
+	ParallelGroup int    // steps with the same group run concurrently
+	StartedAt     time.Time
+	EndedAt       time.Time
+	Duration      time.Duration
 }
 
 // Snapshot is a point-in-time view of a workflow for the UI.
@@ -194,8 +195,9 @@ type Engine struct {
 	flows   map[string]*Workflow
 	hooks   Hooks
 	cancel  map[string]context.CancelFunc
-	journal *Journal // per-run journal for resume support
-	budget  *Budget  // token budget (may be nil = unlimited)
+	journal *Journal    // per-run journal for resume support
+	budget  *Budget     // token budget (may be nil = unlimited)
+	toolRunner ToolRunner // optional: enables tool-use loop in callRole
 }
 
 // Hooks is the callback set the UI registers. All fields are
@@ -252,6 +254,14 @@ func (e *Engine) SetJournal(j *Journal) { e.journal = j }
 
 // Journal returns the engine's call journal (may be nil).
 func (e *Engine) Journal() *Journal { return e.journal }
+
+// SetToolRunner sets the tool runner for workflow agents. When set,
+// agents can use tools (read/write files, run shell commands, etc.)
+// during workflow steps. When nil (default), agents are text-only.
+func (e *Engine) SetToolRunner(tr ToolRunner) { e.toolRunner = tr }
+
+// ToolRunner returns the engine's tool runner (may be nil).
+func (e *Engine) ToolRunner() ToolRunner { return e.toolRunner }
 
 // Workflows returns a copy of the current workflow list, newest
 // first. Safe to call from the UI thread.
@@ -497,47 +507,127 @@ func (e *Engine) run(ctx context.Context, wf *Workflow) {
 	}
 	wf.Steps = steps
 
-	// Phase 2: execute. Sequential for now (parallel is a
-	// follow-up; sequential is easier to reason about and
-	// matches the existing swarm.Orchestrator behaviour).
-	for _, step := range wf.Steps {
-		select {
-		case <-ctx.Done():
-			step.Status = StepCancelled
-			continue
-		default:
+	// Phase 2: execute. Steps are grouped by parallel_group.
+	// Steps in the same group run concurrently; groups run
+	// sequentially (group 0 → group 1 → group 2 → ...).
+	// This enables parallel task execution where the planner
+	// deems it safe (e.g. researcher + developer can work
+	// at the same time, but reviewer must wait for developer).
+	maxGroup := 0
+	for _, s := range wf.Steps {
+		if s.ParallelGroup > maxGroup {
+			maxGroup = s.ParallelGroup
 		}
-		role := findRole(step.Role)
-		if role == nil {
-			role = findRole("developer")
-		}
-		step.Role = role.Name
-		step.Status = StepInProgress
-		step.StartedAt = time.Now()
-		wf.setCurrentMsg(fmt.Sprintf("%s: %s", role.Name, step.Description))
-		if e.hooks.OnStepStart != nil {
-			e.hooks.OnStepStart(wf.ID, step.ID, e.Snapshot(wf.ID))
-		}
-		out, err := e.callRole(ctx, *role, buildStepPrompt(wf, step), wf)
-		step.EndedAt = time.Now()
-		step.Duration = step.EndedAt.Sub(step.StartedAt)
-		if err != nil {
-			if ctx.Err() != nil {
-				step.Status = StepCancelled
-			} else {
-				step.Status = StepFailed
-				step.Output = "error: " + err.Error()
+	}
+	for group := 0; group <= maxGroup; group++ {
+		// Collect steps in this group
+		var groupSteps []*Step
+		for _, s := range wf.Steps {
+			if s.ParallelGroup == group && s.Status == StepPending {
+				groupSteps = append(groupSteps, s)
 			}
-		} else {
-			step.Output = out
-			if step.Status != StepCancelled {
-				step.Status = StepDone
+		}
+		if len(groupSteps) == 0 {
+			continue
+		}
+
+		// If only one step in the group, run it directly
+		if len(groupSteps) == 1 {
+			step := groupSteps[0]
+			select {
+			case <-ctx.Done():
+				step.Status = StepCancelled
+				continue
+			default:
+			}
+			role := findRole(step.Role)
+			if role == nil {
+				role = findRole("developer")
+			}
+			step.Role = role.Name
+			step.Status = StepInProgress
+			step.StartedAt = time.Now()
+			wf.setCurrentMsg(fmt.Sprintf("%s: %s", role.Name, step.Description))
+			if e.hooks.OnStepStart != nil {
+				e.hooks.OnStepStart(wf.ID, step.ID, e.Snapshot(wf.ID))
+			}
+			out, err := e.callRole(ctx, *role, buildStepPrompt(wf, step), wf)
+			step.EndedAt = time.Now()
+			step.Duration = step.EndedAt.Sub(step.StartedAt)
+			if err != nil {
+				if ctx.Err() != nil {
+					step.Status = StepCancelled
+				} else {
+					step.Status = StepFailed
+					step.Output = "error: " + err.Error()
+				}
+			} else {
+				step.Output = out
+				if step.Status != StepCancelled {
+					step.Status = StepDone
+				}
+			}
+			wf.setCurrentMsg("")
+			if e.hooks.OnStepDone != nil {
+				e.hooks.OnStepDone(wf.ID, step.ID, e.Snapshot(wf.ID))
+			}
+			continue
+		}
+
+		// Multiple steps: run in parallel via goroutines
+		type stepResult struct {
+			step   *Step
+			output string
+			err    error
+		}
+		results := make(chan stepResult, len(groupSteps))
+		for _, step := range groupSteps {
+			go func(s *Step) {
+				select {
+				case <-ctx.Done():
+					results <- stepResult{step: s, err: ctx.Err()}
+					return
+				default:
+				}
+				role := findRole(s.Role)
+				if role == nil {
+					role = findRole("developer")
+				}
+				s.Role = role.Name
+				s.Status = StepInProgress
+				s.StartedAt = time.Now()
+				wf.setCurrentMsg(fmt.Sprintf("%s: %s (parallel)", role.Name, s.Description))
+				if e.hooks.OnStepStart != nil {
+					e.hooks.OnStepStart(wf.ID, s.ID, e.Snapshot(wf.ID))
+				}
+				out, err := e.callRole(ctx, *role, buildStepPrompt(wf, s), wf)
+				s.EndedAt = time.Now()
+				s.Duration = s.EndedAt.Sub(s.StartedAt)
+				results <- stepResult{step: s, output: out, err: err}
+			}(step)
+		}
+
+		// Collect results
+		for range groupSteps {
+			r := <-results
+			if r.err != nil {
+				if ctx.Err() != nil {
+					r.step.Status = StepCancelled
+				} else {
+					r.step.Status = StepFailed
+					r.step.Output = "error: " + r.err.Error()
+				}
+			} else {
+				r.step.Output = r.output
+				if r.step.Status != StepCancelled {
+					r.step.Status = StepDone
+				}
+			}
+			if e.hooks.OnStepDone != nil {
+				e.hooks.OnStepDone(wf.ID, r.step.ID, e.Snapshot(wf.ID))
 			}
 		}
 		wf.setCurrentMsg("")
-		if e.hooks.OnStepDone != nil {
-			e.hooks.OnStepDone(wf.ID, step.ID, e.Snapshot(wf.ID))
-		}
 	}
 
 	// Phase 3: synthesise. The planner role takes all
@@ -601,9 +691,7 @@ func (e *Engine) callRole(ctx context.Context, role Role, prompt string, wf *Wor
 			wf.Budget.Spent(), wf.Budget.Total())
 	}
 
-	// Resolve model config. If the engine has no config (e.g.
-	// headless mode without a cortex config file), fall back to
-	// env vars per provider.
+	// Resolve model config.
 	if e.cfg == nil {
 		return "", fmt.Errorf("workflow engine has no config — set CORTEX_API_KEY or provider-specific env vars")
 	}
@@ -613,7 +701,6 @@ func (e *Engine) callRole(ctx context.Context, role Role, prompt string, wf *Wor
 	}
 	apiKey := mc.APIKey
 	if apiKey == "" {
-		// Fall back to env-var-driven providers.
 		if env := cortexconfig.ProviderEnvVar(mc.Provider); env != "" {
 			apiKey = getenv(env)
 		}
@@ -630,35 +717,89 @@ func (e *Engine) callRole(ctx context.Context, role Role, prompt string, wf *Wor
 	if err != nil {
 		return "", err
 	}
-	req := llmprovider.Request{
-		Model: mc.Model,
-		Messages: []llmprovider.Message{
-			{Role: "system", Content: role.SystemPrompt},
-			{Role: "user", Content: prompt},
-		},
-	}
-	resp, err := prov.Chat(ctx, req)
-	if err != nil {
-		return "", err
+
+	// Build messages: system prompt + user task
+	messages := []llmprovider.Message{
+		{Role: "system", Content: role.SystemPrompt},
+		{Role: "user", Content: prompt},
 	}
 
-	// Budget: estimate tokens used (~ chars/4 for output, add
-	// prompt size estimate for input). This is a rough heuristic
-	// since we don't always get usage back from all providers.
-	estimatedTokens := int64(len(prompt)/4 + len(resp.Content)/4)
-	if wf.Budget != nil {
-		wf.Budget.Spend(estimatedTokens)
+	// Add tool definitions if a tool runner is configured
+	var tools []llmprovider.Tool
+	if e.toolRunner != nil {
+		tools = e.toolRunner.Tools()
+	}
+
+	totalEstimatedTokens := int64(0)
+	var finalContent string
+
+	// Tool-use loop: LLM call → tool execution → feed back → repeat.
+	// Stops when: text response received, context cancelled,
+	// max iterations reached, or budget exhausted.
+	for iteration := 0; iteration < maxToolIterations; iteration++ {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+
+		req := llmprovider.Request{
+			Model:    mc.Model,
+			Messages: messages,
+			Tools:    tools,
+		}
+		resp, err := prov.Chat(ctx, req)
+		if err != nil {
+			return "", err
+		}
+
+		estimatedTokens := int64(len(prompt)/4 + len(resp.Content)/4)
+		totalEstimatedTokens += estimatedTokens
+		if wf.Budget != nil {
+			wf.Budget.Spend(estimatedTokens)
+		}
+
+		// If the model returned tool calls and we have a runner,
+		// execute them and feed results back for the next iteration.
+		if len(resp.ToolCalls) > 0 && e.toolRunner != nil {
+			// Add the assistant message with tool calls
+			messages = append(messages, llmprovider.Message{
+				Role:      "assistant",
+				Content:   resp.Content,
+				ToolCalls: resp.ToolCalls,
+			})
+
+			// Execute tools and add results
+			for _, tc := range resp.ToolCalls {
+				result := e.toolRunner.Run(ctx, tc.Name, tc.Arguments)
+				messages = append(messages, llmprovider.Message{
+					Role:       "tool",
+					Content:    result,
+					ToolName:   tc.Name,
+					ToolCallID: tc.ID,
+				})
+			}
+			continue // back to LLM with tool results
+		}
+
+		// Text response (no tool calls) — we're done
+		finalContent = resp.Content
+		break
+	}
+
+	if finalContent == "" {
+		finalContent = "Agent completed without producing output."
 	}
 
 	// Journal: record this call for deterministic resume
 	if wf.Journal != nil {
 		wf.Journal.Record(JournalEntry{
 			Prompt: prompt,
-			Output: resp.Content,
+			Output: finalContent,
 		})
 	}
 
-	return resp.Content, nil
+	return finalContent, nil
 }
 
 // findRole returns a pointer to the role with the given name, or
@@ -688,13 +829,16 @@ Strategy: %s
 Max agents: %d
 Available roles: %s
 
-Break the goal into 3-7 concrete steps. Each step should be assignable to one role and complete in a single LLM call. Output ONLY a JSON object in this exact schema (no markdown, no prose, no preamble):
+Break the goal into 3-7 concrete steps. Each step should be assignable to one role and complete in a single LLM call.
 
-{"steps": [{"id":"step-1","description":"...","role":"developer"}, {"id":"step-2","description":"...","role":"reviewer"}]}
+If any steps can run in PARALLEL (they don't depend on each other's output), mark them with the same "parallel_group" number (0, 1, 2...). Steps with different parallel_group values run sequentially. Steps that depend on a previous step should have a HIGHER parallel_group.
 
-Use the roles in this order when sensible: planner (already done), researcher, developer, reviewer, tester, fixer, documenter. Skip roles that don't apply.
+Output ONLY a JSON object in this exact schema (no markdown, no prose, no preamble):
 
-Keep step descriptions short (under 100 chars). The orchestrator will run them in order.`, wf.Goal, wf.Strategy, wf.MaxAgents, strings.Join(roles, ", "))
+{"steps": [{"id":"step-1","description":"...","role":"developer","parallel_group":0}, {"id":"step-2","description":"...","role":"reviewer","parallel_group":1}]}
+
+Use the roles in this order when sensible: researcher, developer, reviewer, tester, fixer, documenter. Skip roles that don't apply.
+Keep step descriptions short (under 100 chars).`, wf.Goal, wf.Strategy, wf.MaxAgents, strings.Join(roles, ", "))
 }
 
 // buildStepPrompt returns the prompt sent to the agent for a
@@ -769,9 +913,10 @@ func parsePlan(content string) []*Step {
 	}
 	var parsed struct {
 		Steps []struct {
-			ID          string `json:"id"`
-			Description string `json:"description"`
-			Role        string `json:"role"`
+			ID            string `json:"id"`
+			Description   string `json:"description"`
+			Role          string `json:"role"`
+			ParallelGroup int    `json:"parallel_group"`
 		} `json:"steps"`
 	}
 	if err := jsonUnmarshal([]byte(jsonStr), &parsed); err != nil {
@@ -783,10 +928,11 @@ func parsePlan(content string) []*Step {
 			t.ID = fmt.Sprintf("step-%d", len(out)+1)
 		}
 		out = append(out, &Step{
-			ID:          t.ID,
-			Description: t.Description,
-			Role:        t.Role,
-			Status:      StepPending,
+			ID:            t.ID,
+			Description:   t.Description,
+			Role:          t.Role,
+			Status:        StepPending,
+			ParallelGroup: t.ParallelGroup,
 		})
 	}
 	return out

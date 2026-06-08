@@ -120,6 +120,11 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 		cmds = append(cmds, m.handleGoalCommand(sess, arg)...)
 	case "slash_effort":
 		cmds = append(cmds, m.handleEffortCommand(sess, arg)...)
+	case "open_workflow_picker":
+		m.workflowPicker.Open()
+		if sess != nil {
+			sess.input.Blur()
+		}
 
 	case "history":
 		if sess != nil && len(sess.history.entries) > 0 {
@@ -172,6 +177,8 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 					}
 				case TabKindSettings:
 					m.openSettingsTab()
+				case TabKindWorkflows:
+					m.activeTab = TabKindWorkflows
 				}
 			}
 		}

@@ -271,6 +271,11 @@ type Model struct {
 	commandPalette CommandPalette
 	modelPicker    ModelPicker
 	loginPicker    LoginPicker
+	workflowPicker WorkflowPicker
+
+	// Workflow tab state
+	workflowSelected     int // selected workflow row (-1 = none)
+	workflowStepSelected int // selected step in detail panel (-1 = none)
 
 	// Tab alert blink (Chat tab label pulses when a session needs attention)
 	tabAlertActive   bool
@@ -339,6 +344,18 @@ func (m *Model) buildStatusBarInfo(sess *SessionState) StatusBarInfo {
 	}
 	// Effort level
 	info.EffortLevel = sess.effortLevel
+	// Workflow indicator: show the first running workflow in the status bar
+	if sess.workflowEngine != nil {
+		for _, w := range sess.workflowEngine.Workflows() {
+			snap := sess.workflowEngine.Snapshot(w.ID)
+			if snap.Status == "running" || snap.Status == "planning" || snap.Status == "synthesizing" {
+				info.WorkflowName = snap.Name
+				info.WorkflowStatus = snap.Status
+				info.WorkflowElapsed = snap.Duration
+				break
+			}
+		}
+	}
 	info.InputTokens = sess.inputTokens
 	info.CacheRead = sess.cacheReadTokens
 	info.Elapsed = sess.TurnElapsed()
@@ -1340,8 +1357,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, sess.thinkingAnim.Resume())
 				}
 				return m, tea.Batch(cmds...)
-			case "f3", "f4":
+			case "f3":
 				m.openSettingsTab()
+				m.sessionsInput.Blur()
+				return m, tea.Batch(cmds...)
+			case "f4":
+				m.activeTab = TabKindWorkflows
 				m.sessionsInput.Blur()
 				return m, tea.Batch(cmds...)
 			case "esc":
@@ -1539,13 +1560,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						cmds = append(cmds, s.thinkingAnim.Resume())
 					}
 				case "f3":
-					// Already here (F3 = Settings in
-					// the new tab bar; the Workflows
-					// tab was removed from the UI)
+					// Already here (F3 = Settings)
 				case "f4":
-					// Legacy F4-Settings binding,
-					// still respected for muscle
-					// memory
+					m.activeTab = TabKindWorkflows
 				}
 			} else {
 				// Other Settings section
@@ -1614,15 +1631,88 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						cmds = append(cmds, s.thinkingAnim.Resume())
 					}
 				case "f3":
-					// Already here (F3 = Settings in
-					// the new tab bar; the Workflows
-					// tab was removed from the UI)
+					// Already here (F3 = Settings)
 				case "f4":
-					// Legacy F4-Settings binding
+					m.activeTab = TabKindWorkflows
 				}
 			}
 			return m, tea.Batch(cmds...)
 		}
+
+		// --- Workflows tab key handling ---
+		if m.activeTab == TabKindWorkflows {
+			switch msg.String() {
+			case "up", "k":
+					if m.workflowSelected > 0 {
+						m.workflowSelected--
+					}
+					m.workflowStepSelected = -1
+					return m, nil
+				case "down", "j":
+					count := 0
+					for _, s := range m.sessions {
+						if s.workflowEngine != nil {
+							count += len(s.workflowEngine.Workflows())
+						}
+					}
+					if m.workflowSelected < count-1 {
+						m.workflowSelected++
+					}
+					m.workflowStepSelected = -1
+					return m, nil
+				case "enter":
+					if m.workflowSelected >= 0 {
+						if m.workflowStepSelected < 0 {
+							m.workflowStepSelected = 0
+						} else {
+							m.workflowStepSelected = -1
+						}
+					}
+					return m, nil
+				case "c":
+					if m.workflowSelected >= 0 {
+						idx := 0
+						for _, s := range m.sessions {
+							if s.workflowEngine == nil {
+								continue
+							}
+							for _, w := range s.workflowEngine.Workflows() {
+								if idx == m.workflowSelected {
+									s.workflowEngine.Cancel(w.ID)
+									return m, nil
+								}
+								idx++
+							}
+						}
+					}
+					return m, nil
+				case "right", "l":
+					if m.workflowSelected >= 0 && m.workflowStepSelected >= 0 {
+						m.workflowStepSelected++
+					}
+					return m, nil
+				case "left", "h":
+					if m.workflowStepSelected > 0 {
+						m.workflowStepSelected--
+					}
+					return m, nil
+				case "f1":
+					m.activeTab = TabKindSessions
+					m.syncSessionsSelected()
+					return m, m.sessionsInput.Focus()
+				case "f2":
+					m.activeTab = TabKindChat
+					if s := m.currentSession(); s != nil {
+						s.unreadCount = 0
+					}
+					return m, nil
+				case "f3":
+					m.openSettingsTab()
+					return m, nil
+				case "f4":
+					return m, nil
+				}
+			}
 
 		// --- Chat tab key handling (session-specific) ---
 		if sess == nil {
@@ -1729,6 +1819,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, tea.Batch(cmds...)
+		}
+
+		// Workflow picker (opened by /workflow slash command)
+		if m.workflowPicker.IsVisible() {
+			preset, _, _ := m.workflowPicker.handleKey(msg.String())
+			if preset != "" {
+				// User selected a preset — start the workflow
+				sess := m.currentSession()
+				if sess != nil {
+					engine := sess.EnsureWorkflowEngine(m.cortexCfg)
+					id, err := engine.Start(context.Background(), preset, "workflow task", preset, 5)
+					if err == nil {
+						_ = m.emitStatusMsg("started workflow: "+preset+" ("+id+")", StatusMsgInfo)
+						// Switch to workflows tab so user can see progress
+						m.activeTab = TabKindWorkflows
+					}
+				}
+			}
+			if msg.String() == "esc" {
+				m.workflowPicker.Close()
+			}
+			return m, nil
 		}
 
 		// Slash menu
@@ -1945,9 +2057,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 
 		case "f4":
-			// Legacy F4-Settings binding preserved
-			// for muscle memory.
-			m.openSettingsTab()
+			// F4 = Workflows
+			m.activeTab = TabKindWorkflows
 			return m, tea.Batch(cmds...)
 
 		case "shift+tab":
@@ -2809,7 +2920,7 @@ func (m Model) View() tea.View {
 	// Tab bar
 	// When the Chat tab is active the chat viewport is the primary
 	// scrollable area (scrolling works regardless of FocusChat etc).
-	viewportFocused := m.activeTab == TabKindSessions || m.activeTab == TabKindSettings || m.activeTab == TabKindChat
+	viewportFocused := m.activeTab == TabKindSessions || m.activeTab == TabKindSettings || m.activeTab == TabKindChat || m.activeTab == TabKindWorkflows
 	tabBarWidth := layout.ChatWidth
 	if m.activeTab == TabKindSessions || m.activeTab == TabKindSettings {
 		tabBarWidth = m.width
@@ -2912,6 +3023,12 @@ func (m Model) View() tea.View {
 		sv := renderSettingsView(m.width, settingsHeight, m.styles, m.settingsActiveSection, m.settingsProviderSel, m.settingsModelSel, m.settingsModelColumn, settingsActiveModel, settingsActiveProvider, providers, selectedModels, m.settingsKeys, m.settingsKeySel, m.settingsOtherSel, otherView, inspectView, m.settingsInKeyInput, m.settingsKeyInputLabel, m.settingsKeyInput.View(), wizardView)
 		uv.NewStyledString(sv).Draw(canvas, image.Rect(0, y, m.width, y+settingsHeight))
 		y += settingsHeight
+
+	case TabKindWorkflows:
+		workflowsHeight := m.height - layout.TabBarHeight - layout.StatusBarHeight
+		wv := renderWorkflowsView(m.sessions, m.width, workflowsHeight, m.styles, m.workflowSelected, m.workflowStepSelected)
+		uv.NewStyledString(wv).Draw(canvas, image.Rect(0, y, m.width, y+workflowsHeight))
+		y += workflowsHeight
 
 	}
 	// Status bar — global: connected if any session is up, reconnecting if none
@@ -3030,6 +3147,17 @@ func (m Model) View() tea.View {
 			pickerH = 6
 		}
 		overlay := m.modelPicker.View(m.width, pickerH, m.styles)
+		h := lipgloss.Height(overlay)
+		popupY := (m.height - h) / 2
+		if popupY < 0 {
+			popupY = 0
+		}
+		uv.NewStyledString(overlay).Draw(canvas, image.Rect(0, popupY, m.width, popupY+h))
+	}
+
+	// Workflow picker overlay: drawn on top of everything else.
+	if m.workflowPicker.IsVisible() {
+		overlay := m.workflowPicker.View(m.styles)
 		h := lipgloss.Height(overlay)
 		popupY := (m.height - h) / 2
 		if popupY < 0 {

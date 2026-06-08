@@ -467,6 +467,34 @@ type Config struct {
 	// sessions; power users can turn it off in Settings →
 	// Other Settings.
 	AutoCompact bool `yaml:"autoCompact"`
+	// WorkflowPresets is a list of user-defined workflow presets.
+	// These are merged with the built-in presets at runtime.
+	// Example YAML:
+	//   workflowPresets:
+	//     - name: my-custom
+	//       description: "My custom workflow"
+	//       strategy: development
+	//       maxAgents: 3
+	//       roles: [planner, developer, reviewer]
+	WorkflowPresets []WorkflowPresetConfig `yaml:"workflowPresets,omitempty"`
+}
+
+// WorkflowPresetConfig is a user-defined workflow preset from the config file.
+type WorkflowPresetConfig struct {
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description"`
+	Strategy    string   `yaml:"strategy"`
+	MaxAgents   int      `yaml:"maxAgents"`
+	Roles       []string `yaml:"roles"`
+}
+
+// WorkflowPresetsConfig returns the user-defined workflow presets,
+// converted to a shape the workflow package can consume.
+func (c *Config) WorkflowPresetsConfig() []WorkflowPresetConfig {
+	if c == nil {
+		return nil
+	}
+	return c.WorkflowPresets
 }
 
 // Default is the default config (matches the original TS default).
