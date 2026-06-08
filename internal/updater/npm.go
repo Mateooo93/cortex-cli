@@ -34,7 +34,7 @@ func npmUpdate(ctx context.Context) error {
 		return fmt.Errorf("updater: npm not found on PATH")
 	}
 	cmd := exec.CommandContext(ctx, npm, "update", "-g", NpmPackageName)
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "npm_config_color=false")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))

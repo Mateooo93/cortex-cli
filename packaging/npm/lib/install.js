@@ -21,6 +21,7 @@ async function ensureBinary() {
     return destPath;
   }
 
+  console.log(`cortex-cli: downloading ${asset} (${version})…`);
   await downloadBinary({
     releaseBase: releaseBase(),
     version,
@@ -47,6 +48,9 @@ async function ensureBinary() {
 }
 
 async function main() {
+  // npm's default install output uses theme colors (often purple/magenta).
+  process.env.NO_COLOR = process.env.NO_COLOR || "1";
+  process.env.FORCE_COLOR = "0";
   try {
     const dest = await ensureBinary();
     if (dest) {

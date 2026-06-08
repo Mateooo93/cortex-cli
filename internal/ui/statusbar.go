@@ -156,13 +156,7 @@ func renderStatusBar(
 			msgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 			prefix = " ✖ "
 		default: // StatusMsgInfo
-			// Brighter color + bold so the user
-			// actually sees the update progress. The
-			// user reported "there should also be an
-			// animation when i update" — the old
-			// dim+italic style made the message
-			// almost invisible.
-			msgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
+			msgStyle = lipgloss.NewStyle().Bold(true)
 			prefix = " ℹ "
 		}
 		// If a spinner is attached, render a braille
@@ -172,7 +166,7 @@ func renderStatusBar(
 		// the chat viewport.
 		if msg.Spinner >= 0 {
 			frames := []string{"\u280b", "\u2819", "\u2838", "\u2834", "\u2826", "\u2827", "\u2807", "\u280f"}
-			spinnerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
+			spinnerStyle := lipgloss.NewStyle().Bold(true)
 			spinner := spinnerStyle.Render(" "+frames[msg.Spinner%len(frames)]+" ")
 			content := lipgloss.NewStyle().Width(width).Render(spinner + msgStyle.Render(msg.Text))
 			return content

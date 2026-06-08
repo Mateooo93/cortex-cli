@@ -111,7 +111,7 @@ func (m *Model) renderUpdateOverlay() string {
 	var titleStyle lipgloss.Style
 	switch m.updateOverlay.phase {
 	case "running":
-		titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#3B82F6"))
+		titleStyle = lipgloss.NewStyle().Bold(true)
 		title = titleStyle.Render("Updating cortex")
 	case "done":
 		titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#22C55E"))

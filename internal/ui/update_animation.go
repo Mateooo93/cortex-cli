@@ -76,7 +76,7 @@ func updateAnimProgress(stepIdx, frame int, startedAt time.Time) float64 {
 // spinner.Dot). One character cycling — no stacked duplicate frames.
 func renderUpdateBrailleSpinner(frame, innerW int) string {
 	cur := updateBrailleFrames[frame%len(updateBrailleFrames)]
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color("#60A5FA")).Bold(true)
+	style := lipgloss.NewStyle().Bold(true)
 	return centerUpdateAnim(style.Render(cur), innerW)
 }
 
@@ -86,9 +86,9 @@ func renderUpdateMeterBar(frame, stepIdx int, startedAt time.Time, innerW int) s
 	frac := updateAnimProgress(stepIdx, frame, startedAt)
 	fillEnd := int(math.Round(float64(innerW) * frac))
 
-	filledStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3B82F6"))
-	brightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#93C5FD")).Bold(true)
-	emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#1E293B"))
+	filledStyle := lipgloss.NewStyle().Bold(true)
+	brightStyle := lipgloss.NewStyle().Bold(true).Underline(true)
+	emptyStyle := lipgloss.NewStyle().Foreground(colorDim)
 
 	var b strings.Builder
 	for i := 0; i < innerW; i++ {
