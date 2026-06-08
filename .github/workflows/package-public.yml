@@ -1,0 +1,30 @@
+name: Make npm package public
+
+# One-shot: set @mateooo93/cortex visibility to public on GitHub Packages.
+# Also runs automatically after each release publish.
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  public:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set @mateooo93/cortex visibility to public
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x ./script/set-package-public.sh
+          ./script/set-package-public.sh

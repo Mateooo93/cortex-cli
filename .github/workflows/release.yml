@@ -200,6 +200,14 @@ jobs:
           echo "==> Publishing @mateooo93/cortex to GitHub Packages"
           ./script/publish-npm.sh "$VERSION" --yes --registry github
 
+      - name: Set @mateooo93/cortex package visibility to public
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x ./script/set-package-public.sh
+          ./script/set-package-public.sh
+
       - name: Set up Node for npmjs.org (optional)
         if: steps.opt.outputs.npm == 'true' && steps.version.outputs.skip != 'true'
         uses: actions/setup-node@v4
