@@ -53,6 +53,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 NPM_DIR="$ROOT_DIR/packaging/npm"
 
+# Load NPM_TOKEN from .env when NODE_AUTH_TOKEN is not already set.
+if [[ -z "${NODE_AUTH_TOKEN:-}" && -f "$ROOT_DIR/.env" ]]; then
+  NPM_TOKEN="$(grep -E '^NPM_TOKEN=' "$ROOT_DIR/.env" | head -n1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+  if [[ -n "$NPM_TOKEN" ]]; then
+    export NODE_AUTH_TOKEN="$NPM_TOKEN"
+  fi
+fi
+
 if [[ ! -f "$NPM_DIR/package.json" ]]; then
   echo "!! Missing $NPM_DIR/package.json"
   exit 1
