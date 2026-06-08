@@ -6,6 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/Mateooo93/cortex-cli/internal/config"
+	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 )
 
 func TestMouseInChatContent_OnlyOnChatTab(t *testing.T) {
@@ -77,11 +80,12 @@ func TestTabKindAtX_MatchesRenderedLayout(t *testing.T) {
 	}{
 		{0, 0, false},
 		{5, TabKindSessions, true},
-		{17, TabKindSessions, true},
-		{19, TabKindChat, true},
-		{30, TabKindChat, true},
-		{33, TabKindSettings, true},
-		{47, TabKindSettings, true},
+		{12, TabKindSessions, true},
+		{13, 0, false}, // separator between tabs
+		{14, TabKindChat, true},
+		{21, TabKindChat, true},
+		{23, TabKindSettings, true},
+		{34, TabKindSettings, true},
 		{60, 0, false},
 	}
 	for _, tc := range cases {
@@ -89,6 +93,42 @@ func TestTabKindAtX_MatchesRenderedLayout(t *testing.T) {
 		if ok != tc.wantOK || got != tc.want {
 			t.Fatalf("tabKindAtX(%d) = (%v,%v), want (%v,%v)", tc.x, got, ok, tc.want, tc.wantOK)
 		}
+	}
+}
+
+func TestMouseClick_SettingsTabOpensSettings(t *testing.T) {
+	setupPersistDir(t)
+	cfg := &config.Config{}
+	cortexCfg := cortexconfig.Default()
+	m := NewModel(cfg, cortexCfg, nil, false, "", false, false)
+	m.width = 120
+	m.height = 40
+
+	updated, _ := m.Update(tea.MouseClickMsg{
+		Button: tea.MouseLeft,
+		X:      28,
+		Y:      1,
+	})
+	if updated.(Model).activeTab != TabKindSettings {
+		t.Fatalf("activeTab = %v, want TabKindSettings after clicking Settings tab", updated.(Model).activeTab)
+	}
+}
+
+func TestHandleTabBarClick_SettingsTab(t *testing.T) {
+	m := &Model{
+		width:     100,
+		height:    40,
+		activeTab: TabKindChat,
+		sessions:  []*SessionState{{}},
+		mouseX:    28,
+		mouseY:    1,
+	}
+	updated, cmd := m.handleTabBarClick()
+	if updated.activeTab != TabKindSettings {
+		t.Fatalf("activeTab = %v, want TabKindSettings", updated.activeTab)
+	}
+	if cmd != nil {
+		t.Fatalf("expected no focus cmd for settings tab, got %v", cmd)
 	}
 }
 

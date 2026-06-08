@@ -3260,8 +3260,10 @@ func (m *Model) updateChatWidth() {
 			chatWidth = 10
 		}
 	}
-	m.mdRenderer.UpdateWidth(chatWidth - 4)
-	m.rerenderSessionMessages()
+	if m.mdRenderer != nil {
+		m.mdRenderer.UpdateWidth(chatWidth - 4)
+		m.rerenderSessionMessages()
+	}
 }
 
 // rerenderSessionMessages re-renders the current session's chat messages at the current width.

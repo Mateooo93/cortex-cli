@@ -39,6 +39,11 @@ var waitingBadge = lipgloss.NewStyle().Background(colorSecondary).Foreground(lip
 // unreadDotStyle styles the ● indicator for sessions with unread messages.
 var unreadDotStyle = lipgloss.NewStyle().Foreground(colorSecondary)
 
+// selectedRowStyle is the shared cursor highlight for Sessions and Settings rows.
+func selectedRowStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(colorPrimary)
+}
+
 // renderSessionsView renders the sessions list overview.
 func renderSessionsView(sessions []*SessionState, width, height int, s Styles, filter, inputView string, selectedRow int) string {
 	const colSession = 10
@@ -206,7 +211,7 @@ func renderSessionsView(sessions []*SessionState, width, height int, s Styles, f
 			if hasUnread {
 				dotChar = "●"
 			}
-			rows = append(rows, s.TabAlertStyle.Render(dotChar+" "+plainCols))
+			rows = append(rows, renderSettingsSelectLine(selectedRowStyle(), dotChar+" "+plainCols, innerWidth))
 		} else if hasUnread {
 			rows = append(rows, unreadDotStyle.Render("●")+" "+plainCols)
 		} else {
@@ -366,7 +371,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	// make it bright + bold + bracketed so the user can tell
 	// exactly which row is selected regardless of which
 	// provider is currently active.
-	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(colorPrimary)
+	selectedStyle := selectedRowStyle()
 	activeStyle := lipgloss.NewStyle().Foreground(colorDim)
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
 	innerWidth := width - 4

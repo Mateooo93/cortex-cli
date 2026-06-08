@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/Mateooo93/cortex-cli/internal/config"
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 	"github.com/Mateooo93/cortex-cli/internal/daemon"
@@ -81,5 +83,17 @@ func TestVisibleSessionIndices_SortedByDate(t *testing.T) {
 	}
 	if indices[2] != 0 {
 		t.Errorf("expected indices[2]=0 (oldest, label=A), got %d", indices[2])
+	}
+}
+
+func TestRenderSessionsView_SelectedRowMatchesSettingsSelection(t *testing.T) {
+	innerWidth := 80
+	selected := renderSettingsSelectLine(selectedRowStyle(), "  NEWEST", innerWidth)
+	settings := renderSettingsSelectLine(selectedRowStyle(), "▸ Theme", innerWidth)
+	if lipgloss.Width(selected) >= innerWidth {
+		t.Fatalf("sessions selection should highlight text only, got width %d", lipgloss.Width(selected))
+	}
+	if selected == "  NEWEST" || settings == "▸ Theme" {
+		t.Fatal("expected shared selected-row styling to apply background")
 	}
 }

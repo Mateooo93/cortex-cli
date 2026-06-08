@@ -73,34 +73,48 @@ func (m *Model) noteMousePosition(x, y int) {
 	m.mouseY = y
 }
 
+type tabBarHitRegion struct {
+	kind   TabKind
+	startX int
+	endX   int
+}
+
+// tabBarHitRegions mirrors renderTabBar's mid-row layout so mouse clicks
+// land on the tab the user sees (names only, no F-key suffix).
+func tabBarHitRegions() []tabBarHitRegion {
+	defs := []struct {
+		name string
+		kind TabKind
+	}{
+		{"Sessions", TabKindSessions},
+		{"Chat", TabKindChat},
+		{"Settings", TabKindSettings},
+	}
+	var regions []tabBarHitRegion
+	visPos := 1
+	for i, d := range defs {
+		lw := len(" " + d.name + " ")
+		if i > 0 {
+			visPos++
+		}
+		regions = append(regions, tabBarHitRegion{
+			kind:   d.kind,
+			startX: visPos,
+			endX:   visPos + lw + 1,
+		})
+		visPos += lw + 2
+	}
+	return regions
+}
+
 // tabKindAtX returns which tab label was clicked. The bool is false when x
 // falls outside all tab boxes. TabKindSessions is 0, so callers must use the
 // bool — never compare the kind against zero.
 func tabKindAtX(x int) (TabKind, bool) {
-	type tabDef struct {
-		name string
-		key  string
-		kind TabKind
-	}
-	defs := []tabDef{
-		{"Sessions", "F1", TabKindSessions},
-		{"Chat", "F2", TabKindChat},
-		{"Settings", "F3", TabKindSettings},
-	}
-
-	visPos := 1
-	for i, d := range defs {
-		if i > 0 {
-			visPos++
+	for _, r := range tabBarHitRegions() {
+		if x >= r.startX && x <= r.endX {
+			return r.kind, true
 		}
-		label := " " + d.name + " (" + d.key + ") "
-		lw := len(label)
-		x0 := visPos
-		x1 := visPos + lw + 1
-		if x >= x0 && x <= x1 {
-			return d.kind, true
-		}
-		visPos += lw + 2
 	}
 	return 0, false
 }
@@ -130,7 +144,6 @@ func (m *Model) handleTabBarClick() (Model, tea.Cmd) {
 		return *m, nil
 	case TabKindSettings:
 		m.openSettingsTab()
-		m.updateChatWidth()
 		m.clearChatSelection()
 		return *m, nil
 	}
