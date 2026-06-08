@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -95,5 +96,15 @@ func TestRenderSessionsView_SelectedRowMatchesSettingsSelection(t *testing.T) {
 	}
 	if selected == "  NEWEST" || settings == "▸ Theme" {
 		t.Fatal("expected shared selected-row styling to apply background")
+	}
+}
+
+func TestRenderSessionsView_SelectedRowNotFullWidth(t *testing.T) {
+	const colSession = 10
+	selectText := fmt.Sprintf(" %-*s  %s  %s", colSession, "NEWEST", "gpt-4", "—")
+	innerWidth := 120
+	rendered := renderSettingsSelectLine(selectedRowStyle(), selectText, innerWidth)
+	if lipgloss.Width(rendered) >= innerWidth/2 {
+		t.Fatalf("sessions selection should highlight compact row text, got width %d: %q", lipgloss.Width(rendered), stripANSI(rendered))
 	}
 }

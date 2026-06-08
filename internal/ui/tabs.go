@@ -211,7 +211,13 @@ func renderSessionsView(sessions []*SessionState, width, height int, s Styles, f
 			if hasUnread {
 				dotChar = "●"
 			}
-			rows = append(rows, renderSettingsSelectLine(selectedRowStyle(), dotChar+" "+plainCols, innerWidth))
+			// Highlight session data only — not column padding to the badge slot.
+			selectText := fmt.Sprintf("%s %-*s  %s  %s", dotChar, colSession, sessionCol, msgCol, runningCol)
+			line := renderSettingsSelectLine(selectedRowStyle(), selectText, innerWidth)
+			if needsInput {
+				line += "  " + waitingBadge
+			}
+			rows = append(rows, line)
 		} else if hasUnread {
 			rows = append(rows, unreadDotStyle.Render("●")+" "+plainCols)
 		} else {
