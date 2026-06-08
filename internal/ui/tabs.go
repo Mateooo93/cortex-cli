@@ -427,6 +427,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	lines := []string{
 		titleStyle.Width(innerWidth).Render("Settings"),
 		renderSettingsSectionSwitchHint(activeSection, innerWidth),
+		divider,
 		renderSettingsSectionTabBar(activeSection, innerWidth, s),
 	}
 
