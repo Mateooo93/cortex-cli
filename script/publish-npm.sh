@@ -61,6 +61,21 @@ if [[ -z "${NODE_AUTH_TOKEN:-}" && -f "$ROOT_DIR/.env" ]]; then
   fi
 fi
 
+configure_npm_auth() {
+  if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+    return 1
+  fi
+  # GitHub Actions secrets (and some .env files) may include stray whitespace.
+  NODE_AUTH_TOKEN="$(printf '%s' "$NODE_AUTH_TOKEN" | tr -d '[:space:]')"
+  export NODE_AUTH_TOKEN
+  NPM_CONFIG_USERCONFIG="$(mktemp)"
+  export NPM_CONFIG_USERCONFIG
+  cat > "$NPM_CONFIG_USERCONFIG" <<EOF
+registry=https://registry.npmjs.org/
+//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
+EOF
+}
+
 if [[ ! -f "$NPM_DIR/package.json" ]]; then
   echo "!! Missing $NPM_DIR/package.json"
   exit 1
@@ -93,13 +108,17 @@ if [[ "$YES" != true ]]; then
   fi
 fi
 
+if ! configure_npm_auth; then
+  echo "!! NODE_AUTH_TOKEN is not set (npm login or NPM_TOKEN secret required)"
+  exit 1
+fi
+
+echo "==> npm auth: $(npm whoami --registry https://registry.npmjs.org)"
+
 echo "==> Publishing mateooo93-cortex@$SEMVER to npm..."
 (
   cd "$NPM_DIR"
-  if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
-    echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
-  fi
-  npm publish
+  npm publish --access public
 )
 
 echo "==> npm publish complete: mateooo93-cortex@$SEMVER"

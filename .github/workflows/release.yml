@@ -67,12 +67,6 @@ jobs:
           go-version: "1.26"
           cache: true
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
-
       - name: Validate version policy
         run: ./script/derive-version_test.sh
 
@@ -182,6 +176,12 @@ jobs:
           ./script/update-tap.sh "$VERSION" \
             --tap "${{ github.repository_owner }}/homebrew-cortex" || \
             echo "!! Tap update failed; the GitHub release is still published."
+
+      - name: Set up Node for npm publish
+        if: steps.opt.outputs.npm == 'true' && steps.version.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
       - name: Publish npm package
         if: steps.opt.outputs.npm == 'true' && steps.version.outputs.skip != 'true'

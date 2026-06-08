@@ -18,23 +18,14 @@ jobs:
   publish:
     name: Publish mateooo93-cortex
     runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "::error::NPM_TOKEN secret is not set."
-            echo "Create an Automation token at https://www.npmjs.com/settings/~youruser/tokens"
-            echo "Add it as NPM_TOKEN in repo secrets, then re-run this workflow."
-            exit 1
-          fi
-          ./script/publish-npm.sh "${{ inputs.release-tag }}" --yes
+        run: ./script/publish-npm.sh "${{ inputs.release-tag }}" --yes
