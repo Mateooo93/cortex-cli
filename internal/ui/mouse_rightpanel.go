@@ -80,5 +80,6 @@ func (m *Model) handleRightPanelProcessClick(x, y int) (handled bool, cmds []tea
 	if err := sess.client.SendStopBackgroundProcess(pid); err != nil {
 		return true, []tea.Cmd{m.emitStatusMsg(err.Error(), StatusMsgError)}
 	}
+	sess.hoverProcessID = ""
 	return true, []tea.Cmd{m.emitStatusMsg("Stopped "+pid, StatusMsgInfo)}
 }

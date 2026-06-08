@@ -88,16 +88,16 @@ func (r *ProcessRegistry) Register(pid int, command, cwd string) string {
 	return id
 }
 
-// MarkExited records a process exit.
+// MarkExited removes a finished process from the registry.
 func (r *ProcessRegistry) MarkExited(id string, exitCode int) {
 	if r == nil || id == "" {
 		return
 	}
+	_ = exitCode
 	r.mu.Lock()
-	p, ok := r.procs[id]
+	_, ok := r.procs[id]
 	if ok {
-		p.Running = false
-		p.ExitCode = exitCode
+		delete(r.procs, id)
 	}
 	r.mu.Unlock()
 	if ok {
@@ -114,10 +114,7 @@ func (r *ProcessRegistry) Stop(id string) (Result, error) {
 	p, ok := r.procs[id]
 	r.mu.Unlock()
 	if !ok {
-		return Result{OK: false, Error: "unknown process_id: " + id}, nil
-	}
-	if !p.Running {
-		return Result{OK: true, Output: fmt.Sprintf("process %s (pid %d) already exited with code %d", id, p.PID, p.ExitCode)}, nil
+		return Result{OK: true, Output: fmt.Sprintf("process %s already stopped", id)}, nil
 	}
 	stopProcessTree(p.PID)
 	r.MarkExited(id, -1)

@@ -446,7 +446,7 @@ func (m *Model) buildRightPanelInfoView(sess *SessionState) RightPanelInfoView {
 		// list when asked' — that was because nothing was
 		// rendering in the right panel).
 		info.Todos = sess.todos
-		info.Processes = sess.backgroundProcesses
+		info.Processes = runningBackgroundProcesses(sess.backgroundProcesses)
 		info.Subagents = sess.localSubagents
 		info.HoverProcessID = sess.hoverProcessID
 		if sess.pendingInput != nil && sess.pendingInput.Queued {

@@ -170,8 +170,7 @@ type SessionState struct {
 	thinkingRendered      string
 	showThinking          bool
 
-	// backgroundProcesses lists shell commands still running (or
-	// recently exited) that the agent started via run_shell.
+	// backgroundProcesses lists shell commands the agent started via run_shell.
 	backgroundProcesses []protocol.BackgroundProcessItem
 
 	// localSubagents lists background sub-agents dispatched via spawn_agent.

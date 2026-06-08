@@ -749,20 +749,18 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 			lines = append(lines, hint)
 		}
 		for _, p := range visible {
-			cmd := truncateRight(p.Command, innerWidth-8)
-			if p.Running {
-				elapsed := time.Since(time.Unix(p.StartedAt, 0)).Truncate(time.Second)
-				line := fmt.Sprintf("● pid %d  %s  %s", p.PID, cmd, formatDurationShort(elapsed))
-				processLineIdx[p.ID] = len(lines)
-				rowStyle := warnStyle
-				if p.ID == info.HoverProcessID {
-					rowStyle = warnStyle.Strikethrough(true).Background(lipgloss.Color("#3A2A2A"))
-				}
-				lines = append(lines, rowStyle.Width(innerWidth).Render(truncateRight(line, innerWidth)))
-			} else {
-				line := fmt.Sprintf("○ %s  exited %d", cmd, p.ExitCode)
-				lines = append(lines, dimStyle.Width(innerWidth).Render(truncateRight(line, innerWidth)))
+			if !p.Running {
+				continue
 			}
+			cmd := truncateRight(p.Command, innerWidth-8)
+			elapsed := time.Since(time.Unix(p.StartedAt, 0)).Truncate(time.Second)
+			line := fmt.Sprintf("● pid %d  %s  %s", p.PID, cmd, formatDurationShort(elapsed))
+			processLineIdx[p.ID] = len(lines)
+			rowStyle := warnStyle
+			if p.ID == info.HoverProcessID {
+				rowStyle = warnStyle.Strikethrough(true).Background(lipgloss.Color("#3A2A2A"))
+			}
+			lines = append(lines, rowStyle.Width(innerWidth).Render(truncateRight(line, innerWidth)))
 		}
 		rp.setSectionBounds(rpSectionProcesses, sectionStart, len(lines)-sectionStart)
 	}
