@@ -21,36 +21,12 @@ npm install -g mateooo93-cortex
 cortex
 ```
 
-### Bun (macOS, Linux, Windows)
-
-```bash
-bun install -g mateooo93-cortex
-cortex
-```
-
-### Homebrew (macOS, Linux)
-
-```bash
-brew tap Mateooo93/cortex
-brew install cortex
-cortex
-```
-
 ### Windows (PowerShell)
 
 ```powershell
 irm https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.ps1 | iex
 cortex
 ```
-
-### winget (Windows)
-
-```powershell
-winget install Mateooo93.Cortex
-cortex
-```
-
-> `winget install` works after [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) merges our manifest. Until then, use the PowerShell installer above.
 
 ### Linux — amd64
 
@@ -87,7 +63,7 @@ go build -o cortex ./cmd/cortex
 
 One-shot prompt (no TUI): `cortex -p "your prompt"`
 
-> **npm note:** The package `cortex-cli` on npm is a different product (CognitiveScale). Use `mateooo93-cortex`. If you get a 404, the package has not been published yet — use curl, Homebrew, or the Windows PowerShell installer below.
+> **npm note:** The package `cortex-cli` on npm is a different product (CognitiveScale). Use `mateooo93-cortex`. If you get a 404, the package has not been published yet — use curl or the Windows PowerShell installer below.
 
 ## Features
 

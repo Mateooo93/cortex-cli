@@ -10,11 +10,4 @@ npm install -g mateooo93-cortex
 cortex
 ```
 
-Also works with Bun:
-
-```bash
-bun install -g mateooo93-cortex
-cortex
-```
-
 Set `CORTEX_SKIP_POSTINSTALL=1` to skip the binary download (for CI or offline mirrors).
