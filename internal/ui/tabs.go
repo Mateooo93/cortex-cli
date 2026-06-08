@@ -230,8 +230,8 @@ func renderSessionsView(sessions []*SessionState, width, height int, s Styles, f
 	return s.ViewportFocusedStyle.Width(width).Height(height).Render(content)
 }
 
-// renderSettingsSectionTabs draws Providers | Other Settings with Tab hint.
-func renderSettingsSectionTabs(activeSection int, innerWidth int, s Styles) string {
+// renderSettingsSectionTabBar draws the Providers | Other Settings section tabs.
+func renderSettingsSectionTabBar(activeSection int, innerWidth int, s Styles) string {
 	sep := lipgloss.NewStyle().Foreground(colorDim).Render(" │ ")
 	names := []string{"Providers", "Other Settings"}
 	var parts []string
@@ -246,13 +246,19 @@ func renderSettingsSectionTabs(activeSection int, innerWidth int, s Styles) stri
 			parts = append(parts, sep)
 		}
 	}
-	tabs := strings.Join(parts, "")
-	hint := lipgloss.NewStyle().Foreground(colorDim).Italic(true).Render("Tab")
-	gap := innerWidth - lipgloss.Width(tabs) - lipgloss.Width(hint)
-	if gap < 1 {
-		gap = 1
+	return lipgloss.NewStyle().Width(innerWidth).Align(lipgloss.Left).Render(strings.Join(parts, ""))
+}
+
+// renderSettingsSectionSwitchHint explains how to jump to the other section.
+func renderSettingsSectionSwitchHint(activeSection int, innerWidth int) string {
+	target := "Other Settings"
+	if activeSection == 1 {
+		target = "Providers"
 	}
-	return lipgloss.NewStyle().Width(innerWidth).Render(tabs + strings.Repeat(" ", gap) + hint)
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
+	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
+	hint := keyStyle.Render("Tab") + dimStyle.Render("  switch to "+target)
+	return lipgloss.NewStyle().Width(innerWidth).Align(lipgloss.Left).Render(hint)
 }
 
 func settingsWindow(sel, total, limit int) (int, int) {
@@ -420,7 +426,8 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 
 	lines := []string{
 		titleStyle.Width(innerWidth).Render("Settings"),
-		renderSettingsSectionTabs(activeSection, innerWidth, s),
+		renderSettingsSectionTabBar(activeSection, innerWidth, s),
+		renderSettingsSectionSwitchHint(activeSection, innerWidth),
 	}
 
 	if inKeyInput {
@@ -601,7 +608,7 @@ func renderSettingsWizardView(width, height int, s Styles, dimStyle, selectedSty
 
 	lines := []string{
 		titleStyle.Width(innerWidth).Render("Settings"),
-		renderSettingsSectionTabs(0, innerWidth, s),
+		renderSettingsSectionTabBar(0, innerWidth, s),
 	}
 
 	// Heading showing the provider being edited.

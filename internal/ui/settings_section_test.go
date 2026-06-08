@@ -10,7 +10,7 @@ import (
 func settingsSectionTabLine(view string) string {
 	for _, line := range strings.Split(view, "\n") {
 		plain := stripANSI(line)
-		if strings.Contains(plain, "Providers") && strings.Contains(plain, "Other Settings") && strings.Contains(plain, "Tab") {
+		if strings.Contains(plain, "Providers") && strings.Contains(plain, "Other Settings") {
 			return line
 		}
 	}
@@ -198,13 +198,32 @@ func TestSettingsOtherSettings_IncludesAutoCompactRow(t *testing.T) {
 	}
 }
 
-func TestRenderSettingsSectionTabs_ShowsTabHint(t *testing.T) {
+func TestRenderSettingsSectionTabBar_ShowsBothSections(t *testing.T) {
 	s := NewStyles(true)
-	row := renderSettingsSectionTabs(0, 80, s)
+	row := renderSettingsSectionTabBar(0, 80, s)
 	plain := stripANSI(row)
-	for _, want := range []string{"Providers", "Other Settings", "Tab"} {
+	for _, want := range []string{"Providers", "Other Settings"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("missing %q in %q", want, plain)
+		}
+	}
+}
+
+func TestRenderSettingsSectionSwitchHint_ContextAware(t *testing.T) {
+	tests := []struct {
+		section int
+		want    string
+	}{
+		{0, "switch to Other Settings"},
+		{1, "switch to Providers"},
+	}
+	for _, tc := range tests {
+		plain := stripANSI(renderSettingsSectionSwitchHint(tc.section, 80))
+		if !strings.Contains(plain, "Tab") {
+			t.Fatalf("section %d: missing Tab in %q", tc.section, plain)
+		}
+		if !strings.Contains(plain, tc.want) {
+			t.Fatalf("section %d: want %q in %q", tc.section, tc.want, plain)
 		}
 	}
 }
