@@ -51,10 +51,10 @@ func TestModelContextWindow(t *testing.T) {
 // panel renders the context-usage bar with the correct
 // percentage. This is the headline user-facing metric the user
 // asked for.
-func TestRightPanel_OutlineMatchesSettingsViewport(t *testing.T) {
+func TestRightPanel_OutlineUsesThemePrimary(t *testing.T) {
 	s := NewStyles(true)
-	if rightPanelBorderStyle(s).GetBorderLeftForeground() != s.ViewportFocusedStyle.GetBorderLeftForeground() {
-		t.Fatal("right panel should use the same border style as Settings")
+	if rightPanelBorderStyle(s).GetBorderLeftForeground() != colorPrimary {
+		t.Fatal("right panel border should use theme primary color")
 	}
 	if rightPanelBorderStyle(s).GetBorderTop() {
 		t.Fatal("right panel should omit top border like Settings viewport")

@@ -32,18 +32,17 @@ func renderStatusBar(
 	s Styles,
 	info StatusBarInfo,
 ) string {
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 	dimLabel := lipgloss.NewStyle().Foreground(s.ColorDimGray)
+	modelStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(colorPrimary).
+		Padding(0, 1)
 
-	// ── Model + context + elapsed ────────────────────────────────────────
-	centerParts := []string{}
-	if info.ModelName != "" {
-		modelTag := info.ModelName
-		if info.ProviderTag != "" {
-			modelTag = modelTag + " · " + info.ProviderTag
-		}
-		centerParts = append(centerParts, labelStyle.Render(modelTag))
-	}
+	// ── Context · model (center hero) · elapsed ─────────────────────────
+	innerWidth := width - 2 // StatusBarStyle horizontal padding
+	sep := dimLabel.Render("  ")
+	parts := []string{}
+
 	// Context usage: "ctx 12k/200k (6%)" or "ctx 12k" if no
 	// window known. Use the chars/4 fallback in buildStatusBarInfo.
 	used := info.InputTokens + info.CacheRead
@@ -63,8 +62,6 @@ func renderStatusBar(
 		} else {
 			ctxSeg += formatTokenCount(used)
 		}
-		// If auto-compact is on and we're close to the
-		// threshold, colour the segment warning.
 		ctxStyle := dimLabel
 		if info.AutoCompact && info.ContextMax > 0 {
 			pct := float64(used) / float64(info.ContextMax) * 100
@@ -72,19 +69,27 @@ func renderStatusBar(
 				ctxStyle = lipgloss.NewStyle().Foreground(colorWarning)
 			}
 		}
-		centerParts = append(centerParts, ctxStyle.Render(ctxSeg))
+		parts = append(parts, ctxStyle.Render(ctxSeg))
+	}
+	if info.ModelName != "" {
+		modelTag := info.ModelName
+		if info.ProviderTag != "" {
+			modelTag = modelTag + " · " + info.ProviderTag
+		}
+		parts = append(parts, modelStyle.Render(modelTag))
 	}
 	if info.Elapsed > 0 {
-		centerParts = append(centerParts, dimLabel.Render("⏱  "+formatDuration(info.Elapsed)))
+		parts = append(parts, dimLabel.Render("⏱  "+formatDuration(info.Elapsed)))
 	}
 	if info.QueuedMsgs > 0 {
-		centerParts = append(centerParts, lipgloss.NewStyle().Foreground(colorWarning).Render(fmt.Sprintf("%d queued", info.QueuedMsgs)))
+		parts = append(parts, lipgloss.NewStyle().Foreground(colorWarning).Render(fmt.Sprintf("%d queued", info.QueuedMsgs)))
 	}
 
-	line := strings.Join(centerParts, dimLabel.Render("  "))
-	if lipgloss.Width(line) > width-2 {
-		line = lipgloss.NewStyle().MaxWidth(width - 2).Render(line)
+	line := strings.Join(parts, sep)
+	if lipgloss.Width(line) > innerWidth {
+		line = lipgloss.NewStyle().MaxWidth(innerWidth).Render(line)
 	}
+	line = lipgloss.NewStyle().Width(innerWidth).Align(lipgloss.Center).Render(line)
 
 	// If a transient status message is active, the
 	// status bar collapses to JUST the message line
@@ -136,7 +141,6 @@ func renderStatusBar(
 		content := lipgloss.NewStyle().Width(width).Render(msgStyle.Render(prefix + msg.Text))
 		return content
 	}
-	_ = labelStyle // silence unused in some builds
 	return s.StatusBarStyle.Width(width).Render(line)
 }
 

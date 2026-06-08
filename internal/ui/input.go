@@ -176,7 +176,7 @@ func renderInputBox(modeName string, isWorkflow bool, textareaView string, width
 
 // renderInputKeybindHint draws Enter / Tab / Esc under the chat input box.
 func renderInputKeybindHint(width int) string {
-	badgeStyle := lipgloss.NewStyle().Background(colorSecondary).Foreground(lipgloss.Color("0")).Bold(true)
+	badgeStyle := lipgloss.NewStyle().Background(colorPrimary).Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
 	dimLabel := lipgloss.NewStyle().Foreground(colorDim)
 	parts := []string{
 		badgeStyle.Render(" Enter ") + dimLabel.Render(" send  "),

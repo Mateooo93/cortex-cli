@@ -440,9 +440,13 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 	return box
 }
 
-// rightPanelBorderStyle matches the Settings/Sessions viewport outline.
+// rightPanelBorderStyle uses the theme primary color for the panel outline.
 func rightPanelBorderStyle(s Styles) lipgloss.Style {
-	return s.ViewportFocusedStyle
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderTop(false).
+		BorderForeground(colorPrimary).
+		Padding(0, 1)
 }
 
 // renderInfoView draws the OpenCode-style info / status panel:
