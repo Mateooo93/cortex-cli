@@ -2,10 +2,8 @@ package tools
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -121,22 +119,9 @@ func (r *ProcessRegistry) Stop(id string) (Result, error) {
 	if !p.Running {
 		return Result{OK: true, Output: fmt.Sprintf("process %s (pid %d) already exited with code %d", id, p.PID, p.ExitCode)}, nil
 	}
-	signalProcessGroup(p.PID, syscall.SIGTERM)
-	time.Sleep(200 * time.Millisecond)
-	signalProcessGroup(p.PID, syscall.SIGKILL)
+	stopProcessTree(p.PID)
 	r.MarkExited(id, -1)
 	return Result{OK: true, Output: fmt.Sprintf("stopped process %s (pid %d)", id, p.PID)}, nil
-}
-
-func signalProcessGroup(pid int, sig syscall.Signal) {
-	pgid, err := syscall.Getpgid(pid)
-	if err != nil {
-		pgid = pid
-	}
-	_ = syscall.Kill(-pgid, sig)
-	if proc, err := os.FindProcess(pid); err == nil {
-		_ = proc.Signal(sig)
-	}
 }
 
 func (r *ProcessRegistry) notify() {

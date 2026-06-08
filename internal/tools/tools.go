@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -885,7 +884,7 @@ func (t *ShellTool) Run(ctx Context, args map[string]any) (Result, error) {
 	sh := shellCommand()
 	c := exec.Command(sh, "-c", wrapShellForBackgroundTracking(cmd))
 	c.Dir = ctx.CWD
-	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setShellProcGroup(c)
 	var stdout, stderr strings.Builder
 	if background {
 		c.Stdout = io.Discard
