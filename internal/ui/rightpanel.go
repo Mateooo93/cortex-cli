@@ -623,9 +623,32 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 
 	lines = append(lines, "")
 	lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Keys"))
-	lines = append(lines, badgeStyle.Render(" Ctrl+C ")+" "+dimStyle.Render(truncateRight("quit", innerWidth-10)))
+	for _, row := range rightPanelKeybindRows {
+		lines = append(lines, renderKeybindLegendRow(badgeStyle, dimStyle, row[0], row[1], innerWidth))
+	}
+	lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("Esc close panel"))
 
 	return lines, processLineIdx
+}
+
+// rightPanelKeybindRows is the compact legend shown at the bottom of the
+// info panel (Ctrl+B). F3 and F4 both open Settings from the tab bar.
+var rightPanelKeybindRows = [][2]string{
+	{"F1", "Sessions"},
+	{"F2", "Chat"},
+	{"F3", "Settings"},
+	{"Tab", "queue"},
+	{"Enter", "send"},
+	{"Esc", "cancel"},
+	{"Ctrl+T", "new session"},
+	{"Ctrl+B", "toggle panel"},
+	{"Ctrl+C", "quit"},
+	{"/", "slash menu"},
+}
+
+func renderKeybindLegendRow(badgeStyle, dimStyle lipgloss.Style, key, action string, innerWidth int) string {
+	badge := badgeStyle.Render(fmt.Sprintf(" %-6s ", key))
+	return badge + " " + dimStyle.Render(truncateRight(action, innerWidth-10))
 }
 
 // truncateRight is like settingsTruncate but right-side cut and
