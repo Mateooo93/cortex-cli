@@ -12,22 +12,28 @@
   <a href="https://github.com/Mateooo93/cortex-cli/stargazers"><img src="https://img.shields.io/github/stars/Mateooo93/cortex-cli?style=for-the-badge" alt="Stars" /></a>
 </p>
 
-## Highlights
+**cortex-cli** is an open-source coding agent you run in the terminal. Describe what you want in plain language — it reads your repo, edits files, runs commands, searches the web, and keeps working until the job is done. Everything runs locally as a single Go binary with a polished Bubble Tea interface: no daemon, no Docker, no separate cloud agent.
+
+Built for daily development: sessions survive restarts, you can queue messages and spin up parallel workflows without leaving chat, and `/compact` folds long threads into a short summary that keeps the decisions and file paths that matter.
+
+## Why cortex-cli?
 
 - **Instant startup** — single binary, in-process session. No daemon, no Docker, no waiting.
-- **Stays in flow** — persistent chat, multi-session support, `/compact` when context gets long.
-- **Bring your own model** — OpenAI, Anthropic, Ollama, Groq, or sign in with ChatGPT / Claude / Copilot subscriptions.
-- **Actually edits your code** — read, write, precise multi-block edits, bash, grep, web search. Safe by default.
+- **Stays in flow** — persistent chat, multi-session support, context usage in the status bar.
+- **Bring your own model** — OpenAI, Anthropic, Ollama, Groq, OpenRouter, or sign in with ChatGPT / Claude / Copilot subscriptions.
+- **Actually edits your code** — read, write, precise multi-block edits, bash, grep, web search. Safe by default with deny lists and path confirmation.
 - **Goes deep when you need it** — goals, multi-agent workflows, and ultracode mode for bigger tasks.
 
 ## Quick start
+
+**npm** (macOS, Linux, Windows):
 
 ```bash
 npm install -g mateooo93-cortex
 cortex
 ```
 
-Or download a binary (Linux amd64):
+**Linux** (amd64 binary):
 
 ```bash
 curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-amd64
@@ -35,69 +41,38 @@ chmod +x cortex && sudo mv cortex /usr/local/bin/
 cortex
 ```
 
-One-shot, no TUI: `cortex -p "explain this repo"`
-
-Pick a provider in the **Settings** tab or with `/model`. Subscription sign-in is `/login` — tokens stay in your OS keychain.
-
-## What is cortex-cli?
-
-cortex-cli is an interactive coding agent you run in the terminal. You describe what you want; it reads your repo, edits files, runs commands, and keeps working until the job is done — all inside a polished Bubble Tea interface.
-
-It is built for daily use: sessions survive restarts, context usage is visible in the status bar, and you can queue messages or spin up parallel workflows without leaving chat. When a thread gets too long, `/compact` folds it into a short summary that keeps the decisions and file paths that matter.
-
-Under the hood it is a fork of the [vix](https://github.com/get-vix/vix) agent design, extended with multi-provider support, workflows, goals, and a full built-in tool set.
-
-## Install
-
-### npm (macOS, Linux, Windows)
-
-```bash
-npm uninstall -g cortex-cli
-npm install -g mateooo93-cortex
-cortex
-```
-
-### Windows (PowerShell)
+**Windows** (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.ps1 | iex
 cortex
 ```
 
-### Linux — amd64
+Then open any project directory and run `cortex`. One-shot without the TUI: `cortex -p "explain this repo"`.
 
-```bash
-curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-amd64
-chmod +x cortex && sudo mv cortex /usr/local/bin/
-cortex
-```
+Other platforms and tarballs are on the [latest release](https://github.com/Mateooo93/cortex-cli/releases/latest). To build from source: `git clone`, `go build -o cortex ./cmd/cortex`, `./cortex`.
 
-### Linux — arm64
+> **npm note:** The package `cortex-cli` on npm is a different product (CognitiveScale). Use `mateooo93-cortex`.
 
-```bash
-curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-arm64
-chmod +x cortex && sudo mv cortex /usr/local/bin/
-cortex
-```
+## What is cortex-cli?
 
-### macOS — Apple Silicon
+cortex-cli pairs a terminal UI with an in-process chat session, a multi-provider LLM layer, and a built-in tool set. You stay in one window: chat on the left, optional context panel on the right, slash commands for model switches and workflows, and a command palette when you do not want to remember shortcuts.
 
-```bash
-curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-darwin-arm64
-chmod +x cortex && sudo mv cortex /usr/local/bin/
-cortex
-```
+**How a session works.** You send a message. The agent plans, calls tools (`read_file`, `edit_file`, `bash`, `grep`, `web_search`, and more), streams results back into the TUI, and loops until it finishes or asks you to confirm something risky. Headless mode (`cortex -p "…"`) runs the same stack without the interface — useful for scripts and CI.
 
-### Build from source
+**What makes it different.** Many agents ship as Node wrappers, IDE plugins, or hosted services. cortex-cli is one native binary: session state lives in `~/.cortex/`, providers are pluggable, and subscription OAuth tokens sit in your OS keychain. It extends the [vix](https://github.com/get-vix/vix) agent design with multi-provider support, goals, workflows, swarm roles (planner / developer / reviewer), and a full access policy (`deny_list`, allowed directories, interactive confirmations).
 
-```bash
-git clone https://github.com/Mateooo93/cortex-cli.git
-cd cortex-cli
-go build -o cortex ./cmd/cortex
-./cortex
-```
+**Who it is for.** Developers who live in the terminal and want a fast, self-hosted agent that respects existing API keys or ChatGPT / Claude / Copilot plans — without tying the workflow to a single vendor or editor.
 
-> **npm note:** The package `cortex-cli` on npm is a different product (CognitiveScale). Use `mateooo93-cortex`. If you get a 404, the package has not been published yet — use curl or the Windows PowerShell installer above.
+## Authentication
+
+Pick what fits your setup:
+
+**Subscription sign-in** — run `cortex`, open **Settings** (`F3`) or type `/login`, and sign in with ChatGPT (Codex), Claude, or Copilot. Tokens are stored in the OS keychain.
+
+**API keys** — set one of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CORTEX_API_KEY`, or point at a local Ollama install. Keys can also be saved from the Settings tab.
+
+**Choose a model** — `/model` or the Settings tab. List configured options with `cortex --list-models`.
 
 ## Using it
 
@@ -119,7 +94,7 @@ cortex --workdir ./my-project       # set cwd
 cortex --list-models                # show configured models
 ```
 
-Config lives in `~/.cortex/` (Windows: `%USERPROFILE%\.cortex\`). Project overrides go in `./.cortex/`.
+Config lives in `~/.cortex/` (Windows: `%USERPROFILE%\.cortex\`). Project overrides go in `./.cortex/`. See [AGENTS.md](AGENTS.md) for architecture, deny-list semantics, and contributor conventions.
 
 ## Development
 
