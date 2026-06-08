@@ -32,6 +32,21 @@ func TestSlashMenuIncludesCompact(t *testing.T) {
 	}
 }
 
+func TestSlashMenuIncludesMemory(t *testing.T) {
+	var found bool
+	for _, cmd := range slashCommands {
+		if cmd.Name == "memory" {
+			found = true
+			if cmd.Action != "open_memory_picker" {
+				t.Errorf("/memory action = %q, want open_memory_picker", cmd.Action)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected /memory in slashCommands")
+	}
+}
+
 // TestHandleCommandAction_Compact verifies the
 // "compact_context" action returns at least one non-nil
 // tea.Cmd (so the TUI can actually fire the compaction

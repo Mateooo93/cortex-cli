@@ -180,6 +180,11 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 		if sess != nil {
 			sess.input.Blur()
 		}
+	case "open_memory_picker":
+		m.memoryPicker.Open(m.projectMemoryStore(), m.projectMemoryEnabled())
+		if sess != nil {
+			sess.input.Blur()
+		}
 
 	case "history":
 		if sess != nil && len(sess.history.entries) > 0 {

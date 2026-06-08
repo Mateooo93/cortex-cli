@@ -183,6 +183,55 @@ func SetShowThinking(v bool) error {
 	return os.WriteFile(p, out, 0o644)
 }
 
+// ProjectMemoryEnabled reads the project_memory feature flag from layered
+// settings.json files. Defaults to true when absent.
+func ProjectMemoryEnabled(paths CortexPaths) bool {
+	enabled := true
+	for _, p := range paths.Settings() {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var cfg struct {
+			Features map[string]bool `json:"features"`
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			continue
+		}
+		if v, ok := cfg.Features["project_memory"]; ok {
+			enabled = v
+		}
+	}
+	return enabled
+}
+
+// SetProjectMemory writes project_memory to the project settings.json,
+// preserving other keys.
+func SetProjectMemory(paths CortexPaths, v bool) error {
+	p := paths.ProjectSettingsWrite()
+	if p == "" {
+		return fmt.Errorf("no project settings path")
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	raw := map[string]any{}
+	if data, err := os.ReadFile(p); err == nil {
+		_ = json.Unmarshal(data, &raw)
+	}
+	features, _ := raw["features"].(map[string]any)
+	if features == nil {
+		features = map[string]any{}
+	}
+	features["project_memory"] = v
+	raw["features"] = features
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, out, 0o644)
+}
+
 // ThemeConfig holds user-configurable brand colors.
 type ThemeConfig struct {
 	Primary   string `json:"primary"`   // hex color like "#3B82F6"

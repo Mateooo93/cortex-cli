@@ -233,6 +233,7 @@ type Model struct {
 	settingsModelPending     string // model spec awaiting an API key
 	settingsKeySel           int
 	settingsKeys             []ProviderSettingsView
+	settingsProviderFilter   textinput.Model
 	settingsOtherSel         int
 	settingsKeyInputProvider string
 	settingsKeyInputLabel    string
@@ -287,6 +288,7 @@ type Model struct {
 	modelPicker    ModelPicker
 	loginPicker    LoginPicker
 	workflowPicker WorkflowPicker
+	memoryPicker   MemoryPicker
 	effortPicker   EffortPicker
 
 	// Workflow tab state
@@ -867,8 +869,10 @@ func NewModel(cfg *config.Config, cortexCfg *cortexconfig.Config, client *daemon
 		sessions:                       []*SessionState{initialSession},
 		selectedSession:                0,
 		sessionsInput:                  newSessionsInput(),
+		settingsProviderFilter:         newSettingsProviderFilterInput(),
 		commandPalette:                 NewCommandPalette(),
 		workflowPicker:                 NewWorkflowPicker(),
+		memoryPicker:                   NewMemoryPicker(),
 		hasDarkBG:                      true,
 		styles:                         NewStyles(true),
 		mdRenderer:                     NewMarkdownRenderer(80, true, NewStyles(true).CodeBoxBorderStyle),
@@ -1075,6 +1079,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			sess.questionPanel.SetWidth(m.width)
 		}
 		m.sessionsInput.SetWidth(m.width - 6)
+		m.settingsProviderFilter.SetWidth(m.width - 6)
 		m.updateChatWidth()
 		return m, nil
 
@@ -1576,11 +1581,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							providerName = m.cortexCfg.AddCustomProvider(m.settingsCustomProvider, m.settingsCustomBaseURL, val)
 							_ = cortexconfig.Save(m.cortexCfg)
 							m.refreshSettingsKeys()
-							providers := m.settingsProviders()
-							for i, p := range providers {
+							filtered := m.settingsFilteredKeys()
+							for i, pk := range filtered {
+								if pk.Provider == providerName {
+									m.settingsKeySel = i
+									break
+								}
+							}
+							for i, p := range m.settingsProviders() {
 								if p.Name == providerName {
 									m.settingsProviderSel = i
-									m.settingsKeySel = i
 									break
 								}
 							}
@@ -1628,20 +1638,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, tea.Batch(cmds...)
 				}
+				filteredKeys := m.settingsFilteredKeys()
 				switch msg.String() {
 				case "up", "k":
 					if m.settingsKeySel > 0 {
 						m.settingsKeySel--
 					}
 				case "down", "j":
-					if m.settingsKeySel < settingsProviderAddRowIndex(m.settingsKeys) {
+					if m.settingsKeySel < settingsProviderAddRowIndex(filteredKeys) {
 						m.settingsKeySel++
 					}
 				case "enter":
-					if m.settingsKeySel == settingsProviderAddRowIndex(m.settingsKeys) {
+					if m.settingsKeySel == settingsProviderAddRowIndex(filteredKeys) {
 						m.openAddCustomProviderFlow()
-					} else if m.settingsKeySel < len(m.settingsKeys) {
-						providerName := m.settingsKeys[m.settingsKeySel].Provider
+					} else if m.settingsKeySel < len(filteredKeys) {
+						providerName := filteredKeys[m.settingsKeySel].Provider
 						// OAuth providers don't have an API key or a
 						// base URL the user should edit — they sign in
 						// with their existing subscription. Skip the
@@ -1664,11 +1675,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.openSettingsWizard(providerName)
 					}
 				case "a":
-					m.settingsKeySel = settingsProviderAddRowIndex(m.settingsKeys)
+					m.settingsKeySel = settingsProviderAddRowIndex(filteredKeys)
 					m.openAddCustomProviderFlow()
 				case "r":
-					if m.settingsKeySel < len(m.settingsKeys) {
-						providerName := m.settingsKeys[m.settingsKeySel].Provider
+					if m.settingsKeySel < len(filteredKeys) {
+						providerName := filteredKeys[m.settingsKeySel].Provider
 						cmds = append(cmds, m.emitStatusMsg("Refreshing models for "+providerName, StatusMsgInfo), m.fetchModelsForProvider(providerName))
 					}
 				case "tab":
@@ -1679,6 +1690,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.settingsActiveSection = 1
 				case "shift+tab":
 					m.settingsActiveSection = 1
+				case "esc":
+					ti := m.settingsProviderFilter
+					ti.SetValue("")
+					m.settingsProviderFilter = ti
+					m.clampSettingsKeySel()
+				default:
+					var cmd tea.Cmd
+					m.settingsProviderFilter, cmd = m.settingsProviderFilter.Update(msg)
+					m.clampSettingsKeySel()
+					cmds = append(cmds, cmd)
 				}
 			} else {
 				// Other Settings section
@@ -1744,6 +1765,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							state = "off"
 						}
 						cmds = append(cmds, m.emitStatusMsg("Auto-compact context: "+state+" (use /compact to run manually)", StatusMsgInfo))
+					case 5: // Project memory — toggle
+						next := !m.configuredProjectMemory()
+						if err := m.setProjectMemoryEnabled(next); err != nil {
+							cmds = append(cmds, m.emitStatusMsg("Project memory: "+err.Error(), StatusMsgError))
+						} else {
+							state := "on"
+							if !next {
+								state = "off"
+							}
+							cmds = append(cmds, m.emitStatusMsg("Project memory: "+state, StatusMsgInfo))
+						}
 					}
 				case "tab":
 					// Move back to Providers (section 0).
@@ -1958,6 +1990,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Batch(cmds...)
 			}
+		}
+
+		// Memory picker (opened by /memory slash command)
+		if m.memoryPicker.IsVisible() {
+			var cmds []tea.Cmd
+			store := m.projectMemoryStore()
+			switch msg.String() {
+			case "up", "k":
+				m.memoryPicker.MoveUp()
+			case "down", "j":
+				m.memoryPicker.MoveDown()
+			case "esc":
+				m.memoryPicker.Close()
+			case "enter":
+				m.memoryPicker.ToggleExpand()
+			case "d", "delete":
+				if err := m.memoryPicker.DeleteSelected(store); err != nil {
+					cmds = append(cmds, m.emitStatusMsg("Delete memory: "+err.Error(), StatusMsgError))
+				} else {
+					cmds = append(cmds, m.emitStatusMsg("Memory deleted", StatusMsgInfo))
+				}
+			case "backspace":
+				q := m.memoryPicker.Query()
+				if len(q) > 0 {
+					m.memoryPicker.SetQuery(q[:len(q)-1], store)
+				}
+			default:
+				ks := msg.String()
+				if isPickerFilterKey(ks) {
+					m.memoryPicker.SetQuery(m.memoryPicker.Query()+ks, store)
+				}
+			}
+			return m, tea.Batch(cmds...)
 		}
 
 		// Workflow picker (opened by /workflow slash command)
@@ -2371,6 +2436,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.settingsKeyInput, _ = m.settingsKeyInput.Update(msg)
 			return m, nil
 		}
+		if m.activeTab == TabKindSettings && m.settingsActiveSection == 0 && !m.settingsWizard.active {
+			m.settingsProviderFilter, _ = m.settingsProviderFilter.Update(msg)
+			m.clampSettingsKeySel()
+			return m, nil
+		}
 		sess := m.currentSession()
 		if sess == nil {
 			return m, nil
@@ -2614,6 +2684,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.activeTab == TabKindSessions {
 		var cmd tea.Cmd
 		m.sessionsInput, cmd = m.sessionsInput.Update(msg)
+		if cmd != nil {
+			return m, cmd
+		}
+	} else if m.activeTab == TabKindSettings && m.settingsActiveSection == 0 && !m.settingsInKeyInput && !m.settingsWizard.active {
+		var cmd tea.Cmd
+		m.settingsProviderFilter, cmd = m.settingsProviderFilter.Update(msg)
 		if cmd != nil {
 			return m, cmd
 		}
@@ -3125,15 +3201,16 @@ func (m Model) View() tea.View {
 		providers := m.settingsProviders()
 		selectedModels := m.selectedSettingsModels()
 		otherView := SettingsOtherView{
-			Theme:        m.configuredTheme(),
-			PrimaryColor: config.ThemePrimaryDisplayName(m.themeColors.Primary),
-			ShowThinking: settingsShowThinking,
-			ShowUsage:    m.configuredShowUsage(),
-			AutoCompact:  m.configuredAutoCompact(),
+			Theme:         m.configuredTheme(),
+			PrimaryColor:  config.ThemePrimaryDisplayName(m.themeColors.Primary),
+			ShowThinking:  settingsShowThinking,
+			ShowUsage:     m.configuredShowUsage(),
+			AutoCompact:   m.configuredAutoCompact(),
+			ProjectMemory: m.configuredProjectMemory(),
 		}
 		inspectView := m.settingsInspectView()
 		wizardView := m.settingsWizardView()
-		sv := renderSettingsView(m.width, settingsHeight, m.styles, m.settingsActiveSection, m.settingsProviderSel, m.settingsModelSel, m.settingsModelColumn, settingsActiveModel, settingsActiveProvider, providers, selectedModels, m.settingsKeys, m.settingsKeySel, m.settingsOtherSel, otherView, inspectView, m.settingsInKeyInput, m.settingsKeyInputLabel, m.settingsKeyInput.View(), wizardView)
+		sv := renderSettingsView(m.width, settingsHeight, m.styles, m.settingsActiveSection, m.settingsProviderSel, m.settingsModelSel, m.settingsModelColumn, settingsActiveModel, settingsActiveProvider, providers, selectedModels, m.settingsKeys, m.settingsKeySel, m.settingsOtherSel, otherView, inspectView, m.settingsInKeyInput, m.settingsKeyInputLabel, m.settingsKeyInput.View(), m.settingsProviderFilter.Value(), m.settingsProviderFilter.View(), wizardView)
 		uv.NewStyledString(sv).Draw(canvas, image.Rect(0, y, m.width, y+settingsHeight))
 		y += settingsHeight
 
@@ -3257,6 +3334,23 @@ func (m Model) View() tea.View {
 	}
 
 	m.drawContextMenu(canvas)
+
+	if m.memoryPicker.IsVisible() {
+		pickerH := m.memoryPicker.VisibleHeight()
+		if pickerH > m.height-4 {
+			pickerH = m.height - 4
+		}
+		if pickerH < 8 {
+			pickerH = 8
+		}
+		overlay := m.memoryPicker.View(m.width, pickerH, m.styles)
+		h := lipgloss.Height(overlay)
+		popupY := (m.height - h) / 2
+		if popupY < 0 {
+			popupY = 0
+		}
+		uv.NewStyledString(overlay).Draw(canvas, image.Rect(0, popupY, m.width, popupY+h))
+	}
 
 	// Workflow picker overlay: drawn on top of everything else.
 	if m.workflowPicker.IsVisible() {

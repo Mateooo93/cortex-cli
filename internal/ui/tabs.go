@@ -374,11 +374,12 @@ func settingsKeyStatus(pk ProviderSettingsView) string {
 }
 
 type SettingsOtherView struct {
-	Theme        string
-	PrimaryColor string
-	ShowThinking bool
-	ShowUsage    bool
-	AutoCompact  bool
+	Theme          string
+	PrimaryColor   string
+	ShowThinking   bool
+	ShowUsage      bool
+	AutoCompact    bool
+	ProjectMemory  bool
 }
 
 // SettingsInspectView is the rendered state for the inline provider
@@ -420,7 +421,7 @@ type SettingsWizardView struct {
 }
 
 // renderSettingsView renders the Settings tab content.
-func renderSettingsView(width, height int, s Styles, activeSection, providerSel, modelSel, modelColumn int, activeModel, activeProviderName string, providers []ProviderInfo, selectedModels []ModelInfo, keys []ProviderSettingsView, keySel int, otherSel int, other SettingsOtherView, inspect SettingsInspectView, inKeyInput bool, keyInputLabel, keyInputView string, wizard SettingsWizardView) string {
+func renderSettingsView(width, height int, s Styles, activeSection, providerSel, modelSel, modelColumn int, activeModel, activeProviderName string, providers []ProviderInfo, selectedModels []ModelInfo, keys []ProviderSettingsView, keySel int, otherSel int, other SettingsOtherView, inspect SettingsInspectView, inKeyInput bool, keyInputLabel, keyInputView string, providerFilter, providerFilterView string, wizard SettingsWizardView) string {
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
 	mutedStyle := lipgloss.NewStyle().Foreground(colorDim)
 	// selectedStyle is the cursor highlight in the provider
@@ -485,19 +486,24 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	}
 
 	if activeSection == 0 {
-	// Providers section: provider name only, no status text.
-	addRowIdx := len(keys)
+	// Providers section: filter box + provider name rows.
+	lines = append(lines, providerFilterView)
+	filteredKeys := filterProviderSettingsRows(keys, providerFilter)
+	addRowIdx := len(filteredKeys)
 	providerSel := keySel
 	if providerSel > addRowIdx {
 		providerSel = addRowIdx
 	}
-	apiRowsLimit := clampRows(height/6, 3, 6)
-	keyStart, keyEnd := settingsWindow(providerSel, len(keys), apiRowsLimit)
+	apiRowsLimit := clampRows(height/6-1, 2, 6)
+	keyStart, keyEnd := settingsWindow(providerSel, len(filteredKeys), apiRowsLimit)
 	if keyStart > 0 {
 		lines = append(lines, mutedStyle.Width(innerWidth).Render("  ↑ more providers"))
 	}
+	if len(filteredKeys) == 0 {
+		lines = append(lines, mutedStyle.Italic(true).Width(innerWidth).Render("  (no providers match your filter)"))
+	}
 	for i := keyStart; i < keyEnd; i++ {
-		pk := keys[i]
+		pk := filteredKeys[i]
 		isCursor := inspect.Provider == "" && i == keySel
 		prefix := "  "
 		if isCursor {
@@ -517,11 +523,11 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 			lines = append(lines, renderSettingsLine(rowStyle, row, innerWidth))
 		}
 	}
-	if keyEnd < len(keys) {
-		lines = append(lines, mutedStyle.Width(innerWidth).Render(fmt.Sprintf("  ↓ %d more providers", len(keys)-keyEnd)))
+	if keyEnd < len(filteredKeys) {
+		lines = append(lines, mutedStyle.Width(innerWidth).Render(fmt.Sprintf("  ↓ %d more providers", len(filteredKeys)-keyEnd)))
 	}
 	lines = append(lines, renderSettingsAddProviderRow(keySel == addRowIdx, innerWidth, optionRowStyle, selectedStyle))
-	lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  ↑/↓ navigate · Enter edit · A add custom · r refresh"))
+	lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  ↑/↓ navigate · Enter edit · A add custom · r refresh · type to filter"))
 	if inspect.Provider != "" {
 		// Inline detail panel for the selected provider.
 		baseURLValue := inspect.BaseURL
@@ -611,6 +617,12 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		compactStatus = "On"
 		compactToggle = "[✓]"
 	}
+	memoryStatus := "Off"
+	memoryToggle := "[ ]"
+	if other.ProjectMemory {
+		memoryStatus = "On"
+		memoryToggle = "[✓]"
+	}
 	otherRows := []struct {
 		label string
 		value string
@@ -624,6 +636,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		// The slash command `/compact` always works regardless
 		// of this setting.
 		{label: "Auto-compact context", value: compactToggle + " " + compactStatus},
+		{label: "Project memory", value: memoryToggle + " " + memoryStatus},
 	}
 	for i, row := range otherRows {
 		prefix := "  "

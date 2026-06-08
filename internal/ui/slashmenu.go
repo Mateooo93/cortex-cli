@@ -20,6 +20,7 @@ var slashCommands = []Command{
 	{Name: "login", Description: "Sign in to a subscription provider (codex, claude-sub, copilot)", Action: "open_login_picker"},
 	{Name: "copy", Description: "Copy conversation to clipboard", Action: "copy_conversation"},
 	{Name: "clear", Description: "Clear conversation history", Action: "slash_clear"},
+	{Name: "memory", Description: "Browse and search project-scoped memories", Action: "open_memory_picker"},
 }
 
 // SlashMenu is a popup that lists available slash commands matching the typed /query.

@@ -69,19 +69,27 @@ func (m *Model) refreshSettingsKeys() {
 		m.cortexCfg.EnsureProviderPresets()
 	}
 	m.settingsKeys = ProviderSettingsRows(m.cortexCfg)
-	if m.settingsKeySel < 0 {
-		m.settingsKeySel = 0
-	}
-	maxSel := settingsProviderAddRowIndex(m.settingsKeys)
-	if m.settingsKeySel > maxSel {
-		m.settingsKeySel = maxSel
-	}
+	m.clampSettingsKeySel()
 }
 
 // settingsProviderAddRowIndex is the cursor index of the "+ Add custom
 // provider" row — always one past the last configured provider.
 func settingsProviderAddRowIndex(keys []ProviderSettingsView) int {
 	return len(keys)
+}
+
+func (m *Model) settingsFilteredKeys() []ProviderSettingsView {
+	return filterProviderSettingsRows(m.settingsKeys, m.settingsProviderFilter.Value())
+}
+
+func (m *Model) clampSettingsKeySel() {
+	maxSel := settingsProviderAddRowIndex(m.settingsFilteredKeys())
+	if m.settingsKeySel < 0 {
+		m.settingsKeySel = 0
+	}
+	if m.settingsKeySel > maxSel {
+		m.settingsKeySel = maxSel
+	}
 }
 
 func (m *Model) openAddCustomProviderFlow() {
@@ -943,7 +951,7 @@ func (m *Model) setConfiguredShowUsage(v bool) {
 
 // settingsOtherOptionCount matches the row count rendered in renderSettingsView
 // for the "Other Settings" section. Keep in sync with tabs.go.
-const settingsOtherOptionCount = 5
+const settingsOtherOptionCount = 6
 
 func (m *Model) setAllSessionsShowThinking(show bool) {
 	for _, sess := range m.sessions {

@@ -74,7 +74,7 @@ func (m Model) handleFunctionKey(n int) (Model, tea.Cmd, bool) {
 		m.openSettingsTab()
 		m.sessionsInput.Blur()
 		m.clearChatSelection()
-		return m, nil, true
+		return m, m.settingsProviderFilter.Focus(), true
 
 	case 4:
 		m.activeTab = TabKindWorkflows

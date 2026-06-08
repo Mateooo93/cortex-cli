@@ -157,6 +157,21 @@ func (p CortexPaths) Brain() string {
 	return p.Primary()
 }
 
+// MemoryDB returns the project-scoped persistent memory database.
+func (p CortexPaths) MemoryDB() string {
+	return filepath.Join(p.Primary(), "memory.db")
+}
+
+// ContextMD returns the human-readable project context summary.
+func (p CortexPaths) ContextMD() string {
+	return filepath.Join(p.Primary(), "context.md")
+}
+
+// MemoryMetadata returns memory subsystem metadata (version, counts).
+func (p CortexPaths) MemoryMetadata() string {
+	return filepath.Join(p.Primary(), "metadata.json")
+}
+
 // ProjectSettingsWrite returns the settings.json path to use for persisting
 // project-level edits (e.g. appending allowed directories). Override mode
 // writes to the override dir; normal mode writes to cwd/.cortex.

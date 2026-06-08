@@ -35,6 +35,13 @@ func TestCortexPaths_NormalMode(t *testing.T) {
 		t.Errorf("AccessStatsDB = %q", got)
 	}
 
+	if got := p.MemoryDB(); got != filepath.Join("/project", ".cortex", "memory.db") {
+		t.Errorf("MemoryDB = %q", got)
+	}
+	if got := p.ContextMD(); got != filepath.Join("/project", ".cortex", "context.md") {
+		t.Errorf("ContextMD = %q", got)
+	}
+
 	if got := p.History(); got != filepath.Join("/project", ".cortex", "history.txt") {
 		t.Errorf("History = %q", got)
 	}

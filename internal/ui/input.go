@@ -70,6 +70,15 @@ func newSessionsInput() textinput.Model {
 	return ti
 }
 
+// newSettingsProviderFilterInput creates a text input for filtering providers
+// in the Settings → Providers section.
+func newSettingsProviderFilterInput() textinput.Model {
+	ti := textinput.New()
+	ti.Placeholder = "Filter providers…"
+	ti.Prompt = "  "
+	return ti
+}
+
 // renderQueueIndicator draws a single-line banner above the input
 // box whenever the user has a message queued (pendingInput is
 // non-nil). The banner stays visible until the message is sent,

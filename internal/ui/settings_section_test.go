@@ -43,7 +43,7 @@ func TestSettingsSectionOtherSettings_HighlightedWhenActive(t *testing.T) {
 			{Provider: "openai", DisplayName: "OpenAI"},
 		},
 		0, 0, other, inspect,
-		false, "", "",
+		false, "", "", "", "",
 		SettingsWizardView{},
 	)
 	tabLine := settingsSectionTabLine(view)
@@ -89,7 +89,7 @@ func TestSettingsSectionProviders_HighlightedWhenActive(t *testing.T) {
 			{Provider: "codex", DisplayName: "ChatGPT (codex)"},
 		},
 		0, 0, other, SettingsInspectView{},
-		false, "", "",
+		false, "", "", "", "",
 		SettingsWizardView{},
 	)
 	tabLine := settingsSectionTabLine(view)
@@ -115,7 +115,7 @@ func TestSettingsProviders_ShowsAddCustomProviderButton(t *testing.T) {
 		nil, nil,
 		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
 		1, 0, SettingsOtherView{}, SettingsInspectView{},
-		false, "", "",
+		false, "", "", "", "",
 		SettingsWizardView{},
 	)
 	plain := stripANSI(view)
@@ -137,7 +137,7 @@ func TestSettingsProviderRows_ShowCustomBadge(t *testing.T) {
 			{Provider: "my-local", DisplayName: "my-local", IsCustom: true},
 		},
 		1, 0, SettingsOtherView{}, SettingsInspectView{},
-		false, "", "",
+		false, "", "", "", "",
 		SettingsWizardView{},
 	)
 	var found bool
@@ -166,7 +166,7 @@ func TestSettingsProviderRows_AllBoldUnlessCursor(t *testing.T) {
 			{Provider: "anthropic", DisplayName: "Anthropic"},
 		},
 		1, 0, SettingsOtherView{}, SettingsInspectView{},
-		false, "", "",
+		false, "", "", "", "",
 		SettingsWizardView{},
 	)
 	plain := stripANSI(view)
@@ -210,7 +210,7 @@ func TestSettingsOtherSettings_IncludesColorRows(t *testing.T) {
 		nil, nil,
 		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
 		0, 1, other, SettingsInspectView{},
-		false, "", "",
+		false, "", "", "", "",
 		SettingsWizardView{},
 	)
 	if !strings.Contains(view, "Primary color") {
@@ -238,7 +238,7 @@ func TestSettingsOtherSettings_IncludesAutoCompactRow(t *testing.T) {
 		nil, nil,
 		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
 		0, 4, other, SettingsInspectView{},
-		false, "", "",
+		false, "", "", "", "",
 		SettingsWizardView{},
 	)
 	if !strings.Contains(view, "Auto-compact context") {
@@ -269,7 +269,8 @@ func TestRenderSettingsView_UsesMatchingHeaderDividers(t *testing.T) {
 		0, 0, 0, 0, "", "", nil, nil,
 		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
 		0, 0, SettingsOtherView{}, SettingsInspectView{},
-		false, "", "", SettingsWizardView{},
+		false, "", "", "", "",
+		SettingsWizardView{},
 	)
 	var dividerLines int
 	for _, line := range strings.Split(stripANSI(view), "\n") {
@@ -301,13 +302,13 @@ func TestSettingsOtherSettingsRows_AllBoldWhiteUnlessCursor(t *testing.T) {
 		nil, nil,
 		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
 		0, 1, other, SettingsInspectView{},
-		false, "", "",
+		false, "", "", "", "",
 		SettingsWizardView{},
 	)
 	if strings.Contains(view, "\x1b[2m") {
 		t.Fatalf("Other Settings rows should not use dim style, got:\n%s", view)
 	}
-	for _, label := range []string{"Theme", "Primary color", "Show extended thinking", "Show token usage", "Auto-compact context"} {
+	for _, label := range []string{"Theme", "Primary color", "Show extended thinking", "Show token usage", "Auto-compact context", "Project memory"} {
 		if !strings.Contains(stripANSI(view), label) {
 			t.Fatalf("missing Other Settings row %q", label)
 		}
@@ -331,6 +332,71 @@ func TestSettingsAddCustomProvider_EnterOpensNamePrompt(t *testing.T) {
 	}
 	if um.settingsKeyInputLabel != "New provider name" {
 		t.Fatalf("settingsKeyInputLabel = %q, want New provider name", um.settingsKeyInputLabel)
+	}
+}
+
+func TestFilterProviderSettingsRows(t *testing.T) {
+	keys := []ProviderSettingsView{
+		{Provider: "codex", DisplayName: "ChatGPT (codex)", AuthLabel: "OAuth (subscription)"},
+		{Provider: "openai", DisplayName: "OpenAI", AuthLabel: "API key"},
+		{Provider: "ollama", DisplayName: "Ollama", AuthLabel: "no key"},
+	}
+	filtered := filterProviderSettingsRows(keys, "chatgpt")
+	if len(filtered) != 1 || filtered[0].Provider != "codex" {
+		t.Fatalf("chatgpt filter = %+v, want codex only", filtered)
+	}
+	filtered = filterProviderSettingsRows(keys, "ollama")
+	if len(filtered) != 1 || filtered[0].Provider != "ollama" {
+		t.Fatalf("ollama filter = %+v, want ollama only", filtered)
+	}
+	if len(filterProviderSettingsRows(keys, "")) != len(keys) {
+		t.Fatal("empty filter should return all providers")
+	}
+}
+
+func TestSettingsProviders_FilterShowsMatchingRows(t *testing.T) {
+	s := NewStyles(true)
+	keys := []ProviderSettingsView{
+		{Provider: "codex", DisplayName: "ChatGPT (codex)"},
+		{Provider: "openai", DisplayName: "OpenAI"},
+		{Provider: "anthropic", DisplayName: "Anthropic"},
+	}
+	view := renderSettingsView(120, 40, s,
+		0, 0, 0, 0,
+		"GPT-5.5", "codex",
+		nil, nil,
+		keys,
+		0, 0, SettingsOtherView{}, SettingsInspectView{},
+		false, "", "", "openai", "  openai",
+		SettingsWizardView{},
+	)
+	plain := stripANSI(view)
+	if !strings.Contains(plain, "OpenAI") {
+		t.Fatalf("expected OpenAI in filtered view, got:\n%s", view)
+	}
+	for _, hidden := range []string{"ChatGPT (codex)", "Anthropic"} {
+		if strings.Contains(plain, hidden) {
+			t.Fatalf("expected %q hidden by filter, got:\n%s", hidden, view)
+		}
+	}
+	if !strings.Contains(plain, "type to filter") {
+		t.Fatalf("expected filter hint in providers section, got:\n%s", view)
+	}
+}
+
+func TestSettingsProviders_FilterEmptyShowsMessage(t *testing.T) {
+	s := NewStyles(true)
+	view := renderSettingsView(120, 40, s,
+		0, 0, 0, 0,
+		"", "",
+		nil, nil,
+		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
+		0, 0, SettingsOtherView{}, SettingsInspectView{},
+		false, "", "", "zzznomatch", "  zzznomatch",
+		SettingsWizardView{},
+	)
+	if !strings.Contains(stripANSI(view), "no providers match your filter") {
+		t.Fatalf("expected empty-filter message, got:\n%s", view)
 	}
 }
 

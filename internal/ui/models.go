@@ -273,6 +273,24 @@ func authLabel(kind string) string {
 	}
 }
 
+// filterProviderSettingsRows keeps provider rows whose display name, id,
+// or auth label matches query. Empty query returns all rows.
+func filterProviderSettingsRows(keys []ProviderSettingsView, query string) []ProviderSettingsView {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return keys
+	}
+	out := make([]ProviderSettingsView, 0, len(keys))
+	for _, pk := range keys {
+		if strings.Contains(strings.ToLower(pk.DisplayName), query) ||
+			strings.Contains(strings.ToLower(pk.Provider), query) ||
+			strings.Contains(strings.ToLower(pk.AuthLabel), query) {
+			out = append(out, pk)
+		}
+	}
+	return out
+}
+
 func normalizedModelForProvider(providerName, model string) string {
 	providerName = cortexconfig.NormalizeProviderName(providerName)
 	model = strings.TrimSpace(model)

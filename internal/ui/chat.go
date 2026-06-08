@@ -464,6 +464,8 @@ func summarizeToolOutput(name, output string) string {
 		return "file written"
 	case "todo_write":
 		return "TODO list updated."
+	case "memory_write":
+		return "Project memory saved."
 	case "web_fetch":
 		return formatFetchBytes(len(output))
 	default:

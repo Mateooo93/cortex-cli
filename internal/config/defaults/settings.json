@@ -4,6 +4,7 @@
     "read_agents_md": true,
     "read_claude_md": true,
     "show_thinking": false,
+    "project_memory": true,
     "telemetry": true,
     "tool_orchestrator": false
   },

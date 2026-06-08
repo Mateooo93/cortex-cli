@@ -245,7 +245,7 @@ func (s *Session) runSubagentToolCall(ctx context.Context, reg *tools.Registry, 
 		return nil
 	}
 	switch call.Name {
-	case "todo_write", "ask_user_question", "spawn_agent", "task_output":
+	case "todo_write", "ask_user_question", "spawn_agent", "task_output", "memory_write":
 		return toolHistoryMessage(call.ID, call.Name, "", true, call.Name+" is not available to sub-agents")
 	}
 	tool, ok := reg.Get(call.Name)

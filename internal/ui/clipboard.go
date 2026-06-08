@@ -16,6 +16,7 @@ const (
 	pasteTargetChat
 	pasteTargetSettingsKey
 	pasteTargetSettingsWizard
+	pasteTargetSettingsProviderFilter
 	pasteTargetSessions
 	pasteTargetRightPanelKey
 )
@@ -77,6 +78,9 @@ func (m Model) pasteTarget() pasteTarget {
 		}
 		if m.settingsInKeyInput {
 			return pasteTargetSettingsKey
+		}
+		if m.settingsActiveSection == 0 {
+			return pasteTargetSettingsProviderFilter
 		}
 	case TabKindSessions:
 		return pasteTargetSessions
@@ -141,6 +145,12 @@ func (m Model) applyPasteText(text string) (Model, tea.Cmd) {
 	case pasteTargetSettingsKey:
 		var cmd tea.Cmd
 		m.settingsKeyInput, cmd = m.settingsKeyInput.Update(paste)
+		return m, cmd
+
+	case pasteTargetSettingsProviderFilter:
+		var cmd tea.Cmd
+		m.settingsProviderFilter, cmd = m.settingsProviderFilter.Update(paste)
+		m.clampSettingsKeySel()
 		return m, cmd
 
 	case pasteTargetSessions:

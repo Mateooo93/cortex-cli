@@ -17,7 +17,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Mateooo93/cortex-cli/internal/config"
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
+	"github.com/Mateooo93/cortex-cli/internal/memory"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
 	"github.com/Mateooo93/cortex-cli/internal/provider"
 	"github.com/Mateooo93/cortex-cli/internal/subagent"
@@ -107,6 +109,10 @@ type Session struct {
 	// currentTodos is the last structured todo list emitted by todo_write.
 	// Used to preserve labels when the model sends status-only updates.
 	currentTodos []protocol.TodoItem
+
+	memoryStore    *memory.Store
+	memoryEnabled  bool
+	lastUserPrompt string
 }
 
 // Config is the input for New().
@@ -156,6 +162,15 @@ func New(cfg Config) (*Session, error) {
 	}
 	s.processes = tools.NewProcessRegistry(s.emitBackgroundProcesses)
 	s.subagents = subagent.NewRegistry(s.emitLocalSubagents)
+	paths := config.NewCortexPaths(cfg.ConfigDir, config.HomeCortexDir(), cfg.Workdir)
+	s.memoryEnabled = config.ProjectMemoryEnabled(paths)
+	if s.memoryEnabled {
+		store, err := memory.Open(paths, memory.DefaultLimits())
+		if err == nil {
+			s.memoryStore = store
+			_ = store.EnsureContextFile()
+		}
+	}
 	return s, nil
 }
 
@@ -408,6 +423,11 @@ func (s *Session) buildSystemMessage() string {
 	if s.cfg.SystemPrompt != "" {
 		systemMsg += s.cfg.SystemPrompt + "\n\n"
 	}
+	if s.memoryEnabled && s.memoryStore != nil {
+		if block := s.memoryStore.FormatInjection(s.lastUserPrompt); block != "" {
+			systemMsg += block + "\n\n"
+		}
+	}
 	systemMsg += s.tools.ToSystemPrompt()
 	return systemMsg
 }
@@ -515,15 +535,12 @@ func (s *Session) runTurn(parent context.Context, text string, attachments []pro
 		s.emitAgentDone()
 	}()
 
-	// Ensure the system prompt (with workdir) is present before
-	// the first provider call — new sessions start with empty
-	// history and would otherwise miss it entirely.
 	s.mu.Lock()
-	hasSystem := len(s.history) > 0 && s.history[0].Role == "system"
+	s.lastUserPrompt = text
 	s.mu.Unlock()
-	if !hasSystem {
-		s.ensureSystemPrompt()
-	}
+	// Refresh system prompt each turn so project memory retrieval
+	// can use the latest user message as a relevance hint.
+	s.ensureSystemPrompt()
 
 	// Push the user message
 	s.mu.Lock()
@@ -954,19 +971,27 @@ func (s *Session) runToolCall(ctx context.Context, call provider.ToolCall) *prov
 	summary := summarizeToolCall(call.Name, call.Arguments)
 	s.emitToolCall(call.ID, call.Name, call.Arguments, summary)
 	tctx := tools.Context{
-		CWD:        s.workdir,
-		AllowShell: s.cfg.Tools.AllowShell,
-		AllowWrite: s.cfg.Tools.AllowWrite,
-		AllowGit:   s.cfg.Tools.AllowGit,
-		Processes:  s.processes,
+		CWD:           s.workdir,
+		AllowShell:    s.cfg.Tools.AllowShell,
+		AllowWrite:    s.cfg.Tools.AllowWrite,
+		AllowGit:      s.cfg.Tools.AllowGit,
+		Processes:     s.processes,
+		Memory:        s.memoryStore,
+		MemoryEnabled: s.memoryEnabled,
 	}
 	res, _ := tool.Run(tctx, call.Arguments)
 	s.emitToolResult(call.ID, call.Name, res.Output, !res.OK, res.Error, res.Details)
+	if call.Name == "memory_write" && res.OK {
+		s.ensureSystemPrompt()
+	}
 	if !res.OK {
 		return toolHistoryMessage(call.ID, call.Name, res.Output, true, res.Error)
 	}
 	return toolHistoryMessage(call.ID, call.Name, res.Output, false, "")
 }
+
+// MemoryStore returns the project memory backend when enabled.
+func (s *Session) MemoryStore() *memory.Store { return s.memoryStore }
 
 // handleTodoWrite parses a todo_write tool call and emits a
 // structured EventTodoListUpdated. The TUI listens for that

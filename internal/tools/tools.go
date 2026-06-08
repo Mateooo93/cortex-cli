@@ -18,6 +18,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Mateooo93/cortex-cli/internal/memory"
 )
 
 // Tool is one callable tool.
@@ -50,6 +52,10 @@ type Context struct {
 	AllowGit   bool
 	// Processes tracks background shell commands for this session.
 	Processes *ProcessRegistry
+	// Memory is the project-scoped persistent memory store (optional).
+	Memory *memory.Store
+	// MemoryEnabled reflects the user's project_memory settings flag.
+	MemoryEnabled bool
 }
 
 // Result is the output of a tool execution.
@@ -1065,6 +1071,7 @@ func defaultTools() []Tool {
 		&TaskOutputTool{},
 		&AskUserQuestionTool{},
 		&TodoWriteTool{},
+		&MemoryWriteTool{},
 	}
 }
 
