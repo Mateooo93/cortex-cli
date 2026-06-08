@@ -74,8 +74,8 @@ func TestChatContentBounds_RespectRightPanel(t *testing.T) {
 
 func TestTabKindAtX_MatchesRenderedLayout(t *testing.T) {
 	regions := tabBarHitRegions()
-	if len(regions) != 3 {
-		t.Fatalf("expected 3 tab regions, got %d", len(regions))
+	if len(regions) != 4 {
+		t.Fatalf("expected 4 tab regions, got %d", len(regions))
 	}
 	for _, r := range regions {
 		for _, x := range []int{r.startX, r.endX} {

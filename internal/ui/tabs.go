@@ -13,9 +13,10 @@ import (
 type TabKind int
 
 const (
-	TabKindSessions TabKind = iota // sessions list overview
-	TabKindChat                    // chat display for the selected session
-	TabKindSettings                // global settings
+	TabKindSessions  TabKind = iota // sessions list overview
+	TabKindChat                     // chat display for the selected session
+	TabKindSettings                 // global settings
+	TabKindWorkflows                // workflow orchestration and history
 )
 
 // formatRunningTime formats a duration as a human-readable running time string.
@@ -722,6 +723,7 @@ func tabBarEntries() []tabBarEntry {
 		{"Sessions", "F1", TabKindSessions},
 		{"Chat", "F2", TabKindChat},
 		{"Settings", "F3", TabKindSettings},
+		{"Workflows", "F4", TabKindWorkflows},
 	}
 }
 
@@ -764,7 +766,7 @@ func tabKindAtX(x int) (TabKind, bool) {
 	return 0, false
 }
 
-// renderTabBar renders the tab bar: Sessions (F1) | Chat (F2) | Settings (F3).
+// renderTabBar renders the tab bar: Sessions (F1) | Chat (F2) | Settings (F3) | Workflows (F4).
 // alertBlink is true when some session needs user attention (shown on Chat tab label).
 func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, alertBlink bool, hoverTab int) string {
 	defs := tabBarEntries()
@@ -830,4 +832,241 @@ func renderTabBar(activeTab TabKind, width int, s Styles, viewportFocused bool, 
 	}
 
 	return top.String() + "\n" + mid.String() + "\n" + bot.String()
+}
+
+// renderWorkflowsView renders the Workflows tab content.
+// It shows all workflows (running, completed, failed) with their
+// step progress, duration, budget, and a detail panel for the
+// selected workflow.
+func renderWorkflowsView(sessions []*SessionState, width, height int, s Styles, selectedWorkflow int, selectedStep int) string {
+	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
+	whiteStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
+	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(colorPrimary)
+	innerWidth := width - 4
+	if innerWidth < 0 {
+		innerWidth = 0
+	}
+
+	// Collect all workflows across all sessions
+	type workflowEntry struct {
+		id       string
+		name     string
+		status   string
+		goal     string
+		steps    int
+		done     int
+		duration time.Duration
+		budget   string
+		sessIdx  int
+	}
+	var workflows []workflowEntry
+	for si, sess := range sessions {
+		if sess.workflowEngine == nil {
+			continue
+		}
+		for _, w := range sess.workflowEngine.Workflows() {
+			snap := sess.workflowEngine.Snapshot(w.ID)
+			budgetStr := "—"
+			if snap.BudgetTotal > 0 {
+				pct := float64(snap.BudgetSpent) / float64(snap.BudgetTotal) * 100
+				budgetStr = fmt.Sprintf("%.0f%% (%s/%s)", pct,
+					formatTokenCount(snap.BudgetSpent),
+					formatTokenCount(snap.BudgetTotal))
+			}
+			workflows = append(workflows, workflowEntry{
+				id:       snap.ID,
+				name:     snap.Name,
+				status:   snap.Status,
+				goal:     snap.Goal,
+				steps:    snap.TotalSteps,
+				done:     snap.DoneSteps,
+				duration: snap.Duration,
+				budget:   budgetStr,
+				sessIdx:  si,
+			})
+		}
+	}
+
+	// Sort by start time (newest first) — approximate via ID
+	for i := 0; i < len(workflows); i++ {
+		for j := i + 1; j < len(workflows); j++ {
+			if workflows[j].id > workflows[i].id {
+				workflows[i], workflows[j] = workflows[j], workflows[i]
+			}
+		}
+	}
+
+	header := titleStyle.Width(innerWidth).Render("Workflows")
+	helpText := dimStyle.Width(innerWidth).Render("Multi-agent workflow orchestration. Start with /workflow in chat or F4 to view.")
+	divider := dimStyle.Width(innerWidth).Render(strings.Repeat("─", innerWidth))
+
+	var lines []string
+	lines = append(lines, header, helpText, divider)
+
+	if len(workflows) == 0 {
+		lines = append(lines, "",
+			dimStyle.Width(innerWidth).Render("  No workflows yet."),
+			"",
+			dimStyle.Italic(true).Width(innerWidth).Render("  Use /workflow <task> in the chat tab to start one."),
+			"",
+			dimStyle.Italic(true).Width(innerWidth).Render("  Presets: /workflow code · research · test · review · docs"),
+		)
+		return s.ViewportFocusedStyle.Width(width).Height(height).Render(strings.Join(lines, "\n"))
+	}
+
+	// List workflows
+	statusIcon := func(status string) string {
+		switch status {
+		case "running", "planning", "synthesizing":
+			return "●"
+		case "done":
+			return "✓"
+		case "failed":
+			return "✗"
+		case "cancelled":
+			return "○"
+		default:
+			return " "
+		}
+	}
+	statusIconStyle := func(status string) lipgloss.Style {
+		switch status {
+		case "running", "planning", "synthesizing":
+			return lipgloss.NewStyle().Foreground(colorSecondary)
+		case "done":
+			return lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+		case "failed":
+			return lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+		default:
+			return lipgloss.NewStyle().Foreground(colorDim)
+		}
+	}
+
+	// Column layout
+	colID := 10
+	colName := 12
+	colStatus := 10
+	colSteps := 8
+	colTime := 8
+	colBudget := 15
+
+	colHeader := fmt.Sprintf("  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s",
+		colID, "ID",
+		colName, "Name",
+		colStatus, "Status",
+		colSteps, "Steps",
+		colTime, "Time",
+		colBudget, "Budget",
+	)
+	lines = append(lines, whiteStyle.Render(colHeader))
+
+	for i, wf := range workflows {
+		prefix := "  "
+		if i == selectedWorkflow {
+			prefix = "▸ "
+		}
+
+		icon := statusIcon(wf.status)
+		iconStyle := statusIconStyle(wf.status)
+		statusLine := iconStyle.Render(icon+" "+wf.status)
+
+		shortID := wf.id
+		if len(shortID) > colID {
+			shortID = shortID[len(shortID)-colID:]
+		}
+		shortName := wf.name
+		if len(shortName) > colName {
+			shortName = shortName[:colName-1] + "…"
+		}
+		durStr := formatDurationShort(wf.duration)
+
+		row := fmt.Sprintf("%s%-*s  %-*s  %-*s  %d/%d%-*s  %-*s  %-*s",
+			prefix, colID, shortID,
+			colName, shortName,
+			colStatus, statusLine,
+			wf.done, wf.steps, max(0, colSteps-4-len(fmt.Sprintf("%d/%d", wf.done, wf.steps))), "",
+			colTime, durStr,
+			colBudget, wf.budget,
+		)
+
+		rowStyle := dimStyle
+		if i == selectedWorkflow {
+			rowStyle = selectedStyle
+		}
+		lines = append(lines, rowStyle.Width(innerWidth).Render(settingsTruncate(row, innerWidth)))
+	}
+
+	// Detail panel for selected workflow
+	if selectedWorkflow >= 0 && selectedWorkflow < len(workflows) {
+		wf := workflows[selectedWorkflow]
+		lines = append(lines, divider)
+		lines = append(lines, whiteStyle.Width(innerWidth).Render("  "+wf.name+" — "+wf.goal))
+		lines = append(lines, dimStyle.Width(innerWidth).Render(fmt.Sprintf("  ID: %s · Status: %s · Duration: %s",
+			wf.id, wf.status, formatDurationShort(wf.duration))))
+		if wf.budget != "—" {
+			lines = append(lines, dimStyle.Width(innerWidth).Render("  Budget: "+wf.budget))
+		}
+
+		// Show steps if available
+		sess := sessions[wf.sessIdx]
+		if sess != nil && sess.workflowEngine != nil {
+			snap := sess.workflowEngine.Snapshot(wf.id)
+			if len(snap.Steps) > 0 {
+				lines = append(lines, dimStyle.Width(innerWidth).Render("  Steps:"))
+				for si, step := range snap.Steps {
+					stepIcon := "  "
+					stepStyle := dimStyle
+					switch step.Status {
+					case "done":
+						stepIcon = "  ✓"
+						stepStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+					case "in_progress":
+						stepIcon = "  ●"
+						stepStyle = lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
+					case "failed":
+						stepIcon = "  ✗"
+						stepStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+					case "cancelled":
+						stepIcon = "  ○"
+						stepStyle = dimStyle
+					}
+
+					prefix := " "
+					if si == selectedStep {
+						prefix = "▸"
+						stepStyle = selectedStyle
+					}
+					stepLine := fmt.Sprintf("  %s%s %s [%s] — %s",
+						prefix, stepIcon, step.Description, step.Role, step.Status)
+					lines = append(lines, stepStyle.Width(innerWidth).Render(settingsTruncate(stepLine, innerWidth)))
+
+					// Show output for selected step
+					if si == selectedStep && step.Output != "" {
+						lines = append(lines, dimStyle.Width(innerWidth).Render("    ── output ──"))
+						for _, outLine := range strings.Split(step.Output, "\n") {
+							if len(outLine) > innerWidth-4 {
+								outLine = outLine[:innerWidth-5] + "…"
+							}
+							lines = append(lines, dimStyle.Width(innerWidth).Render("    "+outLine))
+						}
+					}
+				}
+
+				// Summary
+				if snap.Summary != "" {
+					lines = append(lines, dimStyle.Width(innerWidth).Render("  ── summary ──"))
+					for _, sumLine := range strings.Split(snap.Summary, "\n") {
+						if len(sumLine) > innerWidth-4 {
+							sumLine = sumLine[:innerWidth-5] + "…"
+						}
+						lines = append(lines, dimStyle.Width(innerWidth).Render("  "+sumLine))
+					}
+				}
+			}
+		}
+	}
+
+	lines = append(lines, divider, dimStyle.Italic(true).Width(innerWidth).Render("  ↑/↓ navigate · Enter select · c cancel selected · r refresh · F2 Chat"))
+	return s.ViewportFocusedStyle.Width(width).Height(height).Render(strings.Join(lines, "\n"))
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -85,6 +86,19 @@ type Session struct {
 	toolBatchConcurrent bool
 
 	processes *tools.ProcessRegistry
+
+	// ── Goal state ──────────────────────────────────────────────────────
+	// When goalCondition is non-empty, the session runs autonomously:
+	// after each turn, a cheap evaluator model judges whether the
+	// condition is met. If not, the session continues automatically.
+	goalCondition   string // the user's /goal condition
+	goalActive      bool   // true when the goal loop is running
+	goalTurns       int    // number of evaluated turns
+	goalLastVerdict string // evaluator's most recent reason
+	goalCancelled   bool   // set by SendCancel to stop the goal loop
+
+	// Max turns before the goal loop gives up (safety cap).
+	goalMaxTurns int
 }
 
 // Config is the input for New().
@@ -200,6 +214,32 @@ func (s *Session) RestoreHistory(history []provider.Message) {
 // Send submits a user message and starts a turn. The turn runs in a
 // background goroutine and emits events on Events().
 func (s *Session) Send(text string, attachments []protocol.Attachment) {
+	// /goal commands: set, clear, or query goal state
+	if strings.HasPrefix(text, "/goal") {
+		rest := strings.TrimSpace(strings.TrimPrefix(text, "/goal"))
+		lower := strings.ToLower(rest)
+
+		// /goal clear|stop|off|reset|none|cancel → clear
+		clearAliases := []string{"clear", "stop", "off", "reset", "none", "cancel"}
+		for _, a := range clearAliases {
+			if lower == a {
+				s.ClearGoal()
+				return
+			}
+		}
+
+		// /goal (no args) → status query — push as normal user message
+		if rest == "" {
+			go s.runTurn(context.Background(), text, attachments)
+			return
+		}
+
+		// /goal <condition> → set goal and start autonomous loop
+		s.SetGoal(rest)
+		go s.runGoalLoop(context.Background())
+		return
+	}
+
 	go s.runTurn(context.Background(), text, attachments)
 }
 
@@ -255,8 +295,8 @@ func (s *Session) Steer(text string) {
 	s.Send(text, nil)
 }
 
-// SendCancel asks the running turn to stop. Safe to call when no turn
-// is in flight (it's a no-op).
+// SendCancel asks the running turn to stop. Also stops any active
+// goal loop. Safe to call when no turn is in flight (it's a no-op).
 func (s *Session) SendCancel() {
 	s.mu.Lock()
 	if s.cancel != nil {
@@ -264,6 +304,8 @@ func (s *Session) SendCancel() {
 	}
 	s.cancelReq = true
 	s.delayedCancel = false
+	s.goalCancelled = true
+	s.goalActive = false
 	s.mu.Unlock()
 }
 
@@ -354,6 +396,84 @@ func (s *Session) ensureSystemPrompt() {
 
 // ── Turn execution ──────────────────────────────────────────────────────
 
+// modelLoop runs the core model→tools→model loop until the model
+// produces a final text response (no more tool calls), an error
+// occurs, or ctx is cancelled. It does NOT push the initial user
+// message or emit agent_done — callers handle that.
+//
+// Returns nil on clean completion, or the error that stopped the loop.
+func (s *Session) modelLoop(ctx context.Context) error {
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		s.mu.Lock()
+		if s.delayedCancel {
+			s.cancel()
+			s.cancelReq = true
+			s.delayedCancel = false
+		}
+		s.mu.Unlock()
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		resp, err := s.callProvider(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || s.cancelReq {
+				return err
+			}
+			s.emitError(err)
+			return err
+		}
+
+		// Detect inline tool calls in markdown code blocks (Cortex-style)
+		inlineCalls := extractInlineToolCalls(resp.Content)
+		if len(inlineCalls) == 0 && len(resp.ToolCalls) == 0 {
+			// No tool calls; turn is done
+			s.mu.Lock()
+			s.history = append(s.history, provider.Message{
+				Role:    "assistant",
+				Content: resp.Content,
+			})
+			s.mu.Unlock()
+			s.emitStreamDone(resp.Usage, resp.FinishReason)
+			return nil
+		}
+
+		// Persist the assistant turn with tool calls attached
+		allCalls := append([]provider.ToolCall{}, resp.ToolCalls...)
+		allCalls = append(allCalls, inlineCalls...)
+		s.mu.Lock()
+		s.history = append(s.history, provider.Message{
+			Role:      "assistant",
+			Content:   stripToolCallBlocks(resp.Content),
+			ToolCalls: allCalls,
+		})
+		s.mu.Unlock()
+
+		// Execute tool calls — independent calls in a batch run in
+		// parallel (reads, greps, bash probes, etc.) while history
+		// is still recorded in the model's original call order.
+		s.executeToolCalls(ctx, allCalls)
+
+		// Pi-style steering: if a Steer() arrived during the tool
+		// batch, inject it now as the next user message before the
+		// follow-up LLM call.
+		s.mu.Lock()
+		if s.pendingSteer != "" {
+			steerText := s.pendingSteer
+			s.pendingSteer = ""
+			s.history = append(s.history, provider.Message{Role: "user", Content: steerText})
+			s.mu.Unlock()
+			// continue the outer loop to call provider with the steered instruction
+			continue
+		}
+		s.mu.Unlock()
+	}
+}
+
+// runTurn sets up the turn context, pushes the initial user message,
+// runs the model loop, and emits agent_done on completion.
 func (s *Session) runTurn(parent context.Context, text string, attachments []protocol.Attachment) {
 	ctx, cancel := context.WithCancel(parent)
 	s.mu.Lock()
@@ -380,91 +500,274 @@ func (s *Session) runTurn(parent context.Context, text string, attachments []pro
 		s.ensureSystemPrompt()
 	}
 
-	// 1) Push the user message
+	// Push the user message
 	s.mu.Lock()
 	s.history = append(s.history, provider.Message{Role: "user", Content: text})
 	s.mu.Unlock()
 
-	// 2) Loop: call model → handle tool calls → repeat
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		// If the user requested a delayed cancel while we were
-		// NOT in a tool call (i.e. the model was streaming text
-		// or we are about to start the next iteration), honour
-		// the cancel immediately. "After the current edit" only
-		// makes sense if there is an in-flight edit to wait for.
-		s.mu.Lock()
-		if s.delayedCancel {
-			s.cancel()
-			s.cancelReq = true
-			s.delayedCancel = false
-		}
-		s.mu.Unlock()
-		if ctx.Err() != nil {
-			return
-		}
-		resp, err := s.callProvider(ctx)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || s.cancelReq {
-				return
-			}
-			s.emitError(err)
-			return
-		}
+	s.modelLoop(ctx)
+}
 
-		// Detect inline tool calls in markdown code blocks (Cortex-style)
-		inlineCalls := extractInlineToolCalls(resp.Content)
-		if len(inlineCalls) == 0 && len(resp.ToolCalls) == 0 {
-			// No tool calls; turn is done
-			s.mu.Lock()
-			s.history = append(s.history, provider.Message{
-				Role:    "assistant",
-				Content: resp.Content,
-			})
-			s.mu.Unlock()
-			// Emit a synthetic stream-done event with usage
-			// and finish_reason. If finish_reason is
-			// "length", the UI warns the user that
-			// the model hit max_tokens instead of
-			// silently looking like the agent
-			// randomly stopped mid-sentence.
-			s.emitStreamDone(resp.Usage, resp.FinishReason)
-			return
-		}
+// ── Goal loop ─────────────────────────────────────────────────────────
 
-		// Persist the assistant turn with tool calls attached
-		allCalls := append([]provider.ToolCall{}, resp.ToolCalls...)
-		allCalls = append(allCalls, inlineCalls...)
-		s.mu.Lock()
-		s.history = append(s.history, provider.Message{
-			Role:      "assistant",
-			Content:   stripToolCallBlocks(resp.Content),
-			ToolCalls: allCalls,
-		})
-		s.mu.Unlock()
+const defaultMaxGoalTurns = 50
 
-		// Execute tool calls — independent calls in a batch run in
-		// parallel (reads, greps, bash probes, etc.) while history
-		// is still recorded in the model's original call order.
-		s.executeToolCalls(ctx, allCalls)
-
-		// Pi-style steering: if a Steer() arrived during the tool
-		// batch, inject it now as the next user message before the
-		// follow-up LLM call. This lets the user redirect the agent
-		// after the current edits/tools without aborting them.
-		s.mu.Lock()
-		if s.pendingSteer != "" {
-			steerText := s.pendingSteer
-			s.pendingSteer = ""
-			s.history = append(s.history, provider.Message{Role: "user", Content: steerText})
-			s.mu.Unlock()
-			// continue the outer loop to call provider with the steered instruction
-			continue
-		}
-		s.mu.Unlock()
+// SetGoal configures the session for autonomous goal-driven execution.
+// After each turn, a cheap evaluator model checks whether the
+// condition is met. If not, the session continues automatically.
+func (s *Session) SetGoal(condition string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.goalCondition = condition
+	s.goalActive = true
+	s.goalTurns = 0
+	s.goalLastVerdict = ""
+	s.goalCancelled = false
+	if s.goalMaxTurns <= 0 {
+		s.goalMaxTurns = defaultMaxGoalTurns
 	}
+}
+
+// ClearGoal stops any active goal loop and resets goal state.
+func (s *Session) ClearGoal() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.goalActive = false
+	s.goalCancelled = true
+}
+
+// HasGoal returns true when a goal loop is active.
+func (s *Session) HasGoal() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.goalActive
+}
+
+// GoalState returns a snapshot of the current goal state.
+func (s *Session) GoalState() (condition string, active bool, turns int, lastVerdict string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.goalCondition, s.goalActive, s.goalTurns, s.goalLastVerdict
+}
+
+// buildTranscript concatenates the recent conversation history into a
+// string the evaluator can judge. Keeps the tail (most recent work).
+func (s *Session) buildTranscript() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var b strings.Builder
+	start := 0
+	// Keep roughly the last 40 messages (20 turns) for the evaluator
+	if len(s.history) > 40 {
+		start = len(s.history) - 40
+	}
+	for _, msg := range s.history[start:] {
+		fmt.Fprintf(&b, "[%s]: %s\n", msg.Role, truncateForEval(msg.Content, 500))
+	}
+	return b.String()
+}
+
+// truncateForEval limits a message for the evaluator context window.
+func truncateForEval(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
+}
+
+// evaluateGoal sends the transcript to a cheap evaluator model and
+// returns whether the condition is met.
+func (s *Session) evaluateGoal(ctx context.Context, condition, transcript string) (met bool, reason string) {
+	// Build evaluator prompt
+	sysPrompt := `You are a goal evaluator. Judge whether the goal condition is met based ONLY on what is explicitly shown in the transcript. You cannot run commands or read files.
+
+Respond in EXACTLY this format:
+VERDICT: <YES or NO>
+REASON: <one concise sentence>`
+
+	userPrompt := fmt.Sprintf("GOAL CONDITION:\n%s\n\nCONVERSATION TRANSCRIPT:\n%s", condition, transcript)
+
+	// Use the session's provider with the smallest model possible.
+	// Fall back to the active model if we can't resolve a cheaper one.
+	messages := []provider.Message{
+		{Role: "system", Content: sysPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+
+	resp, err := s.callProviderWithMessages(ctx, messages)
+	if err != nil {
+		return false, fmt.Sprintf("evaluator error: %v", err)
+	}
+
+	lower := strings.ToLower(resp.Content)
+	if strings.Contains(lower, "verdict: yes") || strings.Contains(lower, "verdict:yes") {
+		met = true
+	}
+	if idx := strings.Index(lower, "reason:"); idx >= 0 {
+		reason = strings.TrimSpace(resp.Content[idx+7:])
+		if nl := strings.IndexAny(reason, "\n\r"); nl >= 0 {
+			reason = strings.TrimSpace(reason[:nl])
+		}
+	}
+	if reason == "" {
+		reason = resp.Content
+		if len(reason) > 200 {
+			reason = reason[:200] + "..."
+		}
+	}
+	return
+}
+
+// callProviderWithMessages is like callProvider but accepts explicit
+// messages instead of using the session history. Used by the evaluator
+// which needs its own prompt separate from the main conversation.
+//
+// For goal evaluation, it tries to select the cheapest available model
+// (Haiku for Anthropic, GPT-4o-mini for OpenAI) to keep evaluation
+// costs negligible. Falls back to the active model if cheap routing
+// cannot be resolved.
+func (s *Session) callProviderWithMessages(ctx context.Context, messages []provider.Message) (provider.Response, error) {
+	s.mu.Lock()
+	_, mc, err := s.cfg.GetModel(s.active)
+	s.mu.Unlock()
+	if err != nil {
+		return provider.Response{}, err
+	}
+	apiKey := mc.APIKey
+	if apiKey == "" {
+		if env := cortexconfig.ProviderEnvVar(mc.Provider); env != "" {
+			apiKey = os.Getenv(env)
+		}
+	}
+	if apiKey == "" {
+		return provider.Response{}, fmt.Errorf("no API key for evaluator")
+	}
+
+	// Cheap evaluator routing: prefer Haiku for Anthropic,
+	// GPT-4o-mini for OpenAI. The evaluator makes a simple
+	// binary decision — it doesn't need a frontier model.
+	evalModel := mc.Model
+	switch strings.ToLower(mc.Provider) {
+	case "anthropic":
+		evalModel = "claude-haiku-4-5-20251001"
+	case "openai":
+		evalModel = "gpt-4o-mini"
+	}
+
+	prov, err := provider.New(provider.ModelConfig{
+		Provider: mc.Provider,
+		Model:    evalModel,
+		BaseURL:  mc.BaseURL,
+		APIKey:   apiKey,
+	})
+	if err != nil {
+		return provider.Response{}, err
+	}
+	req := provider.Request{
+		Model:    evalModel,
+		Messages: messages,
+	}
+	return prov.Chat(ctx, req)
+}
+
+// runGoalLoop is the autonomous goal execution loop. It runs the
+// first turn with the goal condition, then evaluates after each turn.
+// If the evaluator says NO, it injects feedback and continues.
+// The loop stops when: goal met, cancelled, max turns exceeded,
+// or context cancelled.
+func (s *Session) runGoalLoop(parent context.Context) {
+	ctx, cancel := context.WithCancel(parent)
+	s.mu.Lock()
+	s.cancel = cancel
+	s.cancelReq = false
+	s.delayedCancel = false
+	s.pendingSteer = ""
+	condition := s.goalCondition
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		s.cancel = nil
+		s.delayedCancel = false
+		wasActive := s.goalActive
+		s.goalActive = false
+		s.mu.Unlock()
+		if wasActive {
+			s.emitAgentDone()
+		}
+	}()
+
+	// Turn 1: push the goal condition as the user message and run
+	s.mu.Lock()
+	s.history = append(s.history, provider.Message{Role: "user", Content: condition})
+	s.goalTurns = 1
+	s.mu.Unlock()
+
+	if err := s.modelLoop(ctx); err != nil {
+		return
+	}
+
+	// Subsequent turns: evaluate → continue if not met
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		s.mu.Lock()
+		if s.goalCancelled || !s.goalActive {
+			s.mu.Unlock()
+			return
+		}
+		if s.goalTurns >= s.goalMaxTurns {
+			s.mu.Unlock()
+			s.emitError(fmt.Errorf("goal loop stopped after %d turns (max reached)", s.goalMaxTurns))
+			return
+		}
+		condition := s.goalCondition
+		s.mu.Unlock()
+
+		// Build transcript and evaluate
+		transcript := s.buildTranscript()
+		met, reason := s.evaluateGoal(ctx, condition, transcript)
+
+		s.mu.Lock()
+		s.goalLastVerdict = reason
+		if met {
+			// Goal achieved!
+			s.goalActive = false
+			s.mu.Unlock()
+			s.emitGoalAchieved(condition, reason, s.goalTurns)
+			return
+		}
+		// Not met — inject evaluator feedback as system guidance
+		guidance := fmt.Sprintf(
+			"[Goal evaluator verdict: NOT YET MET. %s\nContinue working toward the goal: %s]",
+			reason, condition,
+		)
+		s.history = append(s.history, provider.Message{Role: "system", Content: guidance})
+		s.goalTurns++
+		s.mu.Unlock()
+
+		// Continue the turn — the system message guides the model
+		if err := s.modelLoop(ctx); err != nil {
+			return
+		}
+	}
+}
+
+// emitGoalAchieved sends a goal-achieved event to the UI.
+func (s *Session) emitGoalAchieved(condition, reason string, turns int) {
+	ev := protocol.SessionEvent{
+		Type: "event.goal_achieved",
+		Data: map[string]any{
+			"condition": condition,
+			"reason":    reason,
+			"turns":     turns,
+		},
+	}
+	s.safeEmit(ev)
 }
 
 // safeEmit sends an event to s.events, dropping it if no

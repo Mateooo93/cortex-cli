@@ -105,21 +105,32 @@ func TestRenderTabBar_ShowsFunctionKeys(t *testing.T) {
 	s := NewStyles(true)
 	bar := renderTabBar(TabKindChat, 120, s, true, false, -1)
 	plain := stripANSI(bar)
-	for _, want := range []string{"Sessions", "Chat", "Settings", "(F1)", "(F2)", "(F3)"} {
+	for _, want := range []string{"Sessions", "Chat", "Settings", "Workflows", "(F1)", "(F2)", "(F3)", "(F4)"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("tab bar missing %q, got:\n%s", want, plain)
 		}
 	}
-	if strings.Contains(plain, "Workflows") {
-		t.Errorf("tab bar should not contain 'Workflows', got:\n%s", plain)
+}
+
+func TestF4OnSessionsTabOpensWorkflows(t *testing.T) {
+	setupPersistDir(t)
+	cfg := &config.Config{}
+	cortexCfg := cortexconfig.Default()
+	m := NewModel(cfg, cortexCfg, nil, false, "", false, false)
+	m.activeTab = TabKindSessions
+	m.sessionsInput.Focus()
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyF4})
+	if updated.(Model).activeTab != TabKindWorkflows {
+		t.Fatalf("activeTab = %v, want TabKindWorkflows after F4 on Sessions tab", updated.(Model).activeTab)
 	}
 }
 
-func TestRenderTabBar_AllThreeTabs(t *testing.T) {
+func TestRenderTabBar_AllFourTabs(t *testing.T) {
 	s := NewStyles(true)
 	bar := renderTabBar(TabKindSettings, 120, s, true, false, -1)
 	plain := stripANSI(bar)
-	for _, want := range []string{"Sessions", "Chat", "Settings"} {
+	for _, want := range []string{"Sessions", "Chat", "Settings", "Workflows"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("tab bar missing %q, got:\n%s", want, plain)
 		}

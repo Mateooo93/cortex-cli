@@ -7,8 +7,10 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	"github.com/Mateooo93/cortex-cli/internal/config"
+	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 	"github.com/Mateooo93/cortex-cli/internal/daemon"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
+	"github.com/Mateooo93/cortex-cli/internal/workflow"
 )
 
 // RecentToolStatus is the lifecycle state of a
@@ -177,9 +179,16 @@ type SessionState struct {
 	RecentTools []RecentToolEntry
 
 	// Agent state
-	agentState AppState
-	activePlan *protocol.Plan
-	todos      []protocol.TodoItem
+	agentState     AppState
+	activePlan     *protocol.Plan
+	todos          []protocol.TodoItem
+	activeWorkflow string // ID of the workflow bound to this session's chat input
+
+	// Effort level: "low", "medium", "high", "ultracode"
+	effortLevel string
+
+	// Workflow engine (lazy-initialized by EnsureWorkflowEngine)
+	workflowEngine *workflow.Engine
 
 	// Token accounting
 	inputTokens                  int64
@@ -366,3 +375,13 @@ func (s *SessionState) FinishTurn() time.Duration {
 	return d
 }
 
+
+// EnsureWorkflowEngine returns the session's workflow engine,
+// creating one if necessary. The engine is bound to the user's
+// cortex config.
+func (s *SessionState) EnsureWorkflowEngine(cfg *cortexconfig.Config) *workflow.Engine {
+	if s.workflowEngine == nil {
+		s.workflowEngine = workflow.NewEngine(cfg)
+	}
+	return s.workflowEngine
+}

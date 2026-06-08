@@ -21,6 +21,19 @@ type StatusBarInfo struct {
 	Elapsed     time.Duration
 	QueuedMsgs  int
 	AutoCompact bool
+	// WorkflowName + WorkflowElapsed render a "● workflow
+	// <name> (2:13)" segment in the centre of the footer
+	// when a workflow is running. The user sees the live
+	// status without switching tabs.
+	WorkflowName    string
+	WorkflowStatus  string
+	WorkflowElapsed time.Duration
+	// GoalActive is true when a /goal is running.
+	GoalActive    bool
+	GoalTurns     int
+	GoalCondition string
+	// EffortLevel shows the current effort setting.
+	EffortLevel string
 }
 
 // renderStatusBar renders the slim single-line status bar: active
@@ -83,6 +96,32 @@ func renderStatusBar(
 	}
 	if info.QueuedMsgs > 0 {
 		parts = append(parts, lipgloss.NewStyle().Foreground(colorWarning).Render(fmt.Sprintf("%d queued", info.QueuedMsgs)))
+	}
+	if info.WorkflowName != "" {
+		// Workflow is running — show a prominent
+		// "● workflow <name> (2:13)" segment so the
+		// user knows the orchestrator is busy even
+		// when they're in the chat tab.
+		wfSeg := "● workflow " + info.WorkflowName
+		if info.WorkflowElapsed > 0 {
+			wfSeg += " (" + formatDurationShort(info.WorkflowElapsed) + ")"
+		}
+		wfStyle := lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
+		parts = append(parts, wfStyle.Render(wfSeg))
+	}
+	if info.GoalActive {
+		goalSeg := fmt.Sprintf("◎ goal (%d turns)", info.GoalTurns)
+		goalStyle := lipgloss.NewStyle().Foreground(colorSecondary)
+		parts = append(parts, goalStyle.Render(goalSeg))
+	}
+	if info.EffortLevel != "" && info.EffortLevel != "high" {
+		effSeg := "⚡ " + info.EffortLevel
+		effStyle := lipgloss.NewStyle().Foreground(colorWarning)
+		if info.EffortLevel == "ultracode" {
+			effStyle = lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
+			effSeg = "⚡ ultracode"
+		}
+		parts = append(parts, effStyle.Render(effSeg))
 	}
 
 	line := strings.Join(parts, sep)

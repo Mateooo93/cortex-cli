@@ -29,7 +29,7 @@ func functionKeyNum(msg tea.KeyPressMsg) int {
 	return 0
 }
 
-// handleFunctionKey switches tabs via F1-F4. F3 and F4 both open Settings.
+// handleFunctionKey switches tabs via F1-F4.
 func (m Model) handleFunctionKey(n int) (Model, tea.Cmd, bool) {
 	if n < 1 || n > 4 {
 		return m, nil, false
@@ -70,8 +70,14 @@ func (m Model) handleFunctionKey(n int) (Model, tea.Cmd, bool) {
 		}
 		return m, tea.Batch(cmds...), true
 
-	case 3, 4:
+	case 3:
 		m.openSettingsTab()
+		m.sessionsInput.Blur()
+		m.clearChatSelection()
+		return m, nil, true
+
+	case 4:
+		m.activeTab = TabKindWorkflows
 		m.sessionsInput.Blur()
 		m.clearChatSelection()
 		return m, nil, true

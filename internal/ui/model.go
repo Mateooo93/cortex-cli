@@ -287,6 +287,11 @@ type Model struct {
 	commandPalette CommandPalette
 	modelPicker    ModelPicker
 	loginPicker    LoginPicker
+	workflowPicker WorkflowPicker
+
+	// Workflow tab state
+	workflowSelected     int // selected workflow row (-1 = none)
+	workflowStepSelected int // selected step in detail panel (-1 = none)
 
 	// Tab alert blink (Chat tab label pulses when a session needs attention)
 	tabAlertActive   bool
@@ -363,6 +368,28 @@ func (m *Model) buildStatusBarInfo(sess *SessionState) StatusBarInfo {
 	}
 	if sess == nil {
 		return info
+	}
+	// Goal indicator — query the daemon session's real goal state
+	if sess.client != nil {
+		_, active, turns, _ := sess.client.GoalState()
+		if active {
+			info.GoalActive = true
+			info.GoalTurns = turns
+		}
+	}
+	// Effort level
+	info.EffortLevel = sess.effortLevel
+	// Workflow indicator: show the first running workflow in the status bar
+	if sess.workflowEngine != nil {
+		for _, w := range sess.workflowEngine.Workflows() {
+			snap := sess.workflowEngine.Snapshot(w.ID)
+			if snap.Status == "running" || snap.Status == "planning" || snap.Status == "synthesizing" {
+				info.WorkflowName = snap.Name
+				info.WorkflowStatus = snap.Status
+				info.WorkflowElapsed = snap.Duration
+				break
+			}
+		}
 	}
 	info.InputTokens = sess.inputTokens
 	info.CacheRead = sess.cacheReadTokens
@@ -1650,6 +1677,81 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// --- Workflows tab key handling ---
+		if m.activeTab == TabKindWorkflows {
+			switch msg.String() {
+			case "up", "k":
+					if m.workflowSelected > 0 {
+						m.workflowSelected--
+					}
+					m.workflowStepSelected = -1
+					return m, nil
+				case "down", "j":
+					count := 0
+					for _, s := range m.sessions {
+						if s.workflowEngine != nil {
+							count += len(s.workflowEngine.Workflows())
+						}
+					}
+					if m.workflowSelected < count-1 {
+						m.workflowSelected++
+					}
+					m.workflowStepSelected = -1
+					return m, nil
+				case "enter":
+					if m.workflowSelected >= 0 {
+						if m.workflowStepSelected < 0 {
+							m.workflowStepSelected = 0
+						} else {
+							m.workflowStepSelected = -1
+						}
+					}
+					return m, nil
+				case "c":
+					if m.workflowSelected >= 0 {
+						idx := 0
+						for _, s := range m.sessions {
+							if s.workflowEngine == nil {
+								continue
+							}
+							for _, w := range s.workflowEngine.Workflows() {
+								if idx == m.workflowSelected {
+									s.workflowEngine.Cancel(w.ID)
+									return m, nil
+								}
+								idx++
+							}
+						}
+					}
+					return m, nil
+				case "right", "l":
+					if m.workflowSelected >= 0 && m.workflowStepSelected >= 0 {
+						m.workflowStepSelected++
+					}
+					return m, nil
+				case "left", "h":
+					if m.workflowStepSelected > 0 {
+						m.workflowStepSelected--
+					}
+					return m, nil
+				case "f1":
+					m.activeTab = TabKindSessions
+					m.syncSessionsSelected()
+					return m, m.sessionsInput.Focus()
+				case "f2":
+					m.activeTab = TabKindChat
+					if s := m.currentSession(); s != nil {
+						s.unreadCount = 0
+					}
+					return m, nil
+				case "f3":
+					m.openSettingsTab()
+					return m, nil
+				case "f4":
+					return m, nil
+				}
+			}
+
 		// --- Chat tab key handling (session-specific) ---
 		if sess == nil {
 			return m, nil
@@ -1760,6 +1862,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, tea.Batch(cmds...)
+		}
+
+		// Workflow picker (opened by /workflow slash command)
+		if m.workflowPicker.IsVisible() {
+			preset, _, _ := m.workflowPicker.handleKey(msg.String())
+			if preset != "" {
+				// User selected a preset — start the workflow
+				sess := m.currentSession()
+				if sess != nil {
+					engine := sess.EnsureWorkflowEngine(m.cortexCfg)
+					id, err := engine.Start(context.Background(), preset, "workflow task", preset, 5)
+					if err == nil {
+						_ = m.emitStatusMsg("started workflow: "+preset+" ("+id+")", StatusMsgInfo)
+						// Switch to workflows tab so user can see progress
+						m.activeTab = TabKindWorkflows
+					}
+				}
+			}
+			if msg.String() == "esc" {
+				m.workflowPicker.Close()
+			}
+			return m, nil
 		}
 
 		// Slash menu
@@ -2507,6 +2631,45 @@ func (m Model) submitFromInput(sess *SessionState, queueOnly bool) (tea.Model, t
 	if text != "" {
 		sess.history.Save(text)
 	}
+	// Workflow auto-detect: if the user's message hints at a
+	// multi-agent task (mentions "workflow", "swarm", "agents",
+	// "in parallel", etc.) and no workflow is running, fire a
+	// brief status hint and start a workflow alongside the
+	// normal chat submission. The main agent stays available
+	// to answer follow-up questions while the orchestrator
+	// works.
+	lower := strings.ToLower(text)
+	if sess.workflowEngine != nil {
+		alreadyRunning := false
+		for _, w := range sess.workflowEngine.Workflows() {
+			snap := sess.workflowEngine.Snapshot(w.ID)
+			if snap.Status == "running" || snap.Status == "planning" || snap.Status == "synthesizing" {
+				alreadyRunning = true
+				break
+			}
+		}
+		// Ultracode mode: automatically dispatch a workflow for
+		// every substantive prompt, not just when trigger keywords
+		// are present. The intent detector still fires for explicit
+		// mentions, but ultracode also catches multi-component
+		// project signals (landing page, full app, etc.).
+		shouldWorkflow := detectWorkflowIntent(lower)
+		if !shouldWorkflow && sess.effortLevel == "ultracode" {
+			// In ultracode mode, also dispatch when the prompt
+			// looks substantive (multi-sentence, or mentions
+			// multiple files/modules, or is a build/create task).
+			shouldWorkflow = isSubstantivePrompt(lower)
+		}
+		if !alreadyRunning && shouldWorkflow {
+			// Pick a preset based on the keywords.
+			preset := pickWorkflowPreset(lower)
+			id, err := sess.workflowEngine.Start(context.Background(), preset.Name, text, preset.Strategy, preset.MaxAgents)
+			if err == nil {
+				_ = m.emitStatusMsg("started workflow: "+preset.Name+" (id "+id+")", StatusMsgInfo)
+			}
+		}
+	}
+
 	sess.input.Reset()
 	sess.input.SetHeight(1)
 
@@ -2765,7 +2928,7 @@ func (m Model) View() tea.View {
 	// Tab bar
 	// When the Chat tab is active the chat viewport is the primary
 	// scrollable area (scrolling works regardless of FocusChat etc).
-	viewportFocused := m.activeTab == TabKindSessions || m.activeTab == TabKindSettings || m.activeTab == TabKindChat
+	viewportFocused := m.activeTab == TabKindSessions || m.activeTab == TabKindSettings || m.activeTab == TabKindChat || m.activeTab == TabKindWorkflows
 	tabBarWidth := layout.ChatWidth
 	if m.activeTab == TabKindSessions || m.activeTab == TabKindSettings {
 		tabBarWidth = m.width
@@ -2874,6 +3037,12 @@ func (m Model) View() tea.View {
 		sv := renderSettingsView(m.width, settingsHeight, m.styles, m.settingsActiveSection, m.settingsProviderSel, m.settingsModelSel, m.settingsModelColumn, settingsActiveModel, settingsActiveProvider, providers, selectedModels, m.settingsKeys, m.settingsKeySel, m.settingsOtherSel, otherView, inspectView, m.settingsInKeyInput, m.settingsKeyInputLabel, m.settingsKeyInput.View(), wizardView)
 		uv.NewStyledString(sv).Draw(canvas, image.Rect(0, y, m.width, y+settingsHeight))
 		y += settingsHeight
+
+	case TabKindWorkflows:
+		workflowsHeight := m.height - layout.TabBarHeight - layout.StatusBarHeight
+		wv := renderWorkflowsView(m.sessions, m.width, workflowsHeight, m.styles, m.workflowSelected, m.workflowStepSelected)
+		uv.NewStyledString(wv).Draw(canvas, image.Rect(0, y, m.width, y+workflowsHeight))
+		y += workflowsHeight
 
 	}
 	statusBar := renderStatusBar(m.width, m.statusMsg, m.styles, m.buildStatusBarInfo(m.currentSession()))
@@ -2990,6 +3159,17 @@ func (m Model) View() tea.View {
 
 	m.drawContextMenu(canvas)
 
+	// Workflow picker overlay: drawn on top of everything else.
+	if m.workflowPicker.IsVisible() {
+		overlay := m.workflowPicker.View(m.styles)
+		h := lipgloss.Height(overlay)
+		popupY := (m.height - h) / 2
+		if popupY < 0 {
+			popupY = 0
+		}
+		uv.NewStyledString(overlay).Draw(canvas, image.Rect(0, popupY, m.width, popupY+h))
+	}
+
 	content := strings.ReplaceAll(canvas.Render(), "\r\n", "\n")
 	v := tea.NewView(content)
 	v.AltScreen = true
@@ -2999,8 +3179,12 @@ func (m Model) View() tea.View {
 
 // --- Helper methods ---
 
-
-// flushSessionBuf commits the streaming assistant buffer to the session's chatMessages.
+// handleCommandAction executes the command identified by action and returns any
+// resulting tea.Cmd values. It is shared by the command palette and slash menu.
+// rawArg is the slash-command argument text (everything after
+// the command name, e.g. for "/workflow build a thing" the
+// rawArg is "build a thing"). Pass "" for commands that don't
+// take arguments.
 func (m *Model) flushSessionBuf(sess *SessionState) {
 	if sess.showThinking && sess.thinkingBuf != "" {
 		sess.chatMessages = append(sess.chatMessages, renderThinkingMessage(sess.thinkingBuf, m.styles, m.mdRenderer.width+4))
