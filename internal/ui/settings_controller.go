@@ -22,8 +22,6 @@ const (
 	settingsInputCustomProviderName
 	settingsInputCustomProviderBaseURL
 	settingsInputCustomProviderAPIKey
-	settingsInputThemePrimary
-	settingsInputThemeSecondary
 )
 
 // settingsWizardField identifies the focused field inside a provider edit
@@ -857,34 +855,17 @@ func (m *Model) applyConfiguredTheme() {
 	m.mdRenderer = NewMarkdownRenderer(width, m.hasDarkBG, m.styles.CodeBoxBorderStyle)
 }
 
-func formatThemeColorLabel(stored, fallback string) string {
-	if strings.TrimSpace(stored) == "" {
-		return "default (" + fallback + ")"
-	}
-	return stored
-}
-
-func (m *Model) setThemePrimaryColor(primary string) error {
+func (m *Model) setThemeColors(primary, secondary string) error {
 	p, err := config.NormalizeHexColor(primary)
 	if err != nil {
 		return err
 	}
-	tc := m.themeColors
-	tc.Primary = p
-	if err := config.SetThemeColors(tc.Primary, tc.Secondary); err != nil {
-		return err
-	}
-	m.themeColors = tc
-	m.applyConfiguredTheme()
-	return nil
-}
-
-func (m *Model) setThemeSecondaryColor(secondary string) error {
 	s, err := config.NormalizeHexColor(secondary)
 	if err != nil {
 		return err
 	}
 	tc := m.themeColors
+	tc.Primary = p
 	tc.Secondary = s
 	if err := config.SetThemeColors(tc.Primary, tc.Secondary); err != nil {
 		return err
@@ -892,6 +873,11 @@ func (m *Model) setThemeSecondaryColor(secondary string) error {
 	m.themeColors = tc
 	m.applyConfiguredTheme()
 	return nil
+}
+
+func (m *Model) cycleThemeColors() error {
+	nextPrimary, nextSecondary := config.NextThemeColorPreset(m.themeColors.Primary, m.themeColors.Secondary)
+	return m.setThemeColors(nextPrimary, nextSecondary)
 }
 
 func (m *Model) currentReasoningEffort() string {

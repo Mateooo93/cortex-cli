@@ -1499,6 +1499,21 @@ func parseBoolArg(args map[string]any, key string) bool {
 	return ok && v
 }
 
+// StopBackgroundProcess terminates a tracked background shell process.
+func (s *Session) StopBackgroundProcess(id string) error {
+	if s.processes == nil {
+		return errors.New("no process registry")
+	}
+	res, err := s.processes.Stop(id)
+	if err != nil {
+		return err
+	}
+	if !res.OK {
+		return fmt.Errorf("%s", res.Error)
+	}
+	return nil
+}
+
 func (s *Session) emitBackgroundProcesses(procs []tools.BackgroundProcess) {
 	items := make([]protocol.BackgroundProcessItem, 0, len(procs))
 	for _, p := range procs {

@@ -121,8 +121,8 @@ func TestPlaceholderForMode_ShowsQueuedBadge(t *testing.T) {
 	sess := m.sessions[0]
 
 	ph := m.placeholderForMode(sess)
-	if !strings.Contains(ph, "Enter to send") {
-		t.Errorf("expected regular placeholder to mention Enter, got %q", ph)
+	if !strings.Contains(ph, "Ask the agent anything") {
+		t.Errorf("expected regular placeholder, got %q", ph)
 	}
 
 	sess.pendingInput = &pendingMsg{text: "fix the auth bug", Queued: true}

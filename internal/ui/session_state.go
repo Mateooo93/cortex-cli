@@ -115,10 +115,7 @@ func (s *SessionState) hasRunningBackgroundProcesses() bool {
 }
 
 func (s *SessionState) activityStripRows() int {
-	if s == nil || len(s.RecentTools) == 0 {
-		return 0
-	}
-	return 1
+	return 0
 }
 
 // SessionState holds all accumulated UI state for a single agent session.
@@ -164,6 +161,8 @@ type SessionState struct {
 	// backgroundProcesses lists shell commands still running (or
 	// recently exited) that the agent started via run_shell.
 	backgroundProcesses []protocol.BackgroundProcessItem
+	// hoverProcessID is the running process row under the mouse.
+	hoverProcessID string
 
 	// RecentTools is a compact FIFO of the last few
 	// tool calls made by the main agent. The UI

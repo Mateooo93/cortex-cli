@@ -57,6 +57,30 @@ func TestSetThemeColors_PersistsToHomeSettings(t *testing.T) {
 	}
 }
 
+func TestNextThemeColorPreset_CyclesPresets(t *testing.T) {
+	p, s := NextThemeColorPreset("", "")
+	if p != "#8B5CF6" || s != "#A78BFA" {
+		t.Fatalf("default -> violet = %q, %q", p, s)
+	}
+	p, s = NextThemeColorPreset(p, s)
+	if p != "#10B981" || s != "#34D399" {
+		t.Fatalf("violet -> emerald = %q, %q", p, s)
+	}
+	p, s = NextThemeColorPreset("#6366F1", "#818CF8")
+	if p != "" || s != "" {
+		t.Fatalf("indigo -> default = %q, %q", p, s)
+	}
+}
+
+func TestThemeColorPresetName(t *testing.T) {
+	if got := ThemeColorPresetName("#8B5CF6", "#A78BFA"); got != "violet" {
+		t.Fatalf("got %q, want violet", got)
+	}
+	if got := ThemeColorPresetName("", ""); got != "default" {
+		t.Fatalf("got %q, want default", got)
+	}
+}
+
 func TestSetThemeColors_ClearRestoresDefaults(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

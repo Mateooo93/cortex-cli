@@ -66,6 +66,10 @@ type RightPanel struct {
 	// providerConfigured is set by Model before HandleKey. When it
 	// returns true, model selection skips auth prompts.
 	providerConfigured func(provider string) bool
+
+	// processLineIdx maps process_id → 0-based content line index
+	// inside the info panel (rpModeInfo). Used for click-to-stop.
+	processLineIdx map[string]int
 }
 
 // NewRightPanel returns a panel that is visible in info mode by
@@ -301,6 +305,9 @@ type RightPanelInfoView struct {
 
 	// Processes lists background shell commands the agent started.
 	Processes []protocol.BackgroundProcessItem
+
+	// HoverProcessID is the process row under the mouse cursor.
+	HoverProcessID string
 }
 
 // View renders the right panel as a bordered, full-height string.
@@ -310,6 +317,7 @@ type RightPanelInfoView struct {
 // info is the data for the info / status mode (rpModeInfo).
 func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel string, todos []protocol.TodoItem, info RightPanelInfoView) string {
 	innerWidth := panelWidth - 4 // border (2) + padding (2)
+	rp.processLineIdx = nil
 
 	var lines []string
 
@@ -410,7 +418,9 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 		// `info` is a parameterised view-model built by
 		// the View() caller so we don't have to depend
 		// on the live SessionState here.
-		lines = append(lines, rp.renderInfoView(innerWidth, info, s)...)
+		infoLines, procIdx := rp.renderInfoView(innerWidth, info, s)
+		lines = append(lines, infoLines...)
+		rp.processLineIdx = procIdx
 	}
 
 	// Pad to fill height (subtract 2 for border top+bottom).
@@ -454,7 +464,19 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 // input behind the panel keeps focus and the user can keep typing
 // while glancing at the stats. The bar in the context section
 // uses a 20-character scale: each "▮" = 5% of the context window.
-func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s Styles) []string {
+// ProcessIDAtContentLine returns the running process on the given
+// 0-based content line inside the info panel, if any.
+func (rp *RightPanel) ProcessIDAtContentLine(contentLine int) (string, bool) {
+	for id, line := range rp.processLineIdx {
+		if line == contentLine {
+			return id, true
+		}
+	}
+	return "", false
+}
+
+func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s Styles) ([]string, map[string]int) {
+	processLineIdx := map[string]int{}
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
 	primaryStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
 	whiteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
@@ -576,12 +598,18 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 	if len(info.Processes) > 0 {
 		lines = append(lines, "")
 		lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Processes"))
+		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("click running row to stop"))
 		for _, p := range info.Processes {
 			cmd := truncateRight(p.Command, innerWidth-8)
 			if p.Running {
 				elapsed := time.Since(time.Unix(p.StartedAt, 0)).Truncate(time.Second)
 				line := fmt.Sprintf("● pid %d  %s  %s", p.PID, cmd, formatDurationShort(elapsed))
-				lines = append(lines, warnStyle.Width(innerWidth).Render(truncateRight(line, innerWidth)))
+				processLineIdx[p.ID] = len(lines)
+				rowStyle := warnStyle
+				if p.ID == info.HoverProcessID {
+					rowStyle = warnStyle.Strikethrough(true).Background(lipgloss.Color("#3A2A2A"))
+				}
+				lines = append(lines, rowStyle.Width(innerWidth).Render(truncateRight(line, innerWidth)))
 			} else {
 				line := fmt.Sprintf("○ %s  exited %d", cmd, p.ExitCode)
 				lines = append(lines, dimStyle.Width(innerWidth).Render(truncateRight(line, innerWidth)))
@@ -621,9 +649,7 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 		lines = append(lines, badge+" "+dimStyle.Render(truncateRight(row[1], innerWidth-8)))
 	}
 
-	lines = append(lines, "")
-	lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("Esc close panel"))
-	return lines
+	return lines, processLineIdx
 }
 
 // truncateRight is like settingsTruncate but right-side cut and

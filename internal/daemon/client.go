@@ -329,6 +329,14 @@ func (c *SessionClient) SendPlanAction(action, text string) error {
 	return nil
 }
 
+// SendStopBackgroundProcess stops a background shell process by ID.
+func (c *SessionClient) SendStopBackgroundProcess(processID string) error {
+	if c.sess == nil {
+		return errors.New("daemon: no session")
+	}
+	return c.sess.StopBackgroundProcess(processID)
+}
+
 // SendTrim trims the conversation history to the given turn index.
 // (No-op in our in-process model — kept for API parity.)
 func (c *SessionClient) SendTrim(turnIdx int) error {

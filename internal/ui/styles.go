@@ -352,9 +352,13 @@ func NewStyles(hasDarkBG bool) Styles {
 func ApplyTheme(tc config.ThemeConfig) {
 	if tc.Primary != "" {
 		primaryHex = tc.Primary
+	} else {
+		primaryHex = config.DefaultThemePrimary
 	}
 	if tc.Secondary != "" {
 		secondaryHex = tc.Secondary
+	} else {
+		secondaryHex = config.DefaultThemeSecondary
 	}
 
 	// Rebuild all brand-derived colors

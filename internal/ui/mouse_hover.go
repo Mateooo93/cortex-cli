@@ -15,9 +15,11 @@ func mouseHoverStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Background(lipgloss.Color("#2A3545"))
 }
 
-// updateMouseHover tracks hover for tab-bar labels only.
+// updateMouseHover tracks hover for tab-bar labels and clickable
+// process rows in the right panel.
 func (m *Model) updateMouseHover(x, y int) {
 	m.mouseHover = mouseHover{}
+	m.updateProcessHover(x, y)
 	if m.mouseInTabBar(y) {
 		if kind, ok := tabKindAtX(x); ok {
 			m.mouseHover = mouseHover{kind: hoverTab, index: int(kind)}

@@ -419,6 +419,7 @@ func (m *Model) buildRightPanelInfoView(sess *SessionState) RightPanelInfoView {
 		// rendering in the right panel).
 		info.Todos = sess.todos
 		info.Processes = sess.backgroundProcesses
+		info.HoverProcessID = sess.hoverProcessID
 		if sess.pendingInput != nil && sess.pendingInput.Queued {
 			info.QueuedMsgs = 1
 		}
@@ -918,6 +919,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m, cmd = m.handleTabBarClick()
 			return m, cmd
+		}
+
+		if msg.Button == tea.MouseLeft {
+			if handled, stopCmds := m.handleRightPanelProcessClick(mouse.X, mouse.Y); handled {
+				return m, tea.Batch(stopCmds...)
+			}
 		}
 
 		if msg.Button == tea.MouseRight && m.canOpenContextMenu() {
@@ -1476,22 +1483,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.settingsCustomBaseURL = val
 							m.openSettingsTextInput(settingsInputCustomProviderAPIKey, providerName, "New provider API key", "Paste API key (optional)...", "", true)
 						}
-					case settingsInputThemePrimary:
-						if err := m.setThemePrimaryColor(val); err != nil {
-							cmds = append(cmds, m.emitStatusMsg("Primary color: "+err.Error(), StatusMsgError))
-						} else if val == "" {
-							cmds = append(cmds, m.emitStatusMsg("Primary color reset to default", StatusMsgInfo))
-						} else {
-							cmds = append(cmds, m.emitStatusMsg("Primary color saved: "+m.themeColors.EffectivePrimary(), StatusMsgInfo))
-						}
-					case settingsInputThemeSecondary:
-						if err := m.setThemeSecondaryColor(val); err != nil {
-							cmds = append(cmds, m.emitStatusMsg("Secondary color: "+err.Error(), StatusMsgError))
-						} else if val == "" {
-							cmds = append(cmds, m.emitStatusMsg("Secondary color reset to default", StatusMsgInfo))
-						} else {
-							cmds = append(cmds, m.emitStatusMsg("Secondary color saved: "+m.themeColors.EffectiveSecondary(), StatusMsgInfo))
-						}
 					case settingsInputCustomProviderAPIKey:
 						if m.settingsCustomProvider != "" && m.settingsCustomBaseURL != "" && m.cortexCfg != nil {
 							providerName = m.cortexCfg.AddCustomProvider(m.settingsCustomProvider, m.settingsCustomBaseURL, val)
@@ -1614,20 +1605,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					case 0: // Theme — cycle auto → dark → light → auto
 						m.setConfiguredTheme(nextTheme(m.configuredTheme()))
 						cmds = append(cmds, m.emitStatusMsg("Theme: "+m.configuredTheme(), StatusMsgInfo))
-					case 1: // Primary color
-						m.openSettingsTextInput(
-							settingsInputThemePrimary, "",
-							"Primary color",
-							"#RRGGBB (empty = default "+config.DefaultThemePrimary+")",
-							m.themeColors.Primary, false,
-						)
-					case 2: // Secondary color
-						m.openSettingsTextInput(
-							settingsInputThemeSecondary, "",
-							"Secondary color",
-							"#RRGGBB (empty = default "+config.DefaultThemeSecondary+")",
-							m.themeColors.Secondary, false,
-						)
+					case 1, 2: // Primary / secondary color — cycle preset pairs
+						if err := m.cycleThemeColors(); err != nil {
+							cmds = append(cmds, m.emitStatusMsg("Colors: "+err.Error(), StatusMsgError))
+						} else {
+							name := config.ThemeColorPresetName(m.themeColors.Primary, m.themeColors.Secondary)
+							cmds = append(cmds, m.emitStatusMsg("Colors: "+name, StatusMsgInfo))
+						}
 					case 3: // Show extended thinking — toggle
 						if sess := m.currentSession(); sess != nil {
 							sess.showThinking = !sess.showThinking
@@ -2832,18 +2816,6 @@ func (m Model) View() tea.View {
 
 		y += layout.ChatHeight
 
-		if sess != nil && layout.ActivityStripHeight > 0 {
-			strip := renderActivityStrip(sess, layout.ChatWidth, sess.toolActivityAnim.Frame())
-			if strip != "" {
-				stripStyle := lipgloss.NewStyle().
-					Width(layout.ChatWidth).
-					Background(lipgloss.Color("235")).
-					Foreground(lipgloss.Color("245"))
-				uv.NewStyledString(stripStyle.Render(strip)).Draw(canvas, image.Rect(0, y, layout.ChatWidth, y+layout.ActivityStripHeight))
-			}
-			y += layout.ActivityStripHeight
-		}
-
 		// Panels between chat and input
 		if sess != nil && sess.attachmentPanel.IsVisible() {
 			panel := renderAttachmentPanel(&sess.attachmentPanel, m.width, m.styles)
@@ -2886,8 +2858,8 @@ func (m Model) View() tea.View {
 		selectedModels := m.selectedSettingsModels()
 		otherView := SettingsOtherView{
 			Theme:           m.configuredTheme(),
-			PrimaryColor:    formatThemeColorLabel(m.themeColors.Primary, config.DefaultThemePrimary),
-			SecondaryColor:  formatThemeColorLabel(m.themeColors.Secondary, config.DefaultThemeSecondary),
+			PrimaryColor:   config.ThemePrimaryDisplayName(m.themeColors.Primary),
+			SecondaryColor: config.ThemeSecondaryDisplayName(m.themeColors.Secondary),
 			ShowThinking:    settingsShowThinking,
 			ReasoningEffort: m.currentReasoningEffort(),
 			ShowUsage:       m.configuredShowUsage(),
@@ -3448,7 +3420,7 @@ func (m *Model) placeholderForMode(sess *SessionState) string {
 		}
 		return fmt.Sprintf("⏳ Sending after current edit: %q", preview)
 	}
-	return "Ask the agent anything... (Enter to send, Shift+Enter or Alt+Enter for new line)"
+	return "Ask the agent anything..."
 }
 
 // updateInputPromptColor sets the textarea text style to match the current mode.

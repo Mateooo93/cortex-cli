@@ -284,7 +284,7 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		sess.agentState = StatePlanReview
 		sess.chatMessages = append(sess.chatMessages, renderPlanProposal(pp.Plan, m.styles))
 		sess.input.Focus()
-		sess.input.Placeholder = "Type modifications (Enter to send, Shift+Enter or Alt+Enter for new line) or press y/n..."
+		sess.input.Placeholder = "Type modifications or press y/n..."
 
 	case "event.plan_task_start":
 		sess.agentState = StatePlanExecuting

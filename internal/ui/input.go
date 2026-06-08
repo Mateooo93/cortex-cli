@@ -14,7 +14,7 @@ import (
 // newInput creates a configured text area component.
 func newInput() textarea.Model {
 	ta := textarea.New()
-	ta.Placeholder = "Ask the agent anything... (Enter to send, Shift+Enter or Alt+Enter for new line)"
+	ta.Placeholder = "Ask the agent anything..."
 	ta.Focus()
 	ta.CharLimit = 0 // no limit
 	ta.ShowLineNumbers = false
@@ -171,25 +171,5 @@ func renderInputBox(modeName string, isWorkflow bool, textareaView string, width
 
 	body := boxStyle.Render(textareaView)
 
-	// 3. Key hint row below the input. The user asked for
-	// the per-input keys (Tab = queue, Enter = send, Esc =
-	// cancel) to live here, not in the right panel, so the
-	// right panel can dedicate its vertical space to live
-	// workflow + todo data.
-	hintStyle := lipgloss.NewStyle().Foreground(colorDim)
-	badgeStyle := lipgloss.NewStyle().
-		Background(colorSecondary).
-		Foreground(lipgloss.Color("0")).
-		Bold(true)
-	badge := func(key string) string {
-		return badgeStyle.Render(" " + key + " ")
-	}
-	hint := badge("Tab") + " " + hintStyle.Render("queue") +
-		"  " + badge("Enter") + " " + hintStyle.Render("send") +
-		"  " + badge("Esc") + " " + hintStyle.Render("cancel") +
-		"  " + badge("Shift+Enter") + " " + hintStyle.Render("newline") +
-		"  " + badge("↑/↓") + " " + hintStyle.Render("history")
-	hint = lipgloss.NewStyle().Width(width).Render(hint)
-
-	return topBorder + "\n" + body + "\n" + hint
+	return topBorder + "\n" + body
 }
