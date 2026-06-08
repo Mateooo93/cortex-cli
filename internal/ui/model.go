@@ -288,6 +288,7 @@ type Model struct {
 	modelPicker    ModelPicker
 	loginPicker    LoginPicker
 	workflowPicker WorkflowPicker
+	effortPicker   EffortPicker
 
 	// Workflow tab state
 	workflowSelected     int // selected workflow row (-1 = none)
@@ -868,6 +869,7 @@ func NewModel(cfg *config.Config, cortexCfg *cortexconfig.Config, client *daemon
 		selectedSession:                0,
 		sessionsInput:                  newSessionsInput(),
 		commandPalette:                 NewCommandPalette(),
+		workflowPicker:                 NewWorkflowPicker(),
 		hasDarkBG:                      true,
 		styles:                         NewStyles(true),
 		mdRenderer:                     NewMarkdownRenderer(80, true, NewStyles(true).CodeBoxBorderStyle),
@@ -1573,11 +1575,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.settingsKeySel--
 					}
 				case "down", "j":
-					if m.settingsKeySel < len(m.settingsKeys)-1 {
+					if m.settingsKeySel < settingsProviderAddRowIndex(m.settingsKeys) {
 						m.settingsKeySel++
 					}
 				case "enter":
-					if m.settingsKeySel < len(m.settingsKeys) {
+					if m.settingsKeySel == settingsProviderAddRowIndex(m.settingsKeys) {
+						m.openAddCustomProviderFlow()
+					} else if m.settingsKeySel < len(m.settingsKeys) {
 						providerName := m.settingsKeys[m.settingsKeySel].Provider
 						// OAuth providers don't have an API key or a
 						// base URL the user should edit — they sign in
@@ -1601,7 +1605,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.openSettingsWizard(providerName)
 					}
 				case "a":
-					m.openSettingsTextInput(settingsInputCustomProviderName, "", "New provider name", "e.g. groq, together, local-ai", "", false)
+					m.settingsKeySel = settingsProviderAddRowIndex(m.settingsKeys)
+					m.openAddCustomProviderFlow()
 				case "r":
 					if m.settingsKeySel < len(m.settingsKeys) {
 						providerName := m.settingsKeys[m.settingsKeySel].Provider
@@ -1649,17 +1654,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 							_ = config.SetShowThinking(sess.showThinking)
 						}
-					case 3: // Reasoning effort — cycle auto → low → medium → high
-						m.setActiveReasoningEffort(nextReasoningEffort(m.currentReasoningEffort()))
-						cmds = append(cmds, m.emitStatusMsg("Reasoning effort: "+m.currentReasoningEffort(), StatusMsgInfo))
-					case 4: // Show token usage — toggle
+					case 3: // Show token usage — toggle
 						m.setConfiguredShowUsage(!m.configuredShowUsage())
 						state := "on"
 						if !m.configuredShowUsage() {
 							state = "off"
 						}
 						cmds = append(cmds, m.emitStatusMsg("Show token usage: "+state, StatusMsgInfo))
-					case 5: // Auto-compact context — toggle
+					case 4: // Auto-compact context — toggle
 						m.setConfiguredAutoCompact(!m.configuredAutoCompact())
 						state := "on"
 						if !m.configuredAutoCompact() {
@@ -1864,26 +1866,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// Effort picker (opened by /effort slash command)
+		if m.effortPicker.IsVisible() {
+			level, consumed := m.effortPicker.handleKey(msg.String())
+			if consumed {
+				if level != "" {
+					sess := m.currentSession()
+					if sess != nil {
+						m.applyEffortLevel(sess, level)
+						cmds = append(cmds, m.emitStatusMsg("Effort: "+level, StatusMsgInfo))
+					}
+				}
+				if msg.String() == "esc" {
+					m.effortPicker.Close()
+				}
+				return m, tea.Batch(cmds...)
+			}
+		}
+
 		// Workflow picker (opened by /workflow slash command)
 		if m.workflowPicker.IsVisible() {
-			preset, _, _ := m.workflowPicker.handleKey(msg.String())
-			if preset != "" {
-				// User selected a preset — start the workflow
+			var cmds []tea.Cmd
+			result, consumed := m.workflowPicker.Update(msg)
+			if result != nil {
 				sess := m.currentSession()
 				if sess != nil {
-					engine := sess.EnsureWorkflowEngine(m.cortexCfg)
-					id, err := engine.Start(context.Background(), preset, "workflow task", preset, 5)
+					id, err := startSessionWorkflow(sess, m.cortexCfg, result.Prompt, result.Preset)
 					if err == nil {
-						_ = m.emitStatusMsg("started workflow: "+preset+" ("+id+")", StatusMsgInfo)
-						// Switch to workflows tab so user can see progress
+						cmds = append(cmds, m.emitStatusMsg("started workflow: "+result.Preset.Name+" (id "+id+")", StatusMsgInfo))
 						m.activeTab = TabKindWorkflows
+					} else {
+						cmds = append(cmds, m.emitStatusMsg("workflow failed: "+err.Error(), StatusMsgError))
 					}
 				}
 			}
-			if msg.String() == "esc" {
-				m.workflowPicker.Close()
+			if consumed {
+				return m, tea.Batch(cmds...)
 			}
-			return m, nil
 		}
 
 		// Slash menu
@@ -1907,7 +1926,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				sess.input.SetValue("")
 				sess.input.SetHeight(1)
 				if action != "" {
-					cmds = append(cmds, m.handleCommandAction(action, sess, rawText)...)
+					arg := slashCommandArgs(rawText, slashCommandNameForAction(action))
+					cmds = append(cmds, m.handleCommandAction(action, sess, arg)...)
 				}
 				if sess.focus != FocusRightPanel && m.activeTab != TabKindSessions && m.activeTab != TabKindSettings {
 					sess.input.Focus()
@@ -2631,6 +2651,11 @@ func (m Model) submitFromInput(sess *SessionState, queueOnly bool) (tea.Model, t
 	if text != "" {
 		sess.history.Save(text)
 	}
+	if cmdList, handled := m.tryDispatchSlashInput(sess, text); handled {
+		sess.input.Reset()
+		sess.input.SetHeight(1)
+		return m, tea.Batch(cmdList...)
+	}
 	// Workflow auto-detect: if the user's message hints at a
 	// multi-agent task (mentions "workflow", "swarm", "agents",
 	// "in parallel", etc.) and no workflow is running, fire a
@@ -2655,16 +2680,11 @@ func (m Model) submitFromInput(sess *SessionState, queueOnly bool) (tea.Model, t
 		// project signals (landing page, full app, etc.).
 		shouldWorkflow := detectWorkflowIntent(lower)
 		if !shouldWorkflow && sess.effortLevel == "ultracode" {
-			// In ultracode mode, also dispatch when the prompt
-			// looks substantive (multi-sentence, or mentions
-			// multiple files/modules, or is a build/create task).
-			shouldWorkflow = isSubstantivePrompt(lower)
+			shouldWorkflow = isUltracodeWorkflowCandidate(lower)
 		}
 		if !alreadyRunning && shouldWorkflow {
-			// Pick a preset based on the keywords.
 			preset := pickWorkflowPreset(lower)
-			id, err := sess.workflowEngine.Start(context.Background(), preset.Name, text, preset.Strategy, preset.MaxAgents)
-			if err == nil {
+			if id, err := startSessionWorkflow(sess, m.cortexCfg, text, preset); err == nil {
 				_ = m.emitStatusMsg("started workflow: "+preset.Name+" (id "+id+")", StatusMsgInfo)
 			}
 		}
@@ -2771,6 +2791,10 @@ func (m Model) handleEnter(sess *SessionState) (tea.Model, tea.Cmd) {
 			sess.chatMessages = append(sess.chatMessages, renderErrorMessage(fmt.Errorf("%s", e)))
 		}
 		attachments := append(panelAtts, textAtts...)
+
+		if cmdList, handled := m.tryDispatchSlashInput(sess, displayText); handled {
+			return m, tea.Batch(cmdList...)
+		}
 
 		// Detect the first real user message in this session so we can
 		// ask the default model to name the session. Only trigger when
@@ -3028,7 +3052,6 @@ func (m Model) View() tea.View {
 			Theme:           m.configuredTheme(),
 			PrimaryColor: config.ThemePrimaryDisplayName(m.themeColors.Primary),
 			ShowThinking:    settingsShowThinking,
-			ReasoningEffort: m.currentReasoningEffort(),
 			ShowUsage:       m.configuredShowUsage(),
 			AutoCompact:     m.configuredAutoCompact(),
 		}
@@ -3161,7 +3184,17 @@ func (m Model) View() tea.View {
 
 	// Workflow picker overlay: drawn on top of everything else.
 	if m.workflowPicker.IsVisible() {
-		overlay := m.workflowPicker.View(m.styles)
+		overlay := m.workflowPicker.View(m.width, m.styles)
+		h := lipgloss.Height(overlay)
+		popupY := (m.height - h) / 2
+		if popupY < 0 {
+			popupY = 0
+		}
+		uv.NewStyledString(overlay).Draw(canvas, image.Rect(0, popupY, m.width, popupY+h))
+	}
+
+	if m.effortPicker.IsVisible() {
+		overlay := m.effortPicker.View(m.styles)
 		h := lipgloss.Height(overlay)
 		popupY := (m.height - h) / 2
 		if popupY < 0 {

@@ -72,13 +72,20 @@ func (m *Model) refreshSettingsKeys() {
 	if m.settingsKeySel < 0 {
 		m.settingsKeySel = 0
 	}
-	if len(m.settingsKeys) == 0 {
-		m.settingsKeySel = 0
-		return
+	maxSel := settingsProviderAddRowIndex(m.settingsKeys)
+	if m.settingsKeySel > maxSel {
+		m.settingsKeySel = maxSel
 	}
-	if m.settingsKeySel >= len(m.settingsKeys) {
-		m.settingsKeySel = len(m.settingsKeys) - 1
-	}
+}
+
+// settingsProviderAddRowIndex is the cursor index of the "+ Add custom
+// provider" row — always one past the last configured provider.
+func settingsProviderAddRowIndex(keys []ProviderSettingsView) int {
+	return len(keys)
+}
+
+func (m *Model) openAddCustomProviderFlow() {
+	m.openSettingsTextInput(settingsInputCustomProviderName, "", "New provider name", "e.g. groq, together, local-ai", "", false)
 }
 
 func (m *Model) settingsProviders() []ProviderInfo {
@@ -803,25 +810,6 @@ func normalizedReasoningEffort(effort string) string {
 	}
 }
 
-func nextReasoningEffort(effort string) string {
-	switch normalizedReasoningEffort(effort) {
-	case "auto":
-		return "low"
-	case "low":
-		return "medium"
-	case "medium":
-		return "high"
-	case "high":
-		return "xhigh"
-	case "xhigh":
-		return "minimal"
-	case "minimal":
-		return "none"
-	default:
-		return "auto"
-	}
-}
-
 func (m *Model) configuredTheme() string {
 	if m.cortexCfg == nil {
 		return "auto"
@@ -946,7 +934,7 @@ func (m *Model) setConfiguredShowUsage(v bool) {
 
 // settingsOtherOptionCount matches the row count rendered in renderSettingsView
 // for the "Other Settings" section. Keep in sync with tabs.go.
-const settingsOtherOptionCount = 6
+const settingsOtherOptionCount = 5
 
 func (m *Model) setAllSessionsShowThinking(show bool) {
 	for _, sess := range m.sessions {

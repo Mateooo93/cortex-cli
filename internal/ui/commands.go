@@ -10,10 +10,75 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/config"
 )
 
+// slashCommandFromLine parses "/goal all tests pass" into name "goal" and
+// args "all tests pass". Returns ok=false when the line is not a slash command.
+func slashCommandFromLine(line string) (name, args string, ok bool) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "/") {
+		return "", "", false
+	}
+	rest := strings.TrimSpace(line[1:])
+	if rest == "" {
+		return "", "", false
+	}
+	space := strings.IndexFunc(rest, unicodeIsSpace)
+	if space < 0 {
+		return strings.ToLower(rest), "", true
+	}
+	name = strings.ToLower(strings.TrimSpace(rest[:space]))
+	args = strings.TrimSpace(rest[space:])
+	return name, args, true
+}
+
+func unicodeIsSpace(r rune) bool {
+	return r == ' ' || r == '\t'
+}
+
+// slashCommandArgs extracts the argument portion from a slash input line.
+// For "/goal all tests pass" with command "goal" it returns "all tests pass".
+// If the line does not start with the command prefix, the whole trimmed line
+// is returned (so callers can pass either the full line or just the args).
+func slashCommandArgs(fullLine, command string) string {
+	fullLine = strings.TrimSpace(fullLine)
+	if fullLine == "" {
+		return ""
+	}
+	prefix := "/" + strings.ToLower(strings.TrimSpace(command))
+	if strings.HasPrefix(strings.ToLower(fullLine), prefix) {
+		return strings.TrimSpace(fullLine[len(prefix):])
+	}
+	return fullLine
+}
+
+func slashActionForName(name string) (string, bool) {
+	for _, cmd := range slashCommands {
+		if cmd.Name == name {
+			return cmd.Action, true
+		}
+	}
+	return "", false
+}
+
+// tryDispatchSlashInput routes a full slash command line (e.g. "/goal tests pass")
+// through handleCommandAction. Returns handled=true when the line matched a
+// built-in slash command.
+func (m *Model) tryDispatchSlashInput(sess *SessionState, line string) ([]tea.Cmd, bool) {
+	name, args, ok := slashCommandFromLine(line)
+	if !ok {
+		return nil, false
+	}
+	action, found := slashActionForName(name)
+	if !found {
+		return nil, false
+	}
+	return m.handleCommandAction(action, sess, args), true
+}
+
 // handleCommandAction executes the command identified by action and returns any
 // resulting tea.Cmd values. It is shared by the command palette and slash menu.
-// rawArg is the slash-command argument text for commands that take one (e.g. /model).
-// Pass "" (or omit) for commands that don't take arguments.
+// rawArg is the slash-command argument text (everything after the command name,
+// e.g. for "/goal all tests pass" the arg is "all tests pass"). Pass "" for
+// commands that don't take arguments.
 func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ...string) []tea.Cmd {
 	var arg string
 	if len(rawArg) > 0 {
@@ -106,20 +171,12 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 			cmds = append(cmds, sess.thinkingAnim.Start())
 			sess.client.SendInput("/clear", nil)
 		}
-	case "slash_skills":
-		if sess != nil && sess.client != nil {
-			sess.chatMessages = append(sess.chatMessages, renderUserMessage("/skills", m.mdRenderer.width))
-			sess.chatScrollOffset = 0
-			sess.agentState = StateStreaming
-			cmds = append(cmds, sess.thinkingAnim.Start())
-			sess.client.SendInput("/skills", nil)
-		}
 	case "slash_goal":
 		cmds = append(cmds, m.handleGoalCommand(sess, arg)...)
-	case "slash_effort":
-		cmds = append(cmds, m.handleEffortCommand(sess, arg)...)
+	case "open_effort_picker":
+		cmds = append(cmds, m.openEffortPicker(sess)...)
 	case "open_workflow_picker":
-		m.workflowPicker.Open()
+		m.workflowPicker.Open(slashCommandArgs(arg, "workflow"))
 		if sess != nil {
 			sess.input.Blur()
 		}

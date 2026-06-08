@@ -144,24 +144,7 @@ func detectWorkflowIntent(lower string) bool {
 // user message. The heuristic is a simple keyword match; the
 // user can always pick a different preset from the Workflows
 // tab if the default isn't right.
-func pickWorkflowPreset(input string) struct {
-	Name        string
-	Strategy    string
-	MaxAgents   int
-	Description string
-} {
-	// Note: this returns an anonymous struct because
-	// importing workflow.Preset creates a cycle (the UI
-	// package is already imported by internal/workflow in
-	// the agent definitions). The fields line up with
-	// workflow.BuiltinPresets; the engine accepts the same
-	// shape via its Start() parameters.
-	type presetShape struct {
-		Name        string
-		Strategy    string
-		MaxAgents   int
-		Description string
-	}
+func pickWorkflowPreset(input string) workflowPresetView {
 	// Be defensive about case — the function used to
 	// expect the caller to lowercase first, but that's
 	// easy to forget and a silent miss on a preset
@@ -171,22 +154,22 @@ func pickWorkflowPreset(input string) struct {
 	case strings.Contains(lower, "test"),
 		strings.Contains(lower, "ci "),
 		strings.Contains(lower, "run the tests"):
-		return presetShape{Name: "test", Strategy: "testing", MaxAgents: 4, Description: "Write and run tests for an existing code change."}
+		return workflowPresetView{Name: "test", Strategy: "testing", MaxAgents: 4, Description: "Write and run tests for an existing code change."}
 	case strings.Contains(lower, "review"),
 		strings.Contains(lower, "critique"),
 		strings.Contains(lower, "audit"):
-		return presetShape{Name: "review", Strategy: "optimization", MaxAgents: 4, Description: "Review a diff or plan, surface issues, and suggest fixes."}
+		return workflowPresetView{Name: "review", Strategy: "optimization", MaxAgents: 4, Description: "Review a diff or plan, surface issues, and suggest fixes."}
 	case strings.Contains(lower, "docs"),
 		strings.Contains(lower, "readme"),
 		strings.Contains(lower, "documentation"):
-		return presetShape{Name: "docs", Strategy: "research", MaxAgents: 3, Description: "Write or improve project documentation."}
+		return workflowPresetView{Name: "docs", Strategy: "research", MaxAgents: 3, Description: "Write or improve project documentation."}
 	case strings.Contains(lower, "research"),
 		strings.Contains(lower, "investigate"),
 		strings.Contains(lower, "look up"),
 		strings.Contains(lower, "explore the"):
-		return presetShape{Name: "research", Strategy: "research", MaxAgents: 3, Description: "Gather documentation and reference material, then summarise findings."}
+		return workflowPresetView{Name: "research", Strategy: "research", MaxAgents: 3, Description: "Gather documentation and reference material, then summarise findings."}
 	default:
-		return presetShape{Name: "code", Strategy: "development", MaxAgents: 5, Description: "Plan, implement, review, and test a coding task end-to-end."}
+		return workflowPresetView{Name: "code", Strategy: "development", MaxAgents: 5, Description: "Plan, implement, review, and test a coding task end-to-end."}
 	}
 }
 
@@ -232,6 +215,63 @@ func isSubstantivePrompt(lower string) bool {
 		if strings.Contains(lower, t) {
 			return true
 		}
+	}
+
+	return false
+}
+
+// isUltracodeWorkflowCandidate returns true when ultracode mode should
+// auto-spawn a parallel workflow for this prompt — broader than the
+// explicit intent detector so engineering tasks get orchestration
+// without the user saying "workflow".
+func isUltracodeWorkflowCandidate(lower string) bool {
+	if detectWorkflowIntent(lower) || isSubstantivePrompt(lower) {
+		return true
+	}
+
+	trimmed := strings.TrimSpace(lower)
+	if len(trimmed) < 12 {
+		return false
+	}
+
+	// Skip short Q&A that is unlikely to need multi-agent work.
+	qaPrefixes := []string{
+		"what ", "how ", "why ", "when ", "where ", "who ",
+		"is ", "are ", "can ", "could ", "would ", "should ",
+		"explain ", "describe ", "tell me ", "show me how ",
+	}
+	for _, p := range qaPrefixes {
+		if strings.HasPrefix(trimmed, p) {
+			actionHints := []string{
+				"fix", "implement", "build", "create", "refactor",
+				"add", "write", "test", "debug", "migrate",
+			}
+			for _, h := range actionHints {
+				if strings.Contains(trimmed, h) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+
+	actionVerbs := []string{
+		"fix", "add", "implement", "build", "create", "refactor",
+		"update", "write", "test", "debug", "optimize", "migrate",
+		"remove", "delete", "replace", "rewrite", "improve", "design",
+		"set up", "setup", "configure", "integrate", "deploy",
+		"make a", "make me", "make the", "develop", "ship",
+	}
+	for _, v := range actionVerbs {
+		if strings.Contains(trimmed, v) {
+			return true
+		}
+	}
+
+	// Multi-word task prompts that read like instructions, not questions.
+	words := strings.Fields(trimmed)
+	if len(words) >= 4 && !strings.HasSuffix(trimmed, "?") {
+		return true
 	}
 
 	return false

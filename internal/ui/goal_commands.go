@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -17,12 +16,21 @@ import (
 //	/goal                  → show current goal status
 //	/goal <condition>      → set a new goal (session starts autonomous loop)
 //	/goal clear            → clear the active goal
+func slashCommandNameForAction(action string) string {
+	for _, cmd := range slashCommands {
+		if cmd.Action == action {
+			return cmd.Name
+		}
+	}
+	return ""
+}
+
 func (m *Model) handleGoalCommand(sess *SessionState, arg string) []tea.Cmd {
 	if sess == nil {
 		return nil
 	}
 
-	arg = strings.TrimSpace(arg)
+	arg = slashCommandArgs(arg, "goal")
 	lower := strings.ToLower(arg)
 
 	// /goal (no args) → show status. The session's GoalState()
@@ -76,11 +84,8 @@ func (m *Model) handleGoalCommand(sess *SessionState, arg string) []tea.Cmd {
 	workflowStarted := false
 	lowerGoal := strings.ToLower(arg)
 	if isSubstantivePrompt(lowerGoal) || detectWorkflowIntent(lowerGoal) {
-		engine := sess.EnsureWorkflowEngine(m.cortexCfg)
 		preset := pickWorkflowPreset(lowerGoal)
-		id, err := engine.Start(context.Background(), preset.Name, arg, preset.Strategy, preset.MaxAgents)
-		if err == nil {
-			sess.activeWorkflow = id
+		if _, err := startSessionWorkflow(sess, m.cortexCfg, arg, preset); err == nil {
 			workflowStarted = true
 		}
 	}
@@ -95,62 +100,51 @@ func (m *Model) handleGoalCommand(sess *SessionState, arg string) []tea.Cmd {
 	}
 	sess.chatMessages = append(sess.chatMessages, renderSystemSuccessMessage(goalMsg))
 
-	if sess.client != nil && sess.agentState == StateWaitingForInput {
+	if sess.client != nil {
+		if sess.agentState != StateWaitingForInput {
+			sess.client.SendCancelAfterEdit()
+		}
 		sess.agentState = StateStreaming
+		sess.StartTurn()
+		goalInput := "/goal"
+		if arg != "" {
+			goalInput = "/goal " + arg
+		}
+		input := goalInput
 		return []tea.Cmd{sess.thinkingAnim.Start(), func() tea.Msg {
-			sess.client.SendInput("/goal "+arg, nil)
+			sess.client.SendInput(input, nil)
 			return nil
 		}}
 	}
 	return nil
 }
 
-// handleEffortCommand processes the /effort slash command.
-//
-//	/effort             → show current effort level
-//	/effort low         → set low effort
-//	/effort medium      → set medium effort
-//	/effort high        → set high effort
-//	/effort ultracode   → set xhigh + auto-workflow (ultracode mode)
-func (m *Model) handleEffortCommand(sess *SessionState, arg string) []tea.Cmd {
-	if sess == nil {
-		return nil
+// openEffortPicker shows the effort level picker overlay.
+func (m *Model) openEffortPicker(sess *SessionState) []tea.Cmd {
+	current := ""
+	if sess != nil {
+		current = sess.effortLevel
 	}
-
-	arg = strings.TrimSpace(strings.ToLower(arg))
-
-	validLevels := map[string]string{
-		"low":       "low",
-		"medium":    "medium",
-		"high":      "high",
-		"ultracode": "ultracode",
+	m.effortPicker.Open(current)
+	if sess != nil {
+		sess.input.Blur()
 	}
+	return nil
+}
 
-	// /effort (no args) → show current level
-	if arg == "" {
-		level := sess.effortLevel
-		if level == "" {
-			level = "high (default)"
-		}
-		sess.chatMessages = append(sess.chatMessages,
-			renderSystemMessage(fmt.Sprintf(
-				"Current effort level: %s\n\nSet with /effort <low|medium|high|ultracode>",
-				level,
-			), m.styles))
-		return nil
-	}
-
-	level, ok := validLevels[arg]
-	if !ok {
-		sess.chatMessages = append(sess.chatMessages,
-			renderSystemMessage(
-				"Invalid effort level. Use: low, medium, high, or ultracode",
-				m.styles,
-			))
-		return nil
+// applyEffortLevel sets the session effort level and syncs provider reasoning.
+func (m *Model) applyEffortLevel(sess *SessionState, level string) {
+	if sess == nil || level == "" {
+		return
 	}
 
 	sess.effortLevel = level
+	switch level {
+	case "low", "medium", "high":
+		m.setActiveReasoningEffort(level)
+	case "ultracode":
+		m.setActiveReasoningEffort("xhigh")
+	}
 
 	description := map[string]string{
 		"low":       "Low effort — faster responses, less thorough. Good for simple questions.",
@@ -164,5 +158,4 @@ func (m *Model) handleEffortCommand(sess *SessionState, arg string) []tea.Cmd {
 			"Effort level set to: %s\n\n%s\n\nThis setting lasts for the current session.",
 			level, description,
 		)))
-	return nil
 }

@@ -38,6 +38,8 @@ type ProviderSettingsView struct {
 	// ProviderSettingsRows: "OAuth (subscription)" for OAuth,
 	// "API key" for apikey, "env" for env, "no key" for none.
 	AuthLabel string
+	// IsCustom is true for providers the user added via Settings.
+	IsCustom bool
 }
 
 // AvailableProviders is the static fallback list. The Settings tab
@@ -249,6 +251,7 @@ func ProviderSettingsRows(cfg *cortexconfig.Config) []ProviderSettingsView {
 			AuthKind:    authKind,
 			AuthLabel:   authLabel(authKind),
 			HelpURL:     cortexconfig.ProviderHelpURL(p.Name),
+			IsCustom:    cortexconfig.IsCustomProvider(p.Name),
 		})
 	}
 	return rows

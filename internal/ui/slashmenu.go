@@ -14,13 +14,12 @@ var slashCommands = []Command{
 	{Name: "model", Description: "Switch model (any configured provider or subscription)", Action: "open_model_picker"},
 	{Name: "goal", Description: "Set a goal condition and work autonomously until it's met (e.g. /goal all tests pass)", Action: "slash_goal"},
 	{Name: "workflow", Description: "Start a multi-agent workflow with a prompt (e.g. /workflow build a CLI todo app in Go)", Action: "open_workflow_picker"},
-	{Name: "effort", Description: "Set reasoning effort: low, medium, high, or ultracode (xhigh + auto-workflow)", Action: "slash_effort"},
+	{Name: "effort", Description: "Choose reasoning effort (low, medium, high, ultracode)", Action: "open_effort_picker"},
 	{Name: "compact", Description: "Compress conversation history to free up context window", Action: "compact_context"},
 	{Name: "update", Description: "Self-update to the latest GitHub release", Action: "self_update"},
 	{Name: "login", Description: "Sign in to a subscription provider (codex, claude-sub, copilot)", Action: "open_login_picker"},
 	{Name: "copy", Description: "Copy conversation to clipboard", Action: "copy_conversation"},
 	{Name: "clear", Description: "Clear conversation history", Action: "slash_clear"},
-	{Name: "skills", Description: "List available skills", Action: "slash_skills"},
 }
 
 // SlashMenu is a popup that lists available slash commands matching the typed /query.

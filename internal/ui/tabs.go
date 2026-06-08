@@ -231,10 +231,7 @@ func renderSessionsView(sessions []*SessionState, width, height int, s Styles, f
 	return s.ViewportFocusedStyle.Width(width).Height(height).Render(content)
 }
 
-const (
-	settingsTitleDividerLen  = 24 // Settings title → Tab hint
-	settingsSectionDividerLen = 16 // Tab hint → section tabs
-)
+const settingsHeaderDividerLen = 24
 
 func settingsShortDivider(dimStyle lipgloss.Style, length int) string {
 	if length < 1 {
@@ -333,6 +330,36 @@ func normalizedSettingsValue(v string) string {
 	return v
 }
 
+var settingsCustomProviderBadge = lipgloss.NewStyle().
+	Background(colorSecondary).
+	Foreground(lipgloss.Color("0")).
+	Bold(true).
+	Render(" custom ")
+
+func renderSettingsAddProviderKeyBadge() string {
+	return lipgloss.NewStyle().
+		Background(colorSecondary).
+		Foreground(lipgloss.Color("0")).
+		Bold(true).
+		Render(" A ")
+}
+
+func renderSettingsAddProviderRow(selected bool, innerWidth int, optionRowStyle, selectedStyle lipgloss.Style) string {
+	prefix := "  "
+	if selected {
+		prefix = "▸ "
+	}
+	label := prefix + "+ Add custom provider  " + renderSettingsAddProviderKeyBadge()
+	rowStyle := optionRowStyle
+	if selected {
+		rowStyle = selectedStyle
+	}
+	if selected {
+		return renderSettingsSelectLine(rowStyle, label, innerWidth)
+	}
+	return renderSettingsLine(rowStyle, label, innerWidth)
+}
+
 func settingsKeyStatus(pk ProviderSettingsView) string {
 	if pk.KeyPrefix != "" {
 		return "set (" + settingsTruncate(pk.KeyPrefix, 8) + "…)"
@@ -347,12 +374,11 @@ func settingsKeyStatus(pk ProviderSettingsView) string {
 }
 
 type SettingsOtherView struct {
-	Theme           string
-	PrimaryColor    string
-	ShowThinking    bool
-	ReasoningEffort string
-	ShowUsage       bool
-	AutoCompact     bool
+	Theme        string
+	PrimaryColor string
+	ShowThinking bool
+	ShowUsage    bool
+	AutoCompact  bool
 }
 
 // SettingsInspectView is the rendered state for the inline provider
@@ -405,6 +431,8 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	selectedStyle := selectedRowStyle()
 	activeStyle := lipgloss.NewStyle().Foreground(colorDim)
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
+	// Bold bright white for provider names and Other Settings rows.
+	optionRowStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	innerWidth := width - 4
 	if innerWidth < 0 {
 		innerWidth = 0
@@ -440,9 +468,9 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 
 	lines := []string{
 		titleStyle.Width(innerWidth).Render("Settings"),
-		settingsShortDivider(dimStyle, settingsTitleDividerLen),
+		settingsShortDivider(dimStyle, settingsHeaderDividerLen),
 		renderSettingsSectionSwitchHint(activeSection, innerWidth),
-		settingsShortDivider(dimStyle, settingsSectionDividerLen),
+		settingsShortDivider(dimStyle, settingsHeaderDividerLen),
 		renderSettingsSectionTabBar(activeSection, innerWidth, s),
 	}
 
@@ -458,10 +486,13 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 
 	if activeSection == 0 {
 	// Providers section: provider name only, no status text.
+	addRowIdx := len(keys)
+	providerSel := keySel
+	if providerSel > addRowIdx {
+		providerSel = addRowIdx
+	}
 	apiRowsLimit := clampRows(height/6, 3, 6)
-	keyStart, keyEnd := settingsWindow(keySel, len(keys), apiRowsLimit)
-	// Provider names are bold and bright white so they read as headings.
-	providerNameStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	keyStart, keyEnd := settingsWindow(providerSel, len(keys), apiRowsLimit)
 	if keyStart > 0 {
 		lines = append(lines, mutedStyle.Width(innerWidth).Render("  ↑ more providers"))
 	}
@@ -473,7 +504,10 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 			prefix = "▸ "
 		}
 		row := prefix + pk.DisplayName
-		rowStyle := providerNameStyle
+		if pk.IsCustom {
+			row += "  " + settingsCustomProviderBadge
+		}
+		rowStyle := optionRowStyle
 		if isCursor {
 			rowStyle = selectedStyle
 		}
@@ -486,6 +520,8 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 	if keyEnd < len(keys) {
 		lines = append(lines, mutedStyle.Width(innerWidth).Render(fmt.Sprintf("  ↓ %d more providers", len(keys)-keyEnd)))
 	}
+	lines = append(lines, renderSettingsAddProviderRow(keySel == addRowIdx, innerWidth, optionRowStyle, selectedStyle))
+	lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("  ↑/↓ navigate · Enter edit · A add custom · r refresh"))
 	if inspect.Provider != "" {
 		// Inline detail panel for the selected provider.
 		baseURLValue := inspect.BaseURL
@@ -582,7 +618,6 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 		{label: "Theme", value: normalizedSettingsValue(other.Theme)},
 		{label: "Primary color", value: other.PrimaryColor},
 		{label: "Show extended thinking", value: thinkingToggle + " " + thinkingStatus},
-		{label: "Reasoning effort", value: normalizedSettingsValue(other.ReasoningEffort)},
 		{label: "Show token usage", value: usageToggle + " " + usageStatus},
 		// Auto-compact context: triggers a /compact run when
 		// usage exceeds 80% of the model's context window.
@@ -597,7 +632,7 @@ func renderSettingsView(width, height int, s Styles, activeSection, providerSel,
 			prefix = "▸ "
 		}
 		rowText := settingsTruncate(fmt.Sprintf("%s%-26s %s", prefix, row.label, row.value), innerWidth)
-		rowStyle := mutedStyle
+		rowStyle := optionRowStyle
 		if isActive {
 			rowStyle = selectedStyle
 		}

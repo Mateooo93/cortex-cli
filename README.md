@@ -65,7 +65,44 @@ Type `/` in chat for the full menu. Highlights:
 
 Pre-built binaries for macOS, Linux, and Windows are on the [Releases page](https://github.com/Mateooo93/cortex-cli/releases).
 
-From source (Go 1.26+):
+### Windows
+
+Use **Windows Terminal** or **PowerShell** (the classic `cmd.exe` console has limited TUI support).
+
+**PowerShell (recommended)** — downloads the binary, installs it to `%LOCALAPPDATA%\Programs\cortex`, and adds that folder to your user `PATH`:
+
+```powershell
+# Pick the build for your PC (amd64 is typical; use arm64 on ARM Windows devices)
+$arch = "amd64"   # or "arm64"
+$url  = "https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-windows-$arch.exe"
+$dest = "$env:LOCALAPPDATA\Programs\cortex"
+
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+Invoke-WebRequest -Uri $url -OutFile "$dest\cortex.exe"
+
+# Add to PATH for future terminals (open a new window after this)
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -notlike "*$dest*") {
+  [Environment]::SetEnvironmentVariable("Path", "$userPath;$dest", "User")
+}
+
+# Run from the install folder in this session
+& "$dest\cortex.exe"
+```
+
+One-shot prompt:
+
+```powershell
+cortex -p "summarize this repo"
+```
+
+On first run, config is created at `%USERPROFILE%\.cortex\` (same layout as `~/.cortex` on macOS/Linux). API keys and OAuth tokens are stored in the Windows Credential Manager.
+
+**Manual install** — download `cortex-windows-amd64.exe` or `cortex-windows-arm64.exe` from [Releases](https://github.com/Mateooo93/cortex-cli/releases), rename to `cortex.exe`, place it somewhere on your `PATH`, then run `cortex` from a new terminal.
+
+### From source
+
+Go 1.26+ on any platform:
 
 ```bash
 git clone https://github.com/Mateooo93/cortex-cli.git
@@ -73,6 +110,8 @@ cd cortex-cli
 go build -o cortex ./cmd/cortex
 ./cortex
 ```
+
+On Windows, use `go build -o cortex.exe ./cmd/cortex` and run `.\cortex.exe`.
 
 ## Configuration (minimal)
 

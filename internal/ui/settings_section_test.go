@@ -4,7 +4,11 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/Mateooo93/cortex-cli/internal/config"
+	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 )
 
 func settingsSectionTabLine(view string) string {
@@ -103,6 +107,53 @@ func TestSettingsSectionProviders_HighlightedWhenActive(t *testing.T) {
 	}
 }
 
+func TestSettingsProviders_ShowsAddCustomProviderButton(t *testing.T) {
+	s := NewStyles(true)
+	view := renderSettingsView(120, 40, s,
+		0, 0, 0, 0,
+		"GPT-5.5", "codex",
+		nil, nil,
+		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
+		1, 0, SettingsOtherView{}, SettingsInspectView{},
+		false, "", "",
+		SettingsWizardView{},
+	)
+	plain := stripANSI(view)
+	for _, want := range []string{"+ Add custom provider", "A", "A add custom"} {
+		if !strings.Contains(plain, want) && !strings.Contains(view, want) {
+			t.Fatalf("expected add-custom-provider UI to mention %q, got:\n%s", want, view)
+		}
+	}
+}
+
+func TestSettingsProviderRows_ShowCustomBadge(t *testing.T) {
+	s := NewStyles(true)
+	view := renderSettingsView(120, 40, s,
+		0, 0, 0, 0,
+		"my-local/qwen2.5-coder-32b", "my-local",
+		nil, nil,
+		[]ProviderSettingsView{
+			{Provider: "codex", DisplayName: "ChatGPT (codex)"},
+			{Provider: "my-local", DisplayName: "my-local", IsCustom: true},
+		},
+		1, 0, SettingsOtherView{}, SettingsInspectView{},
+		false, "", "",
+		SettingsWizardView{},
+	)
+	var found bool
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(stripANSI(line), "my-local") {
+			found = true
+			if !strings.Contains(stripANSI(line), "custom") {
+				t.Fatalf("expected custom badge on my-local row, got:\n%s", line)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("my-local provider row not found in:\n%s", view)
+	}
+}
+
 func TestSettingsProviderRows_AllBoldUnlessCursor(t *testing.T) {
 	s := NewStyles(true)
 	view := renderSettingsView(120, 40, s,
@@ -186,7 +237,7 @@ func TestSettingsOtherSettings_IncludesAutoCompactRow(t *testing.T) {
 		"GPT-5.5", "codex",
 		nil, nil,
 		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
-		0, 6, other, SettingsInspectView{},
+		0, 4, other, SettingsInspectView{},
 		false, "", "",
 		SettingsWizardView{},
 	)
@@ -212,7 +263,7 @@ func TestRenderSettingsSectionTabBar_ShowsBothSections(t *testing.T) {
 	}
 }
 
-func TestRenderSettingsView_UsesShortHeaderDividers(t *testing.T) {
+func TestRenderSettingsView_UsesMatchingHeaderDividers(t *testing.T) {
 	s := NewStyles(true)
 	view := renderSettingsView(120, 40, s,
 		0, 0, 0, 0, "", "", nil, nil,
@@ -220,12 +271,66 @@ func TestRenderSettingsView_UsesShortHeaderDividers(t *testing.T) {
 		0, 0, SettingsOtherView{}, SettingsInspectView{},
 		false, "", "", SettingsWizardView{},
 	)
-	plain := stripANSI(view)
-	if strings.Count(plain, strings.Repeat("─", settingsTitleDividerLen)) < 1 {
-		t.Fatalf("expected short divider after Settings title, got:\n%s", plain)
+	var dividerLines int
+	for _, line := range strings.Split(stripANSI(view), "\n") {
+		if strings.Count(line, "─") != settingsHeaderDividerLen {
+			continue
+		}
+		withoutDashes := strings.ReplaceAll(line, "─", "")
+		if strings.Trim(withoutDashes, " │\t") == "" {
+			dividerLines++
+		}
 	}
-	if strings.Count(plain, strings.Repeat("─", settingsSectionDividerLen)) < 1 {
-		t.Fatalf("expected shorter divider before section tabs, got:\n%s", plain)
+	if dividerLines != 2 {
+		t.Fatalf("expected two %d-char divider lines, got %d in:\n%s", settingsHeaderDividerLen, dividerLines, view)
+	}
+}
+
+func TestSettingsOtherSettingsRows_AllBoldWhiteUnlessCursor(t *testing.T) {
+	s := NewStyles(true)
+	other := SettingsOtherView{
+		Theme:        "auto",
+		PrimaryColor: "default (#3B82F6)",
+		ShowThinking: true,
+		ShowUsage:    true,
+		AutoCompact:  true,
+	}
+	view := renderSettingsView(120, 40, s,
+		1, 0, 0, 0,
+		"GPT-5.5", "codex",
+		nil, nil,
+		[]ProviderSettingsView{{Provider: "codex", DisplayName: "ChatGPT (codex)"}},
+		0, 1, other, SettingsInspectView{},
+		false, "", "",
+		SettingsWizardView{},
+	)
+	if strings.Contains(view, "\x1b[2m") {
+		t.Fatalf("Other Settings rows should not use dim style, got:\n%s", view)
+	}
+	for _, label := range []string{"Theme", "Primary color", "Show extended thinking", "Show token usage", "Auto-compact context"} {
+		if !strings.Contains(stripANSI(view), label) {
+			t.Fatalf("missing Other Settings row %q", label)
+		}
+	}
+}
+
+func TestSettingsAddCustomProvider_EnterOpensNamePrompt(t *testing.T) {
+	setupPersistDir(t)
+	cfg := &config.Config{}
+	cortexCfg := cortexconfig.Default()
+	m := NewModel(cfg, cortexCfg, nil, false, "", false, false)
+	m.activeTab = TabKindSettings
+	m.settingsActiveSection = 0
+	m.refreshSettingsKeys()
+	m.settingsKeySel = settingsProviderAddRowIndex(m.settingsKeys)
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	um := updated.(Model)
+	if !um.settingsInKeyInput {
+		t.Fatal("expected custom provider name prompt after Enter on add row")
+	}
+	if um.settingsKeyInputLabel != "New provider name" {
+		t.Fatalf("settingsKeyInputLabel = %q, want New provider name", um.settingsKeyInputLabel)
 	}
 }
 
