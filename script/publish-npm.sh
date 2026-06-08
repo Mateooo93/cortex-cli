@@ -96,6 +96,9 @@ fi
 echo "==> Publishing mateooo93-cortex@$SEMVER to npm..."
 (
   cd "$NPM_DIR"
+  if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
+    echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
+  fi
   npm publish
 )
 
