@@ -436,12 +436,13 @@ func (rp *RightPanel) View(height int, s Styles, focused bool, activeModel strin
 	}
 
 	content := strings.Join(lines, "\n")
-	panelStyle := s.RightPanelStyle
-	if focused {
-		panelStyle = panelStyle.BorderForeground(s.ColorWhite)
-	}
-	box := panelStyle.Width(panelWidth).Height(height).Render(content)
+	box := rightPanelBorderStyle(s).Width(panelWidth).Height(height).Render(content)
 	return box
+}
+
+// rightPanelBorderStyle matches the Settings/Sessions viewport outline.
+func rightPanelBorderStyle(s Styles) lipgloss.Style {
+	return s.ViewportFocusedStyle
 }
 
 // renderInfoView draws the OpenCode-style info / status panel:
