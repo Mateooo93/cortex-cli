@@ -1,17 +1,19 @@
-# cortex-cli (npm)
+# @mateooo93/cortex-cli (npm)
 
-Cross-platform npm wrapper for [cortex-cli](https://github.com/Mateooo93/cortex-cli). On install it downloads the matching native binary from GitHub Releases.
+Cross-platform npm wrapper for the [Mateooo93 cortex-cli](https://github.com/Mateooo93/cortex-cli) AI coding agent. On install it downloads the matching native binary from GitHub Releases.
+
+> **Note:** The unscoped npm package `cortex-cli` is a different product (CognitiveScale Cortex). Use the scoped package below.
 
 ```bash
-npm install -g cortex-cli
-cortex
+npm install -g @mateooo93/cortex-cli
+cortex-agent
 ```
 
 Also works with Bun:
 
 ```bash
-bun install -g cortex-cli
-cortex
+bun install -g @mateooo93/cortex-cli
+cortex-agent
 ```
 
 Set `CORTEX_SKIP_POSTINSTALL=1` to skip the binary download (for CI or offline mirrors).

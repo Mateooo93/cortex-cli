@@ -10,7 +10,7 @@ name: Release
 # Requires these repo secrets:
 #   GITHUB_TOKEN        (auto-provided)
 #   HOMEBREW_TAP_TOKEN  (PAT with 'repo' scope on the homebrew-cortex tap repo)
-#   NPM_TOKEN           (npm automation token for cortex-cli publish)
+#   NPM_TOKEN           (npm automation token for @mateooo93/cortex-cli publish)
 #   WINGET_TOKEN        (PAT for opening PRs to microsoft/winget-pkgs)
 
 on:
@@ -178,7 +178,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          echo "==> Publishing cortex-cli to npm"
+          echo "==> Publishing @mateooo93/cortex-cli to npm"
           ./script/publish-npm.sh "$VERSION" --yes
 
       - name: Submit winget manifest PR

@@ -27,14 +27,16 @@ A beautiful single-binary AI coding agent with a polished terminal UI and 20+ pr
 **Easiest (all platforms)** — npm or Bun downloads the native binary for your OS:
 
 ```bash
-npm install -g cortex-cli
-cortex
+npm install -g @mateooo93/cortex-cli
+cortex-agent
 ```
 
 ```bash
-bun install -g cortex-cli
-cortex
+bun install -g @mateooo93/cortex-cli
+cortex-agent
 ```
+
+> The unscoped npm package `cortex-cli` is a **different** product (CognitiveScale). Use `@mateooo93/cortex-cli` for this AI coding agent.
 
 **Linux amd64** (see Install for other arches and package managers):
 
@@ -82,15 +84,15 @@ Pick one — they all install the same native binary.
 Requires [Node.js 18+](https://nodejs.org/). Downloads the correct release asset and verifies SHA-256.
 
 ```bash
-npm install -g cortex-cli
-cortex
+npm install -g @mateooo93/cortex-cli
+cortex-agent
 ```
 
 ### Bun (macOS, Linux, Windows)
 
 ```bash
-bun install -g cortex-cli
-cortex
+bun install -g @mateooo93/cortex-cli
+cortex-agent
 ```
 
 ### winget (Windows)

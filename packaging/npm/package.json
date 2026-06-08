@@ -1,5 +1,5 @@
 {
-  "name": "cortex-cli",
+  "name": "@mateooo93/cortex-cli",
   "version": "0.0.0-dev",
   "description": "Fast AI coding agent with a polished terminal UI (npm wrapper — downloads the native binary for your OS)",
   "license": "AGPL-3.0-or-later",
@@ -32,7 +32,7 @@
     "arm64"
   ],
   "bin": {
-    "cortex": "shims/cortex.js"
+    "cortex-agent": "shims/cortex.js"
   },
   "files": [
     "shims",
