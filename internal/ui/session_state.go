@@ -112,6 +112,16 @@ func runningBackgroundProcesses(procs []protocol.BackgroundProcessItem) []protoc
 	return out
 }
 
+func runningLocalSubagents(agents []protocol.LocalSubagentItem) []protocol.LocalSubagentItem {
+	var out []protocol.LocalSubagentItem
+	for _, a := range agents {
+		if a.Status == protocol.LocalSubagentRunning {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 func (s *SessionState) hasRunningBackgroundProcesses() bool {
 	return len(runningBackgroundProcesses(s.backgroundProcesses)) > 0
 }
@@ -163,6 +173,9 @@ type SessionState struct {
 	// backgroundProcesses lists shell commands still running (or
 	// recently exited) that the agent started via run_shell.
 	backgroundProcesses []protocol.BackgroundProcessItem
+
+	// localSubagents lists background sub-agents dispatched via spawn_agent.
+	localSubagents []protocol.LocalSubagentItem
 	// hoverProcessID is the running process row under the mouse.
 	hoverProcessID string
 

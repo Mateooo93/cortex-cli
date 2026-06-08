@@ -78,6 +78,26 @@ func NewRegistry() *Registry {
 	return r
 }
 
+// NewFilteredRegistry constructs a Registry containing only the named tools.
+// Unknown names are skipped. When names is empty, all default tools are kept.
+func NewFilteredRegistry(names []string) *Registry {
+	all := defaultTools()
+	if len(names) == 0 {
+		return NewRegistry()
+	}
+	allow := make(map[string]bool, len(names))
+	for _, n := range names {
+		allow[n] = true
+	}
+	r := &Registry{tools: map[string]Tool{}}
+	for _, t := range all {
+		if allow[t.Name()] {
+			r.tools[t.Name()] = t
+		}
+	}
+	return r
+}
+
 // Get returns a tool by name.
 func (r *Registry) Get(name string) (Tool, bool) {
 	t, ok := r.tools[name]

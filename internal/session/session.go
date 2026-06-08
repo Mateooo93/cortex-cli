@@ -20,6 +20,7 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
 	"github.com/Mateooo93/cortex-cli/internal/provider"
+	"github.com/Mateooo93/cortex-cli/internal/subagent"
 	"github.com/Mateooo93/cortex-cli/internal/tools"
 )
 
@@ -86,6 +87,7 @@ type Session struct {
 	toolBatchConcurrent bool
 
 	processes *tools.ProcessRegistry
+	subagents *subagent.Registry
 
 	// ── Goal state ──────────────────────────────────────────────────────
 	// When goalCondition is non-empty, the session runs autonomously:
@@ -147,6 +149,7 @@ func New(cfg Config) (*Session, error) {
 		done:         make(chan struct{}),
 	}
 	s.processes = tools.NewProcessRegistry(s.emitBackgroundProcesses)
+	s.subagents = subagent.NewRegistry(s.emitLocalSubagents)
 	return s, nil
 }
 
@@ -915,6 +918,10 @@ func (s *Session) runToolCall(ctx context.Context, call provider.ToolCall) *prov
 		return s.handleTodoWrite(call)
 	case "ask_user_question":
 		return s.handleAskUserQuestion(call)
+	case "spawn_agent":
+		return s.handleSpawnAgent(call)
+	case "task_output":
+		return s.handleTaskOutput(call)
 	}
 	tool, ok := s.tools.Get(call.Name)
 	if !ok {

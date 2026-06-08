@@ -258,6 +258,18 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 			sess.toolActivityAnim.Stop()
 		}
 
+	case "event.local_subagents_updated":
+		data := marshalData(event.Data)
+		var ls protocol.EventLocalSubagentsUpdated
+		json.Unmarshal(data, &ls)
+		sess.localSubagents = ls.Subagents
+		if len(runningLocalSubagents(ls.Subagents)) > 0 {
+			if !sess.rightPanel.IsVisible() {
+				sess.rightPanel.OpenInfo(m.height)
+				m.updateChatWidth()
+			}
+		}
+
 	case "event.todo_list_updated":
 		data := marshalData(event.Data)
 		var tu protocol.EventTodoListUpdated

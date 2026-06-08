@@ -447,6 +447,7 @@ func (m *Model) buildRightPanelInfoView(sess *SessionState) RightPanelInfoView {
 		// rendering in the right panel).
 		info.Todos = sess.todos
 		info.Processes = sess.backgroundProcesses
+		info.Subagents = sess.localSubagents
 		info.HoverProcessID = sess.hoverProcessID
 		if sess.pendingInput != nil && sess.pendingInput.Queued {
 			info.QueuedMsgs = 1
@@ -982,18 +983,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseWheelMsg:
-		// Mouse wheel always scrolls the chat content when the Chat
-		// tab is active, regardless of keyboard focus or side panels.
-		// This is a primary way to scroll "no matter where you are".
 		m.noteMousePosition(msg.Mouse().X, msg.Mouse().Y)
 		sess := m.currentSession()
 		if m.activeTab == TabKindChat && sess != nil {
-			delta := 5
+			delta := 1
 			switch msg.Button {
 			case tea.MouseWheelUp:
-				sess.chatScrollOffset += delta
+				delta = 1
 			case tea.MouseWheelDown:
-				sess.chatScrollOffset -= delta
+				delta = -1
+			default:
+				return m, nil
+			}
+			// Wheel over the right panel scrolls subagents / processes /
+			// todos sections (max 3 / 3 / 5 visible rows). Elsewhere on
+			// the chat tab, wheel scrolls the main chat transcript.
+			if line, ok := m.rightPanelContentLineAt(msg.Mouse().X, msg.Mouse().Y); ok &&
+				sess.rightPanel.IsVisible() && sess.rightPanel.mode == rpModeInfo {
+				if sess.rightPanel.ScrollSectionAt(line, delta) {
+					return m, nil
+				}
+			}
+			chatDelta := 5
+			if delta > 0 {
+				sess.chatScrollOffset += chatDelta
+			} else {
+				sess.chatScrollOffset -= chatDelta
 			}
 			m.clampScrollOffset(sess)
 			return m, nil

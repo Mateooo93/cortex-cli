@@ -70,6 +70,18 @@ type RightPanel struct {
 	// processLineIdx maps process_id → 0-based content line index
 	// inside the info panel (rpModeInfo). Used for click-to-stop.
 	processLineIdx map[string]int
+
+	// Per-section scroll offsets inside the info panel (mouse wheel).
+	subagentScroll    int
+	subagentScrollMax int
+	processScroll     int
+	processScrollMax  int
+	todoScroll        int
+	todoScrollMax     int
+
+	// sectionLineRange maps a scrollable section to [start,end] content
+	// line indices (inclusive) for hit-testing wheel events.
+	sectionLineRange map[scrollableSection][2]int
 }
 
 // NewRightPanel returns a panel that is visible in info mode by
@@ -81,6 +93,23 @@ func NewRightPanel() RightPanel {
 
 // panelWidth is the fixed display width of the right panel.
 const panelWidth = 42
+
+// Max visible rows per scrollable info-panel section before the user
+// must scroll within that section (mouse wheel over the panel).
+const (
+	rpMaxVisibleSubagents = 3
+	rpMaxVisibleProcesses = 3
+	rpMaxVisibleTodos     = 5
+)
+
+// scrollableSection names sections that support in-panel scrolling.
+type scrollableSection int
+
+const (
+	rpSectionSubagents scrollableSection = iota
+	rpSectionProcesses
+	rpSectionTodos
+)
 
 // PanelWidth returns the fixed width of the right panel.
 func (rp *RightPanel) PanelWidth() int { return panelWidth }
@@ -306,6 +335,9 @@ type RightPanelInfoView struct {
 	// Processes lists background shell commands the agent started.
 	Processes []protocol.BackgroundProcessItem
 
+	// Subagents lists local background sub-agents from spawn_agent.
+	Subagents []protocol.LocalSubagentItem
+
 	// HoverProcessID is the process row under the mouse cursor.
 	HoverProcessID string
 }
@@ -471,7 +503,99 @@ func (rp *RightPanel) ProcessIDAtContentLine(contentLine int) (string, bool) {
 	return "", false
 }
 
+// ScrollSectionAt adjusts scroll for the section under contentLine.
+// delta is positive when scrolling up (show earlier items).
+func (rp *RightPanel) ScrollSectionAt(contentLine, delta int) bool {
+	if delta == 0 || rp.sectionLineRange == nil {
+		return false
+	}
+	for sec, bounds := range rp.sectionLineRange {
+		if contentLine < bounds[0] || contentLine > bounds[1] {
+			continue
+		}
+		switch sec {
+		case rpSectionSubagents:
+			rp.subagentScroll = clampScroll(rp.subagentScroll+delta, 0, rp.subagentScrollMax)
+		case rpSectionProcesses:
+			rp.processScroll = clampScroll(rp.processScroll+delta, 0, rp.processScrollMax)
+		case rpSectionTodos:
+			rp.todoScroll = clampScroll(rp.todoScroll+delta, 0, rp.todoScrollMax)
+		default:
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+func (rp *RightPanel) setSectionBounds(sec scrollableSection, startLine int, lineCount int) {
+	if rp.sectionLineRange == nil {
+		rp.sectionLineRange = map[scrollableSection][2]int{}
+	}
+	if lineCount <= 0 {
+		delete(rp.sectionLineRange, sec)
+		return
+	}
+	rp.sectionLineRange[sec] = [2]int{startLine, startLine + lineCount - 1}
+}
+
+// ClampSectionScrolls keeps scroll offsets valid after list sizes change.
+func (rp *RightPanel) ClampSectionScrolls(subagents, processes, todos int) {
+	rp.subagentScrollMax = maxScrollOffset(subagents, rpMaxVisibleSubagents)
+	rp.processScrollMax = maxScrollOffset(processes, rpMaxVisibleProcesses)
+	rp.todoScrollMax = maxScrollOffset(todos, rpMaxVisibleTodos)
+	rp.subagentScroll = clampScroll(rp.subagentScroll, 0, rp.subagentScrollMax)
+	rp.processScroll = clampScroll(rp.processScroll, 0, rp.processScrollMax)
+	rp.todoScroll = clampScroll(rp.todoScroll, 0, rp.todoScrollMax)
+}
+
+func maxScrollOffset(count, maxVisible int) int {
+	if count <= maxVisible {
+		return 0
+	}
+	return count - maxVisible
+}
+
+func clampScroll(v, min, max int) int {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
+
+func windowedSlice[T any](items []T, scroll, maxVisible int) []T {
+	if len(items) == 0 || maxVisible <= 0 {
+		return nil
+	}
+	scroll = clampScroll(scroll, 0, maxScrollOffset(len(items), maxVisible))
+	end := scroll + maxVisible
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[scroll:end]
+}
+
+func scrollHintLine(hiddenAbove, hiddenBelow int, innerWidth int) string {
+	if hiddenAbove <= 0 && hiddenBelow <= 0 {
+		return ""
+	}
+	var parts []string
+	if hiddenAbove > 0 {
+		parts = append(parts, fmt.Sprintf("↑ %d more", hiddenAbove))
+	}
+	if hiddenBelow > 0 {
+		parts = append(parts, fmt.Sprintf("↓ %d more", hiddenBelow))
+	}
+	return lipgloss.NewStyle().Foreground(colorDim).Italic(true).Width(innerWidth).Render(strings.Join(parts, "  "))
+}
+
 func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s Styles) ([]string, map[string]int) {
+	rp.sectionLineRange = nil
+	rp.ClampSectionScrolls(len(info.Subagents), len(info.Processes), len(info.Todos))
+
 	processLineIdx := map[string]int{}
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
 	primaryStyle := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
@@ -584,12 +708,47 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 		)))
 	}
 
+	// ── Local sub-agents (spawn_agent background workers) ──
+	if len(info.Subagents) > 0 {
+		lines = append(lines, "")
+		sectionStart := len(lines)
+		lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Subagents"))
+		visible := windowedSlice(info.Subagents, rp.subagentScroll, rpMaxVisibleSubagents)
+		hiddenAbove := rp.subagentScroll
+		hiddenBelow := len(info.Subagents) - rp.subagentScroll - len(visible)
+		if hint := scrollHintLine(hiddenAbove, hiddenBelow, innerWidth); hint != "" {
+			lines = append(lines, hint)
+		}
+		for _, a := range visible {
+			task := truncateRight(a.Task, innerWidth-10)
+			switch a.Status {
+			case protocol.LocalSubagentRunning:
+				line := fmt.Sprintf("▶ %s  %s", a.Role, task)
+				lines = append(lines, lipgloss.NewStyle().Foreground(colorSecondary).Width(innerWidth).Render(truncateRight(line, innerWidth)))
+			case protocol.LocalSubagentDone:
+				line := fmt.Sprintf("✓ %s  done", a.Role)
+				lines = append(lines, lipgloss.NewStyle().Foreground(colorSuccess).Width(innerWidth).Render(truncateRight(line, innerWidth)))
+			default:
+				line := fmt.Sprintf("✗ %s  failed", a.Role)
+				lines = append(lines, lipgloss.NewStyle().Foreground(colorError).Width(innerWidth).Render(truncateRight(line, innerWidth)))
+			}
+		}
+		rp.setSectionBounds(rpSectionSubagents, sectionStart, len(lines)-sectionStart)
+	}
+
 	// ── Background processes (dev servers, detached shells) ──
 	if len(info.Processes) > 0 {
 		lines = append(lines, "")
+		sectionStart := len(lines)
 		lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Processes"))
 		lines = append(lines, dimStyle.Italic(true).Width(innerWidth).Render("click running row to stop"))
-		for _, p := range info.Processes {
+		visible := windowedSlice(info.Processes, rp.processScroll, rpMaxVisibleProcesses)
+		hiddenAbove := rp.processScroll
+		hiddenBelow := len(info.Processes) - rp.processScroll - len(visible)
+		if hint := scrollHintLine(hiddenAbove, hiddenBelow, innerWidth); hint != "" {
+			lines = append(lines, hint)
+		}
+		for _, p := range visible {
 			cmd := truncateRight(p.Command, innerWidth-8)
 			if p.Running {
 				elapsed := time.Since(time.Unix(p.StartedAt, 0)).Truncate(time.Second)
@@ -605,15 +764,24 @@ func (rp *RightPanel) renderInfoView(innerWidth int, info RightPanelInfoView, s 
 				lines = append(lines, dimStyle.Width(innerWidth).Render(truncateRight(line, innerWidth)))
 			}
 		}
+		rp.setSectionBounds(rpSectionProcesses, sectionStart, len(lines)-sectionStart)
 	}
 
 	// ── Todos (only when the AI has emitted a todo list) ──
 	if len(info.Todos) > 0 {
 		lines = append(lines, "")
+		sectionStart := len(lines)
 		lines = append(lines, whiteStyle.Bold(true).Width(innerWidth).Render("Todos"))
-		for _, t := range info.Todos {
+		visible := windowedSlice(info.Todos, rp.todoScroll, rpMaxVisibleTodos)
+		hiddenAbove := rp.todoScroll
+		hiddenBelow := len(info.Todos) - rp.todoScroll - len(visible)
+		if hint := scrollHintLine(hiddenAbove, hiddenBelow, innerWidth); hint != "" {
+			lines = append(lines, hint)
+		}
+		for _, t := range visible {
 			lines = append(lines, renderTodoOrStepLine(t.Content, string(t.Status), innerWidth))
 		}
+		rp.setSectionBounds(rpSectionTodos, sectionStart, len(lines)-sectionStart)
 	}
 
 	return lines, processLineIdx
