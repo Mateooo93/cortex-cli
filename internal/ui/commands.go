@@ -16,6 +16,10 @@ import (
 // rawArg is the slash-command argument text for commands that take one (e.g. /model).
 // Pass "" (or omit) for commands that don't take arguments.
 func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ...string) []tea.Cmd {
+	var arg string
+	if len(rawArg) > 0 {
+		arg = strings.TrimSpace(rawArg[0])
+	}
 	var cmds []tea.Cmd
 	switch action {
 	case "compact_context":
@@ -112,6 +116,11 @@ func (m *Model) handleCommandAction(action string, sess *SessionState, rawArg ..
 			cmds = append(cmds, sess.thinkingAnim.Start())
 			sess.client.SendInput("/skills", nil)
 		}
+	case "slash_goal":
+		cmds = append(cmds, m.handleGoalCommand(sess, arg)...)
+	case "slash_effort":
+		cmds = append(cmds, m.handleEffortCommand(sess, arg)...)
+
 	case "history":
 		if sess != nil && len(sess.history.entries) > 0 {
 			sess.historyPanel.Open(len(sess.history.entries), m.height)

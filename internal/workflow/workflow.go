@@ -386,6 +386,7 @@ func (e *Engine) Start(ctx context.Context, name, goal, strategy string, maxAgen
 		Status:    "planning",
 		StartedAt: time.Now(),
 		Budget:    &Budget{}, // per-run budget
+		Journal:   e.journal, // inherit engine journal for resume
 	}
 	// Inherit engine budget total if set
 	if e.budget != nil && e.budget.Total() > 0 {
@@ -584,8 +585,15 @@ func (e *Engine) run(ctx context.Context, wf *Workflow) {
 //   - Records a JournalEntry if wf.Journal is non-nil for
 //     deterministic resume on re-run.
 func (e *Engine) callRole(ctx context.Context, role Role, prompt string, wf *Workflow) (string, error) {
-	if e.cfg == nil {
-		return "", fmt.Errorf("workflow engine has no config")
+	// Journal replay: if the workflow has a journal and a
+	// matching entry exists (same prompt hash), return the
+	// cached result instead of making a new LLM call. This
+	// enables deterministic resume of interrupted runs.
+	if wf.Journal != nil {
+		cached := wf.Journal.Replay([]string{prompt})
+		if len(cached) > 0 && cached[0].Output != "" {
+			return cached[0].Output, nil
+		}
 	}
 
 	// Budget gate
@@ -594,6 +602,12 @@ func (e *Engine) callRole(ctx context.Context, role Role, prompt string, wf *Wor
 			wf.Budget.Spent(), wf.Budget.Total())
 	}
 
+	// Resolve model config. If the engine has no config (e.g.
+	// headless mode without a cortex config file), fall back to
+	// env vars per provider.
+	if e.cfg == nil {
+		return "", fmt.Errorf("workflow engine has no config — set CORTEX_API_KEY or provider-specific env vars")
+	}
 	_, mc, err := e.cfg.GetModel(e.cfg.DefaultModel)
 	if err != nil {
 		return "", err

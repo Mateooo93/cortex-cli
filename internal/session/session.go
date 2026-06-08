@@ -608,6 +608,11 @@ REASON: <one concise sentence>`
 // callProviderWithMessages is like callProvider but accepts explicit
 // messages instead of using the session history. Used by the evaluator
 // which needs its own prompt separate from the main conversation.
+//
+// For goal evaluation, it tries to select the cheapest available model
+// (Haiku for Anthropic, GPT-4o-mini for OpenAI) to keep evaluation
+// costs negligible. Falls back to the active model if cheap routing
+// cannot be resolved.
 func (s *Session) callProviderWithMessages(ctx context.Context, messages []provider.Message) (provider.Response, error) {
 	s.mu.Lock()
 	_, mc, err := s.cfg.GetModel(s.active)
@@ -624,9 +629,21 @@ func (s *Session) callProviderWithMessages(ctx context.Context, messages []provi
 	if apiKey == "" {
 		return provider.Response{}, fmt.Errorf("no API key for evaluator")
 	}
+
+	// Cheap evaluator routing: prefer Haiku for Anthropic,
+	// GPT-4o-mini for OpenAI. The evaluator makes a simple
+	// binary decision — it doesn't need a frontier model.
+	evalModel := mc.Model
+	switch strings.ToLower(mc.Provider) {
+	case "anthropic":
+		evalModel = "claude-haiku-4-5-20251001"
+	case "openai":
+		evalModel = "gpt-4o-mini"
+	}
+
 	prov, err := provider.New(provider.ModelConfig{
 		Provider: mc.Provider,
-		Model:    mc.Model,
+		Model:    evalModel,
 		BaseURL:  mc.BaseURL,
 		APIKey:   apiKey,
 	})
@@ -634,7 +651,7 @@ func (s *Session) callProviderWithMessages(ctx context.Context, messages []provi
 		return provider.Response{}, err
 	}
 	req := provider.Request{
-		Model:    mc.Model,
+		Model:    evalModel,
 		Messages: messages,
 	}
 	return prov.Chat(ctx, req)

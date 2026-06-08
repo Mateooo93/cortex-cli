@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 )
 
 // HeadlessConfig is the input for RunHeadless.
@@ -61,7 +63,11 @@ func RunHeadless(cfg HeadlessConfig) (*HeadlessResult, error) {
 	mc := *preset
 	mc.MaxAgents = cfg.MaxAgents
 
-	engine := NewEngine(nil) // nil config falls back to env vars
+	// Load the real cortex config so the engine can resolve
+	// providers and API keys. Falls back to env vars if the
+	// config cannot be loaded.
+	cortexCfg := loadCortexConfig()
+	engine := NewEngine(cortexCfg)
 	if cfg.Budget > 0 {
 		b := &Budget{}
 		b.SetTotal(cfg.Budget)
@@ -213,4 +219,15 @@ func marshalSnapshotJSON(snap Snapshot) string {
 	}
 	data, _ := json.MarshalIndent(out, "", "  ")
 	return string(data)
+}
+
+// loadCortexConfig attempts to load the user's cortex config.
+// Falls back to Default() if the config file cannot be read
+// (e.g. in CI environments without a ~/.cortex directory).
+func loadCortexConfig() *cortexconfig.Config {
+	cfg, err := cortexconfig.Load()
+	if err != nil || cfg == nil {
+		return cortexconfig.Default()
+	}
+	return cfg
 }
