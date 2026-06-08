@@ -25,7 +25,7 @@ A beautiful single-binary AI coding agent with a polished terminal UI and 20+ pr
 ## Quick start
 
 ```bash
-# macOS / Linux (amd64 example)
+# Linux amd64 (see Install for arm64 and other platforms)
 curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-amd64
 chmod +x cortex && sudo mv cortex /usr/local/bin/
 
@@ -63,42 +63,36 @@ Type `/` in chat for the full menu. Highlights:
 
 ## Install
 
-Pre-built binaries for macOS, Linux, and Windows are on the [Releases page](https://github.com/Mateooo93/cortex-cli/releases).
+Pre-built binaries are on the [Releases page](https://github.com/Mateooo93/cortex-cli/releases).
+
+### Linux
+
+```bash
+# amd64 (x86_64)
+curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-amd64
+chmod +x cortex && sudo mv cortex /usr/local/bin/
+
+# arm64 (aarch64)
+curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-linux-arm64
+chmod +x cortex && sudo mv cortex /usr/local/bin/
+```
+
+### macOS (Apple Silicon)
+
+```bash
+curl -L -o cortex https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-darwin-arm64
+chmod +x cortex && sudo mv cortex /usr/local/bin/
+```
 
 ### Windows
 
-Use **Windows Terminal** or **PowerShell** (the classic `cmd.exe` console has limited TUI support).
-
-**PowerShell (recommended)** — downloads the binary, installs it to `%LOCALAPPDATA%\Programs\cortex`, and adds that folder to your user `PATH`:
+Use **Windows Terminal** or **PowerShell** (`cmd.exe` has limited TUI support). Swap `amd64` for `arm64` on ARM PCs.
 
 ```powershell
-# Pick the build for your PC (amd64 is typical; use arm64 on ARM Windows devices)
-$arch = "amd64"   # or "arm64"
-$url  = "https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-windows-$arch.exe"
-$dest = "$env:LOCALAPPDATA\Programs\cortex"
-
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
-Invoke-WebRequest -Uri $url -OutFile "$dest\cortex.exe"
-
-# Add to PATH for future terminals (open a new window after this)
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($userPath -notlike "*$dest*") {
-  [Environment]::SetEnvironmentVariable("Path", "$userPath;$dest", "User")
-}
-
-# Run from the install folder in this session
-& "$dest\cortex.exe"
+mkdir "$env:LOCALAPPDATA\Programs\cortex" -Force; iwr "https://github.com/Mateooo93/cortex-cli/releases/latest/download/cortex-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Programs\cortex\cortex.exe"; & "$env:LOCALAPPDATA\Programs\cortex\cortex.exe"
 ```
 
-One-shot prompt:
-
-```powershell
-cortex -p "summarize this repo"
-```
-
-On first run, config is created at `%USERPROFILE%\.cortex\` (same layout as `~/.cortex` on macOS/Linux). API keys and OAuth tokens are stored in the Windows Credential Manager.
-
-**Manual install** — download `cortex-windows-amd64.exe` or `cortex-windows-arm64.exe` from [Releases](https://github.com/Mateooo93/cortex-cli/releases), rename to `cortex.exe`, place it somewhere on your `PATH`, then run `cortex` from a new terminal.
+Config lives at `%USERPROFILE%\.cortex\`. API keys and OAuth tokens use Windows Credential Manager.
 
 ### From source
 
