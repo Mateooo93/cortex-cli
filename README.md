@@ -11,34 +11,23 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="AGPL-3.0" /></a>
   <a href="https://github.com/Mateooo93/cortex-cli/stargazers"><img src="https://img.shields.io/github/stars/Mateooo93/cortex-cli?style=flat-square" alt="Stars" /></a>
   <a href="https://github.com/Mateooo93/cortex-cli/releases/latest"><img src="https://img.shields.io/github/v/release/Mateooo93/cortex-cli?style=flat-square" alt="Release" /></a>
+  <a href="#installation"><img src="https://img.shields.io/badge/npm-@mateooo93%2Fcortex-CB3837?style=flat-square&logo=npm&logoColor=white" alt="npm" /></a>
 </p>
 
-<br>
+---
+
+<h3 align="center">Install</h3>
+
+```bash
+npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com
+cortex
+```
 
 <p align="center">
-  <strong>Get started in seconds</strong>
+  macOS · Linux · Windows — <a href="#installation">curl, manual, and source builds</a>
 </p>
 
-<p align="center">
-  <a href="#installation">
-    <img src="https://img.shields.io/badge/Install%20with-npm-CB3837?style=for-the-badge&logo=npm&logoColor=white" alt="Install with npm" />
-  </a>
-</p>
-
-<table align="center">
-  <tr>
-    <td align="center" bgcolor="#0B1020">
-      <pre><code>npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com
-cortex</code></pre>
-    </td>
-  </tr>
-</table>
-
-<p align="center">
-  <sub>macOS · Linux · Windows · <a href="#installation">curl &amp; manual installs</a></sub>
-</p>
-
-<br>
+---
 
 <p align="center">
   <a href="https://github.com/Mateooo93/cortex-cli">
