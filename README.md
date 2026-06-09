@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>The open source AI coding agent for your terminal.</strong><br>
+  <strong>The open source, token-efficient AI coding agent for your terminal.</strong><br>
   One binary. Beautiful TUI. Your models, your machine.
 </p>
 
@@ -37,7 +37,7 @@ cortex
 
 ---
 
-**cortex-cli** is a fast coding agent you run in the terminal. Describe what you want in plain language — it reads your repo, edits files, runs commands, searches the web, and keeps working until the job is done. Everything runs locally as a single Go binary with a polished Bubble Tea interface: no daemon, no Docker, no separate cloud agent.
+**cortex-cli** is a fast, token-efficient coding agent you run in the terminal. Describe what you want in plain language — it reads your repo, edits files, runs commands, searches the web, and keeps working until the job is done. Everything runs locally as a single Go binary with a polished Bubble Tea interface: no daemon, no Docker, no separate cloud agent.
 
 ## See it in action
 
@@ -126,7 +126,7 @@ cortex --list-models
 
 ### Terminal experience
 
-- **One native binary** — instant startup, in-process session. No daemon, no Docker, no Node wrapper.
+- **One native binary** — instant startup, in-process session, and less overhead around every agent turn. No daemon, no Docker, no Node wrapper.
 - **Polished Bubble Tea TUI** — markdown chat, live tool-call cards with diffs, todo list, thinking trace, and a context panel (`Ctrl+B`).
 - **Multi-session workspace** — run parallel chats (`Ctrl+T`), switch with `F1`/`F2`, and resume after restart.
 - **Stay in flow** — queue follow-ups with `Tab`, see context usage and turn timer in the status bar, copy chat with `/copy` or drag-select.
