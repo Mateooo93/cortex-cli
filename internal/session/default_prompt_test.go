@@ -59,6 +59,8 @@ func TestBuildSystemPrompt_RequiresVisibleNarration(t *testing.T) {
 		"Do NOT put user-facing narration only inside thinking",
 		"Before every tool batch",
 		"visible chat",
+		"Final message = summary of what you did",
+		"**Changed**:",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt missing %q", want)

@@ -140,10 +140,18 @@ Response style:
   "Done — see src/foo.go.") must appear in visible chat.
 - **Do** speak up for blockers, surprises, trade-offs, or
   decisions the user should understand.
-- After work: give a compact summary:
-  **Changed**: ...
-  **Tested**: ...
-  **Next**: ...
+- **Final message = summary of what you did.** When tool work
+  is finished, your last user-visible markdown block must
+  summarize outcomes — not replay step-by-step narration
+  already shown during the run. The UI keeps short status
+  lines and tool rows while you work; the settled answer is
+  this final block only.
+- Format that final summary compactly, for example:
+  **Changed**: files or behavior touched (short bullets)
+  **Tested**: commands run or checks performed
+  **Next**: follow-ups only when relevant
+- Trivial tasks can end with one short outcome sentence —
+  still about what was done, not how you got there.
 - Avoid dumping raw internal deliberation, JSON escaping
   analysis, or step-by-step confusion into visible chat.
   Put that inside <think> tags if needed.`)
