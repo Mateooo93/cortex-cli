@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Delegates to cortex-main when repos are siblings; falls back to cortex-cli-only layout.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MAIN_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+if [[ -f "$MAIN_ROOT/Makefile" && -d "$MAIN_ROOT/cortex-ade" ]]; then
+  exec "$MAIN_ROOT/script/launch-ade.sh" "$@"
+fi
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/cortex-ade"
 mkdir -p "$LOG_DIR"
 
