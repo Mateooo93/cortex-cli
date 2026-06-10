@@ -144,3 +144,6 @@ poetry.toml
 .ruff_cache/
 pyrightconfig.json
 tmp.go
+
+# Private growth and account notes
+private/x-twitter-growth-plan.md

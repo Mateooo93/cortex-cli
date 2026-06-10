@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,68 @@ import (
 	"strings"
 	"time"
 )
+
+// ProviderHTTPError is returned when an OpenAI-compatible upstream rejects
+// a request. Callers can inspect Status for retry/fallback decisions.
+type ProviderHTTPError struct {
+	Op     string
+	Status int
+	Body   string
+}
+
+func (e *ProviderHTTPError) Error() string {
+	if msg := parseProviderErrorBody([]byte(e.Body)); msg != "" {
+		return fmt.Sprintf("%s: upstream error (%d): %s", e.Op, e.Status, msg)
+	}
+	return fmt.Sprintf("%s: HTTP %d", e.Op, e.Status)
+}
+
+func isRetryableHTTPStatus(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func isRetryableProviderErr(err error) bool {
+	var pe *ProviderHTTPError
+	return errors.As(err, &pe) && isRetryableHTTPStatus(pe.Status)
+}
+
+func parseProviderErrorBody(body []byte) string {
+	raw := strings.TrimSpace(string(body))
+	if raw == "" {
+		return ""
+	}
+	var outer struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &outer); err == nil {
+		if msg := strings.TrimSpace(outer.Error.Message); msg != "" {
+			return msg
+		}
+	}
+	if len(raw) > 280 {
+		return raw[:280] + "…"
+	}
+	return raw
+}
+
+func newProviderHTTPError(op string, status int, body []byte) error {
+	return &ProviderHTTPError{
+		Op:     op,
+		Status: status,
+		Body:   string(body),
+	}
+}
 
 // OpenAICompat is a Provider that speaks the OpenAI /v1/chat/completions
 // shape. It works for Cortex, OpenAI, Ollama, OpenRouter, and any other
@@ -286,7 +349,81 @@ func inferOpenGatewayUpstream(model string) string {
 }
 
 func (p *OpenAICompat) shouldUseNonStreaming(model string) bool {
-	return p.isOpenGateway()
+	if p.isOpenGateway() {
+		return true
+	}
+	model = strings.ToLower(strings.TrimSpace(model))
+	// Free / overloaded routes often 502 on SSE; non-streaming is more stable.
+	if strings.Contains(model, "-free") || strings.Contains(model, "/free") {
+		return true
+	}
+	if strings.EqualFold(p.name, "openrouter") && strings.Contains(model, "free") {
+		return true
+	}
+	return false
+}
+
+func (p *OpenAICompat) postWithRetry(ctx context.Context, stream bool, req Request) (*http.Response, error) {
+	const maxAttempts = 3
+	op := "chat"
+	if stream {
+		op = "stream"
+	}
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if attempt > 0 {
+			delay := time.Duration(attempt*attempt) * 400 * time.Millisecond
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+		}
+		httpReq, err := p.buildRequest(req, stream)
+		if err != nil {
+			return nil, err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		resp, err := p.client.Do(httpReq)
+		if err != nil {
+			lastErr = err
+			if attempt+1 < maxAttempts {
+				continue
+			}
+			return nil, err
+		}
+		if resp.StatusCode == http.StatusOK {
+			return resp, nil
+		}
+		buf, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		lastErr = newProviderHTTPError(op, resp.StatusCode, buf)
+		if !isRetryableHTTPStatus(resp.StatusCode) || attempt+1 >= maxAttempts {
+			return nil, lastErr
+		}
+	}
+	return nil, lastErr
+}
+
+func (p *OpenAICompat) deliverChatAsStream(ctx context.Context, req Request, onChunk func(Chunk)) (Response, error) {
+	resp, err := p.Chat(ctx, req)
+	if err != nil {
+		return resp, err
+	}
+	if resp.Content != "" || resp.FinishReason != "" || resp.Usage.TotalTokens > 0 || resp.Usage.PromptTokens > 0 || len(resp.ToolCalls) > 0 {
+		onChunk(Chunk{
+			Content:      resp.Content,
+			ToolCalls:    resp.ToolCalls,
+			Usage:        resp.Usage,
+			FinishReason: resp.FinishReason,
+		})
+	}
+	return resp, nil
 }
 
 func (p *OpenAICompat) isOpenGateway() bool {
@@ -298,20 +435,11 @@ func isOpenGatewayBaseURL(baseURL string) bool {
 }
 
 func (p *OpenAICompat) Chat(ctx context.Context, req Request) (Response, error) {
-	httpReq, err := p.buildRequest(req, false)
-	if err != nil {
-		return Response{}, err
-	}
-	httpReq = httpReq.WithContext(ctx)
-	resp, err := p.client.Do(httpReq)
+	resp, err := p.postWithRetry(ctx, false, req)
 	if err != nil {
 		return Response{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		buf, _ := io.ReadAll(resp.Body)
-		return Response{}, fmt.Errorf("chat: HTTP %d: %s", resp.StatusCode, string(buf))
-	}
 	var oai oaiResponse
 	if err := json.NewDecoder(resp.Body).Decode(&oai); err != nil {
 		return Response{}, err
@@ -375,34 +503,16 @@ func readSSE(r io.Reader, onEvent func(sseEvent) error) error {
 
 func (p *OpenAICompat) Stream(ctx context.Context, req Request, onChunk func(Chunk)) (Response, error) {
 	if p.shouldUseNonStreaming(req.Model) {
-		resp, err := p.Chat(ctx, req)
-		if err != nil {
-			return resp, err
-		}
-		if resp.Content != "" || resp.FinishReason != "" || resp.Usage.TotalTokens > 0 || resp.Usage.PromptTokens > 0 || len(resp.ToolCalls) > 0 {
-			onChunk(Chunk{
-				Content:      resp.Content,
-				ToolCalls:    resp.ToolCalls,
-				Usage:        resp.Usage,
-				FinishReason: resp.FinishReason,
-			})
-		}
-		return resp, nil
+		return p.deliverChatAsStream(ctx, req, onChunk)
 	}
-	httpReq, err := p.buildRequest(req, true)
+	resp, err := p.postWithRetry(ctx, true, req)
 	if err != nil {
-		return Response{}, err
-	}
-	httpReq = httpReq.WithContext(ctx)
-	resp, err := p.client.Do(httpReq)
-	if err != nil {
+		if isRetryableProviderErr(err) {
+			return p.deliverChatAsStream(ctx, req, onChunk)
+		}
 		return Response{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		buf, _ := io.ReadAll(resp.Body)
-		return Response{}, fmt.Errorf("stream: HTTP %d: %s", resp.StatusCode, string(buf))
-	}
 
 	var full Response
 	toolArgs := map[string]*oaiToolCall{} // by id, accumulates JSON args

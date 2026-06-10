@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"strings"
 
 	"github.com/zalando/go-keyring"
@@ -9,14 +8,17 @@ import (
 
 // oauthKeyringUsers maps subscription OAuth providers to their keychain entries.
 var oauthKeyringUsers = map[string]string{
-	"codex":   "codex-oauth-token",
-	"xai-sub": "xai-sub-oauth-token",
+	"codex":      "codex-oauth-token",
+	"claude-sub": "claude-code-oauth-token",
+	"xai-sub":    "xai-sub-oauth-token",
 }
 
 // oauthEnvVars maps subscription OAuth providers to headless env fallbacks.
 var oauthEnvVars = map[string]string{
-	"codex":   "CODEX_CODEX_TOKEN",
-	"xai-sub": "XAI_OAUTH_TOKEN",
+	"codex":      "CODEX_CODEX_TOKEN",
+	"claude-sub": "CLAUDE_CODE_OAUTH_TOKEN",
+	"copilot":    "COPILOT_OAUTH_TOKEN",
+	"xai-sub":    "XAI_OAUTH_TOKEN",
 }
 
 // OAuthProviderSignedIn reports whether a subscription OAuth provider has
@@ -31,13 +33,11 @@ func OAuthProviderStatusPrefix(provider string) string {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if user, ok := oauthKeyringUsers[provider]; ok {
 		if raw, err := keyring.Get(keyringService, user); err == nil && raw != "" {
-			if strings.HasPrefix(raw, `{"access_token":`) {
-				return "(signed in)"
-			}
+			return "(signed in)"
 		}
 	}
 	if env, ok := oauthEnvVars[provider]; ok {
-		if os.Getenv(env) != "" {
+		if value, ok := ResolveEnvVar(env); ok && value != "" {
 			return "(env token)"
 		}
 	}

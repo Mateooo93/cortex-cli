@@ -1,4 +1,4 @@
-.PHONY: build build-web build-all pull push test release run-server run-ui patch-deps vendor-cgo-sources update-deps web-source
+.PHONY: build build-web build-all pull push test release run-server run-ui patch-deps vendor-cgo-sources update-deps web-source build-ade-api ade-dev ade-build
 
 # The web UI source lives in a private submodule (internal/daemon/web/source).
 # It is only needed to *rebuild* the UI; the built output (internal/daemon/web/dist/)
@@ -52,6 +52,16 @@ run-x: build-x
 
 build-x:
 	go build -o bin/cortex ./cmd/cortex
+
+# Cortex ADE — Agent Desktop Environment (Electron UI)
+build-ade-api:
+	go build -o bin/ade-api ./cmd/ade-api
+
+ade-build: build-ade-api
+	cd ade && npm ci && npm run build
+
+ade-dev: build-ade-api
+	cd ade && node scripts/ensure-electron.js && env -u ELECTRON_RUN_AS_NODE npm run electron:dev
 
 # Local dev build — current platform only, fast
 build: build-x

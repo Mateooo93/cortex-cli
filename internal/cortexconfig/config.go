@@ -343,6 +343,19 @@ func ModelContextWindow(spec string) int64 {
 	return 0
 }
 
+// DefaultModelContextWindow is the assumed context size for models
+// not in the lookup table. Matches the TUI right-panel fallback.
+const DefaultModelContextWindow int64 = 200_000
+
+// EffectiveModelContextWindow returns ModelContextWindow when the
+// model is recognized, otherwise DefaultModelContextWindow.
+func EffectiveModelContextWindow(spec string) int64 {
+	if w := ModelContextWindow(spec); w > 0 {
+		return w
+	}
+	return DefaultModelContextWindow
+}
+
 // ProviderEnvVar returns the API-key environment variable for a provider.
 func ProviderEnvVar(provider string) string {
 	if p, ok := presetForProvider(provider); ok {

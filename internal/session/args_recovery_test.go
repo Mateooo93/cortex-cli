@@ -102,3 +102,28 @@ func TestRecoverArgsFromRaw_FullyClosedJSON(t *testing.T) {
 		t.Errorf("recovered content = %q, want 'body { color: red; }'", content)
 	}
 }
+
+func TestRecoverArgsFromRaw_ListDir(t *testing.T) {
+	raw := `{"path": "./src"}`
+	args := map[string]any{"_raw": raw}
+	recovered := recoverArgsFromRaw("list_dir", args, raw)
+	path, _ := recovered["path"].(string)
+	if path != "./src" {
+		t.Errorf("recovered path = %q, want './src'", path)
+	}
+}
+
+func TestSummarizeToolCall_RawOnlyReadFile(t *testing.T) {
+	raw := `{"path": "./package.json"}`
+	got := summarizeToolCall("read_file", map[string]any{"_raw": raw})
+	if got != "./package.json" {
+		t.Errorf("summarizeToolCall() = %q, want './package.json'", got)
+	}
+}
+
+func TestSummarizeToolCall_RawOnlyNoScaryMessage(t *testing.T) {
+	got := summarizeToolCall("read_file", map[string]any{"_raw": `{"oops"`})
+	if strings.Contains(got, "malformed") {
+		t.Errorf("summarizeToolCall() should not surface malformed message, got %q", got)
+	}
+}

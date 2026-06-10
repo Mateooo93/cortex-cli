@@ -1450,54 +1450,14 @@ func (s *Session) maybeFireDelayedCancel() {
 // raw partial JSON in `args["_raw"]` when it can't parse
 // it. We scan the raw string for the field names the
 // tool needs and extract their string values.
-//
-// The user reported: "shell commands are also being
-// truncated when content is too large" and "ERROR:
-// command is required" / "ERROR: path and content are
-// required". The root cause is the LLM producing a
-// 50KB+ write_file call where the JSON arguments
-// exceed the output token budget, so the SSE stream
-// cuts off mid-string. The raw partial string is still
-// 99% complete; we just have to find the field
-// boundaries.
-//
-// This is a best-effort recovery. We can't recover
-// cleanly if a string is missing its closing quote (the
-// raw content was genuinely truncated), but for the
-// "truncated trailing fields" case (the JSON object's
-// closing brace was cut off) we recover everything up
-// to the truncation point.
 func recoverArgsFromRaw(toolName string, args map[string]any, raw string) map[string]any {
 	if raw == "" {
 		return args
 	}
-	// Field list per tool. The agent can re-run the
-	// tool with the recovered content (or, in the
-	// case of write_file, the recovered content may
-	// be incomplete and the agent has to retry with
-	// the rest in a follow-up call).
-	var fields []string
-	switch toolName {
-	case "write_file":
-		fields = []string{"path", "content"}
-	case "edit_file":
-		fields = []string{"path", "oldString", "newString"}
-	case "read_file":
-		fields = []string{"path"}
-	case "delete_file":
-		fields = []string{"path"}
-	case "run_shell":
-		fields = []string{"command"}
-	}
+	fields := toolRecoveryFields(toolName)
 	if len(fields) == 0 {
 		return args
 	}
-	// If the field for this tool is already populated
-	// (the JSON partial-parsed successfully), no work
-	// to do. (We only enter this function when the
-	// provider fell back to `_raw`, but a tool with no
-	// required string fields would land here as a
-	// no-op.)
 	alreadyComplete := true
 	for _, field := range fields {
 		if v, ok := args[field].(string); !ok || v == "" {
@@ -1509,58 +1469,126 @@ func recoverArgsFromRaw(toolName string, args map[string]any, raw string) map[st
 		return args
 	}
 	for _, field := range fields {
-		// Skip if the field is already populated
-		// from a successful partial parse.
 		if v, ok := args[field].(string); ok && v != "" {
 			continue
 		}
-		// Find "field": "... and walk to the end of
-		// the string. We do NOT require a closing
-		// quote: a truncated JSON has the field
-		// value as the last thing in the stream.
-		needle := "\"" + field + "\":"
-		idx := strings.Index(raw, needle)
-		if idx < 0 {
-			continue
+		if v := extractJSONStringField(raw, field); v != "" {
+			args[field] = v
 		}
-		// Skip past the colon, then any whitespace.
-		idx += len(needle)
-		for idx < len(raw) && (raw[idx] == ' ' || raw[idx] == '\t' || raw[idx] == '\n') {
-			idx++
-		}
-		if idx >= len(raw) || raw[idx] != '"' {
-			continue
-		}
-		idx++ // skip opening quote
-		// Walk to the end of the string. We allow
-		// the closing quote to be missing (truncated
-		// JSON) — in that case we take everything
-		// from `idx` to EOF.
-		end := idx
-		for end < len(raw) {
-			if raw[end] == '\\' && end+1 < len(raw) {
-				// Skip escape sequence.
-				end += 2
-				continue
+	}
+	// Common alternate keys models use for file paths.
+	if needsPathField(toolName) {
+		if v, _ := args["path"].(string); v == "" {
+			for _, alias := range []string{"file_path", "filepath", "file", "directory", "dir"} {
+				if v := extractJSONStringField(raw, alias); v != "" {
+					args["path"] = v
+					break
+				}
 			}
-			if raw[end] == '"' {
-				break
-			}
-			end++
 		}
-		// If we found a closing quote, exclude it.
-		value := raw[idx:end]
-		// Unescape the most common JSON escapes. We
-		// don't need to handle every edge case —
-		// the agent will re-run if the result is
-		// slightly off.
-		value = strings.ReplaceAll(value, `\"`, `"`)
-		value = strings.ReplaceAll(value, `\\`, `\`)
-		value = strings.ReplaceAll(value, `\n`, "\n")
-		value = strings.ReplaceAll(value, `\t`, "\t")
-		args[field] = value
 	}
 	return args
+}
+
+func toolRecoveryFields(toolName string) []string {
+	switch toolName {
+	case "write_file", "write_minified_file":
+		return []string{"path", "content"}
+	case "edit_file", "edit_minified_file":
+		return []string{"path", "oldString", "newString"}
+	case "read_file", "read_minified_file", "delete_file", "list_dir":
+		return []string{"path"}
+	case "run_shell", "bash":
+		return []string{"command"}
+	case "glob_file_search", "glob_files":
+		return []string{"glob_pattern", "pattern"}
+	case "grep", "search":
+		return []string{"pattern", "query"}
+	case "web_fetch":
+		return []string{"url"}
+	default:
+		return nil
+	}
+}
+
+func needsPathField(toolName string) bool {
+	switch toolName {
+	case "read_file", "read_minified_file", "write_file", "write_minified_file",
+		"edit_file", "edit_minified_file", "delete_file", "list_dir":
+		return true
+	default:
+		return false
+	}
+}
+
+// extractJSONStringField pulls a string value for `field` out of a
+// (possibly truncated) JSON object literal. Closing quotes are optional.
+func extractJSONStringField(raw, field string) string {
+	needle := `"` + field + `":`
+	idx := strings.Index(raw, needle)
+	if idx < 0 {
+		return ""
+	}
+	idx += len(needle)
+	for idx < len(raw) && (raw[idx] == ' ' || raw[idx] == '\t' || raw[idx] == '\n') {
+		idx++
+	}
+	if idx >= len(raw) || raw[idx] != '"' {
+		return ""
+	}
+	idx++
+	end := idx
+	for end < len(raw) {
+		if raw[end] == '\\' && end+1 < len(raw) {
+			end += 2
+			continue
+		}
+		if raw[end] == '"' {
+			break
+		}
+		end++
+	}
+	value := raw[idx:end]
+	value = strings.ReplaceAll(value, `\"`, `"`)
+	value = strings.ReplaceAll(value, `\\`, `\`)
+	value = strings.ReplaceAll(value, `\n`, "\n")
+	value = strings.ReplaceAll(value, `\t`, "\t")
+	return value
+}
+
+func summarizeFromRaw(toolName, raw string) string {
+	for _, field := range toolRecoveryFields(toolName) {
+		if v := extractJSONStringField(raw, field); v != "" {
+			switch field {
+			case "command":
+				v = strings.TrimSpace(v)
+				if len(v) > 60 {
+					v = v[:57] + "..."
+				}
+				return "$ " + v
+			case "content":
+				continue
+			default:
+				return truncateToolSummary(v)
+			}
+		}
+	}
+	if needsPathField(toolName) {
+		for _, alias := range []string{"path", "file_path", "filepath", "file"} {
+			if v := extractJSONStringField(raw, alias); v != "" {
+				return truncateToolSummary(v)
+			}
+		}
+	}
+	return ""
+}
+
+func truncateToolSummary(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 80 {
+		return s[:77] + "..."
+	}
+	return s
 }
 
 func summarizeToolCall(name string, args map[string]any) string {
@@ -1610,8 +1638,24 @@ func summarizeToolCall(name string, args map[string]any) string {
 			}
 			return fmt.Sprintf("%s (%d lines)", path, lines)
 		}
+	case "read_file", "read_minified_file", "delete_file", "list_dir":
+		if p, _ := args["path"].(string); p != "" {
+			return p
+		}
+	case "edit_file", "edit_minified_file":
+		if p, _ := args["path"].(string); p != "" {
+			return p
+		}
 	}
-	return summarizeArgs(args)
+	if s := summarizeArgs(args); s != "" {
+		return s
+	}
+	if raw, ok := args["_raw"].(string); ok && raw != "" {
+		if s := summarizeFromRaw(name, raw); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func countArgLines(s string) int {
@@ -1643,7 +1687,7 @@ func summarizeArgs(args map[string]any) string {
 		keys = append(keys, k)
 	}
 	if len(keys) == 0 {
-		return "malformed/truncated tool arguments — retrying with smaller ordered fields"
+		return ""
 	}
 	// Stable order: sort
 	for i := 0; i < len(keys); i++ {
