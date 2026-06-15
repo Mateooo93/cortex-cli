@@ -1,9 +1,11 @@
 package updater
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -82,4 +84,106 @@ func updateNpmCurrentSymlink(targetPath, binaryName string) error {
 	return os.Symlink(targetPath, linkPath)
 }
 
+// RepairNpmWrapperCache keeps old already-installed npm wrappers from
+// relaunching their package-pinned native cache after /update.
+//
+// Older npm wrappers always launch ~/.cortex/npm/<package-version>/<asset> and
+// verify that path by running it with --version before each launch. After
+// /update, the fresh binary lives in ~/.cortex/npm/<latest>/<asset>, so closing
+// and reopening the CLI would fall back to the old package cache. The repair
+// replaces that stale cache entry with a small launcher:
+//   - old wrapper's internal --version probe still sees the package version
+//   - normal launches exec the freshly updated binary
+func RepairNpmWrapperCache() error {
+	if strings.TrimSpace(os.Getenv("CORTEX_NPM_PACKAGE")) == "" {
+		return nil
+	}
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 
+	pkgVersion := npmPackageVersionFromShim()
+	if pkgVersion == "" || pkgVersion == "0.0.0-dev" {
+		return nil
+	}
+
+	assetName, err := AssetName()
+	if err != nil {
+		return err
+	}
+	stalePath, err := npmCacheBinaryPath(pkgVersion, assetName)
+	if err != nil {
+		return err
+	}
+
+	currentExe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(currentExe); err == nil {
+		currentExe = resolved
+	}
+	if currentExe == stalePath {
+		return nil
+	}
+
+	targetVersion := strings.TrimPrefix(strings.TrimSpace(Version), "v")
+	if targetVersion == "" || targetVersion == "dev" || targetVersion == pkgVersion {
+		return nil
+	}
+
+	return writeNpmCompatibilityLauncher(stalePath, currentExe, pkgVersion)
+}
+
+func npmPackageVersionFromShim() string {
+	shim := strings.TrimSpace(os.Getenv("CORTEX_NPM_SHIM"))
+	if shim == "" {
+		return ""
+	}
+	pkgPath := filepath.Join(filepath.Dir(filepath.Dir(shim)), "package.json")
+	data, err := os.ReadFile(pkgPath)
+	if err != nil {
+		return ""
+	}
+	var pkg struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSpace(pkg.Version), "v")
+}
+
+func writeNpmCompatibilityLauncher(path, targetPath, probeVersion string) error {
+	backup := path + ".native-old"
+	_ = os.Remove(backup)
+	if _, err := os.Stat(path); err == nil {
+		if err := os.Rename(path, backup); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	script := "#!/bin/sh\n" +
+		"target=" + shellSingleQuote(targetPath) + "\n" +
+		"probe_version=" + shellSingleQuote(probeVersion) + "\n" +
+		"case \"${1:-}\" in\n" +
+		"  --version|-version|version)\n" +
+		"    if [ -z \"${CORTEX_NPM_PACKAGE:-}\" ]; then\n" +
+		"      printf 'cortex %s\\n' \"$probe_version\"\n" +
+		"      exit 0\n" +
+		"    fi\n" +
+		"    ;;\n" +
+		"esac\n" +
+		"exec \"$target\" \"$@\"\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		_ = os.Rename(backup, path)
+		return err
+	}
+	return nil
+}
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}

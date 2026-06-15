@@ -3,10 +3,12 @@
 const fs = require("fs");
 const path = require("path");
 
+const { currentBinaryPath } = require("./paths");
+
 async function updateCurrentSymlink(destPath, binaryName) {
-  const currentDir = path.join(path.dirname(path.dirname(destPath)), "current");
+  const linkPath = currentBinaryPath(binaryName);
+  const currentDir = path.dirname(linkPath);
   await fs.promises.mkdir(currentDir, { recursive: true });
-  const linkPath = path.join(currentDir, binaryName);
   try {
     await fs.promises.unlink(linkPath);
   } catch (err) {

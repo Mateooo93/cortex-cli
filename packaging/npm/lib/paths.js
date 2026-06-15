@@ -29,10 +29,15 @@ function cacheDir(version, asset) {
   return path.join(os.homedir(), ".cortex", "npm", version, asset);
 }
 
+function currentBinaryPath(binaryName) {
+  return path.join(os.homedir(), ".cortex", "npm", "current", binaryName);
+}
+
 module.exports = {
   packageRoot,
   readPackageVersion,
   releaseRepo,
   releaseBase,
   cacheDir,
+  currentBinaryPath,
 };

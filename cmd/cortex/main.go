@@ -31,6 +31,7 @@ import (
 	"github.com/Mateooo93/cortex-cli/internal/config"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
 	"github.com/Mateooo93/cortex-cli/internal/ui"
+	"github.com/Mateooo93/cortex-cli/internal/updater"
 
 	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 	cortexdaemon "github.com/Mateooo93/cortex-cli/internal/daemon" // wraps session
@@ -114,6 +115,8 @@ func run(args []string) error {
 
 	// Set the UI version
 	ui.Version = Version
+	updater.Version = Version
+	_ = updater.RepairNpmWrapperCache()
 
 	// Headless mode (-p): one-shot prompt
 	if *prompt != "" {

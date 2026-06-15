@@ -81,4 +81,4 @@ async function downloadBinary({ releaseBase, version, asset, destPath }) {
   }
 }
 
-module.exports = { downloadBinary, parseSha256Sums };
+module.exports = { downloadBinary, fetchText, parseSha256Sums };
