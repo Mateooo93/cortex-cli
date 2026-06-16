@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -123,6 +124,7 @@ type oaiMessage struct {
 }
 
 type oaiToolCall struct {
+	Index    *int   `json:"index,omitempty"`
 	ID       string `json:"id"`
 	Type     string `json:"type"`
 	Function struct {
@@ -515,8 +517,11 @@ func (p *OpenAICompat) Stream(ctx context.Context, req Request, onChunk func(Chu
 	defer resp.Body.Close()
 
 	var full Response
-	toolArgs := map[string]*oaiToolCall{} // by id, accumulates JSON args
-	toolArgsStr := map[string]string{}    // raw arg strings
+	toolCallsByIndex := map[int]*oaiToolCall{}
+	toolArgsStr := map[int]string{}
+	toolIndexByID := map[string]int{}
+	activeToolIndex := -1
+	nextSyntheticIndex := 0
 
 	err = readSSE(resp.Body, func(ev sseEvent) error {
 		if ev.Data == "[DONE]" {
@@ -533,35 +538,47 @@ func (p *OpenAICompat) Stream(ctx context.Context, req Request, onChunk func(Chu
 				full.Content += c.Delta.Content
 			}
 			for _, tc := range c.Delta.ToolCalls {
-				// The ID is only on the first chunk; subsequent chunks just append
-				// to the same tool call's arguments.
+				idx := activeToolIndex
+				switch {
+				case tc.Index != nil:
+					idx = *tc.Index
+				case tc.ID != "":
+					if known, ok := toolIndexByID[tc.ID]; ok {
+						idx = known
+					} else {
+						idx = nextUnusedToolIndex(toolCallsByIndex, nextSyntheticIndex)
+					}
+				case idx < 0:
+					idx = nextUnusedToolIndex(toolCallsByIndex, nextSyntheticIndex)
+				}
+				if idx >= nextSyntheticIndex {
+					nextSyntheticIndex = idx + 1
+				}
+				activeToolIndex = idx
+
+				tt := toolCallsByIndex[idx]
+				if tt == nil {
+					copy := oaiToolCall{}
+					if tc.Index != nil {
+						i := idx
+						copy.Index = &i
+					}
+					tt = &copy
+					toolCallsByIndex[idx] = tt
+				}
 				if tc.ID != "" {
-					tt := tc
-					toolArgs[tc.ID] = &tt
-					toolArgsStr[tc.ID] = tt.Function.Arguments
-				} else if tc.Function.Name != "" && len(c.Delta.ToolCalls) > 0 {
-					// Some backends omit the id on continuation chunks but send
-					// the function name + arguments to append.
-					// We need to find the in-progress tool call. Use the index
-					// hint: usually only one tool call is active at a time, so
-					// the last one in toolArgs is the active one.
-					var lastID string
-					for id := range toolArgs {
-						lastID = id
-					}
-					if lastID != "" {
-						toolArgsStr[lastID] += tc.Function.Arguments
-						toolArgs[lastID].Function.Arguments = toolArgsStr[lastID]
-					}
-				} else {
-					var lastID string
-					for id := range toolArgs {
-						lastID = id
-					}
-					if lastID != "" {
-						toolArgsStr[lastID] += tc.Function.Arguments
-						toolArgs[lastID].Function.Arguments = toolArgsStr[lastID]
-					}
+					tt.ID = tc.ID
+					toolIndexByID[tc.ID] = idx
+				}
+				if tc.Type != "" {
+					tt.Type = tc.Type
+				}
+				if tc.Function.Name != "" {
+					tt.Function.Name = tc.Function.Name
+				}
+				if tc.Function.Arguments != "" {
+					toolArgsStr[idx] += tc.Function.Arguments
+					tt.Function.Arguments = toolArgsStr[idx]
 				}
 			}
 			if c.FinishReason != "" {
@@ -599,7 +616,17 @@ func (p *OpenAICompat) Stream(ctx context.Context, req Request, onChunk func(Chu
 	}
 
 	// Build the final ToolCalls list
-	for id, tc := range toolArgs {
+	indexes := make([]int, 0, len(toolCallsByIndex))
+	for idx := range toolCallsByIndex {
+		indexes = append(indexes, idx)
+	}
+	sort.Ints(indexes)
+	for _, idx := range indexes {
+		tc := toolCallsByIndex[idx]
+		id := tc.ID
+		if id == "" {
+			id = fmt.Sprintf("tool_%d", idx)
+		}
 		var args map[string]any
 		if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
 			args = map[string]any{"_raw": tc.Function.Arguments}
@@ -607,6 +634,15 @@ func (p *OpenAICompat) Stream(ctx context.Context, req Request, onChunk func(Chu
 		full.ToolCalls = append(full.ToolCalls, ToolCall{ID: id, Name: tc.Function.Name, Arguments: args})
 	}
 	return full, nil
+}
+
+func nextUnusedToolIndex(calls map[int]*oaiToolCall, start int) int {
+	for {
+		if _, ok := calls[start]; !ok {
+			return start
+		}
+		start++
+	}
 }
 
 // FetchModels lists model IDs from an OpenAI-compatible /models endpoint.

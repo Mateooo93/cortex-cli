@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -43,6 +45,39 @@ func TestShellToolRunsCommand(t *testing.T) {
 	}
 	if !strings.Contains(res.Output, "hello-from-tool") {
 		t.Errorf("expected output to contain 'hello-from-tool', got %q", res.Output)
+	}
+}
+
+func TestReadFileEscapesControlBytesAndSkipsBinary(t *testing.T) {
+	dir := t.TempDir()
+	textPath := filepath.Join(dir, "ansi.txt")
+	if err := os.WriteFile(textPath, []byte("hello\x1b[31m red\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := (&ReadFileTool{}).Run(Context{CWD: dir}, map[string]any{"path": textPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK {
+		t.Fatalf("read_file failed: %s", res.Error)
+	}
+	if strings.Contains(res.Output, "\x1b") {
+		t.Fatalf("raw escape byte leaked into output: %q", res.Output)
+	}
+	if !strings.Contains(res.Output, `\x1b`) || !strings.Contains(res.Output, `\r`) {
+		t.Fatalf("expected escaped control bytes, got %q", res.Output)
+	}
+
+	binPath := filepath.Join(dir, "data.bin")
+	if err := os.WriteFile(binPath, []byte{0, 1, 2, 3}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err = (&ReadFileTool{}).Run(Context{CWD: dir}, map[string]any{"path": binPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Output, "binary or invalid UTF-8") {
+		t.Fatalf("expected binary notice, got %q", res.Output)
 	}
 }
 

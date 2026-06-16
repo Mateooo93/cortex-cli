@@ -11,6 +11,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1651,8 +1652,9 @@ func needsPathField(toolName string) bool {
 	}
 }
 
-// extractJSONStringField pulls a string value for `field` out of a
-// (possibly truncated) JSON object literal. Closing quotes are optional.
+// extractJSONStringField pulls a complete JSON string value for `field` out of
+// a malformed object literal. The closing quote is required so we do not run
+// file/shell tools with partial arguments from truncated provider output.
 func extractJSONStringField(raw, field string) string {
 	needle := `"` + field + `":`
 	idx := strings.Index(raw, needle)
@@ -1679,11 +1681,13 @@ func extractJSONStringField(raw, field string) string {
 		end++
 	}
 	value := raw[idx:end]
-	value = strings.ReplaceAll(value, `\"`, `"`)
-	value = strings.ReplaceAll(value, `\\`, `\`)
-	value = strings.ReplaceAll(value, `\n`, "\n")
-	value = strings.ReplaceAll(value, `\t`, "\t")
-	return value
+	if end >= len(raw) || raw[end] != '"' {
+		return ""
+	}
+	if unquoted, err := strconv.Unquote(`"` + value + `"`); err == nil {
+		return unquoted
+	}
+	return ""
 }
 
 func summarizeFromRaw(toolName, raw string) string {

@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Mateooo93/cortex-cli/internal/memory"
 )
@@ -239,11 +240,53 @@ func (t *ReadFileTool) Run(ctx Context, args map[string]any) (Result, error) {
 	if err != nil {
 		return Result{OK: false, Error: err.Error()}, nil
 	}
-	if len(data) > maxBytes {
-		trunc := append(data[:maxBytes], []byte(fmt.Sprintf("\n... (truncated, %d more chars)", len(data)-maxBytes))...)
-		return Result{OK: true, Output: string(trunc)}, nil
+	if isBinaryOrInvalidText(data) {
+		return Result{OK: true, Output: fmt.Sprintf("File %s appears to be binary or invalid UTF-8 (%d bytes); raw contents were not returned.", full, len(data))}, nil
 	}
-	return Result{OK: true, Output: string(data)}, nil
+	omitted := 0
+	if len(data) > maxBytes {
+		omitted = len(data) - maxBytes
+		data = data[:maxBytes]
+		for len(data) > 0 && !utf8.Valid(data) {
+			data = data[:len(data)-1]
+		}
+	}
+	output := sanitizeTextOutput(string(data))
+	if omitted > 0 {
+		output += fmt.Sprintf("\n... (truncated, %d more bytes)", omitted)
+	}
+	return Result{OK: true, Output: output}, nil
+}
+
+func isBinaryOrInvalidText(data []byte) bool {
+	if !utf8.Valid(data) {
+		return true
+	}
+	for _, b := range data {
+		if b == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func sanitizeTextOutput(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == '\n' || r == '\t':
+			b.WriteRune(r)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\x1b':
+			b.WriteString(`\x1b`)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, `\x%02x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 type WriteFileTool struct{}

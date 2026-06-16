@@ -1,7 +1,12 @@
 package provider
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -55,4 +60,89 @@ func TestProviderHTTPError_ParsesMessage(t *testing.T) {
 	if !errors.As(err, &pe) || !isRetryableHTTPStatus(pe.Status) {
 		t.Fatalf("expected retryable ProviderHTTPError, got %#v", err)
 	}
+}
+
+func TestStreamToolCallsUseIndexForArgumentAssembly(t *testing.T) {
+	events := []string{
+		mustJSON(t, map[string]any{
+			"choices": []any{map[string]any{
+				"delta": map[string]any{
+					"tool_calls": []any{
+						map[string]any{
+							"index": 0,
+							"id":    "call_a",
+							"type":  "function",
+							"function": map[string]any{
+								"name":      "write_file",
+								"arguments": `{"path":"a.txt","content":"A`,
+							},
+						},
+						map[string]any{
+							"index": 1,
+							"id":    "call_b",
+							"type":  "function",
+							"function": map[string]any{
+								"name":      "write_file",
+								"arguments": `{"path":"b.txt","content":"B`,
+							},
+						},
+					},
+				},
+			}},
+		}),
+		mustJSON(t, map[string]any{
+			"choices": []any{map[string]any{
+				"delta": map[string]any{
+					"tool_calls": []any{
+						map[string]any{
+							"index":    0,
+							"function": map[string]any{"arguments": `1"}`},
+						},
+						map[string]any{
+							"index":    1,
+							"function": map[string]any{"arguments": `2"}`},
+						},
+					},
+				},
+			}},
+		}),
+		mustJSON(t, map[string]any{
+			"choices": []any{map[string]any{
+				"delta":         map[string]any{},
+				"finish_reason": "tool_calls",
+			}},
+		}),
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, ev := range events {
+			fmt.Fprintf(w, "data: %s\n\n", ev)
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	p := NewOpenAICompat("test", "", srv.URL)
+	resp, err := p.Stream(context.Background(), Request{Model: "test"}, func(Chunk) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.ToolCalls) != 2 {
+		t.Fatalf("tool calls = %d, want 2", len(resp.ToolCalls))
+	}
+	if got := resp.ToolCalls[0].Arguments["content"]; got != "A1" {
+		t.Fatalf("first content = %#v, want A1", got)
+	}
+	if got := resp.ToolCalls[1].Arguments["content"]; got != "B2" {
+		t.Fatalf("second content = %#v, want B2", got)
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

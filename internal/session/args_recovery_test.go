@@ -5,14 +5,8 @@ import (
 	"testing"
 )
 
-// TestRecoverArgsFromRaw_TruncatedWriteFile pins the fix
-// for the "ERROR: path and content are required" error
-// the user reported. The LLM emits a tool call whose
-// JSON arguments exceed the output token budget, the
-// provider stores the raw partial string in
-// `args["_raw"]`, and the tool rejects the call. We
-// recover the path + content from the raw string and
-// the file actually gets written.
+// TestRecoverArgsFromRaw_TruncatedWriteFileDoesNotRecoverContent ensures a
+// truncated write_file payload is not executed as a partial file write.
 func TestRecoverArgsFromRaw_TruncatedWriteFile(t *testing.T) {
 	// Simulate the provider fallback: the JSON didn't
 	// parse so we got `_raw` containing the partial
@@ -26,29 +20,21 @@ func TestRecoverArgsFromRaw_TruncatedWriteFile(t *testing.T) {
 	if path != "icons.css" {
 		t.Errorf("recovered path = %q, want 'icons.css'", path)
 	}
-	if !strings.HasPrefix(content, "/* big icon library */") {
-		t.Errorf("recovered content has wrong prefix: %q", content)
-	}
-	if !strings.Contains(content, ".icon-home") {
-		t.Errorf("recovered content is missing the icon class: %q", content)
+	if content != "" {
+		t.Errorf("truncated content should not be recovered, got %q", content)
 	}
 }
 
-// TestRecoverArgsFromRaw_TruncatedShell verifies shell
-// command recovery. The user reported
-// "ERROR: command is required" — the same root cause
-// (truncated tool-call JSON for a very long command).
+// TestRecoverArgsFromRaw_TruncatedShellDoesNotRecoverCommand ensures a
+// truncated shell command is not executed as a partial command.
 func TestRecoverArgsFromRaw_TruncatedShell(t *testing.T) {
 	raw := `{"command": "echo hello && cat /etc/issue && uname -a && uptime`
 	args := map[string]any{"_raw": raw}
 
 	recovered := recoverArgsFromRaw("run_shell", args, raw)
 	cmd, _ := recovered["command"].(string)
-	if !strings.HasPrefix(cmd, "echo hello") {
-		t.Errorf("recovered command has wrong prefix: %q", cmd)
-	}
-	if !strings.Contains(cmd, "uname -a") {
-		t.Errorf("recovered command is missing 'uname -a': %q", cmd)
+	if cmd != "" {
+		t.Errorf("truncated command should not be recovered, got %q", cmd)
 	}
 }
 
