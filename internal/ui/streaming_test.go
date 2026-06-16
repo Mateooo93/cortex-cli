@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mateooo93/cortex-cli/internal/config"
+	"github.com/Mateooo93/cortex-cli/internal/cortexconfig"
 	"github.com/Mateooo93/cortex-cli/internal/protocol"
 )
 
@@ -57,5 +59,82 @@ func TestRenderStreamTail_ShowsCursor(t *testing.T) {
 	}
 	if !strings.Contains(stripANSI(got), "abc") {
 		t.Fatalf("expected abc in tail, got %q", got)
+	}
+}
+
+func TestStreamDonePreservesManualChatScroll(t *testing.T) {
+	setupPersistDir(t)
+	m := NewModel(&config.Config{}, cortexconfig.Default(), nil, false, "", false, false)
+	m.width = 80
+	m.height = 20
+	m.updateChatWidth()
+
+	sess := m.currentSession()
+	sess.agentState = StateStreaming
+	sess.assistantBuf = strings.Repeat("- old line\n", 40)
+	updateStreamingDisplay(sess)
+
+	prevMax := m.sessionMaxScrollOffset(sess)
+	if prevMax <= 0 {
+		t.Fatalf("expected scrollable transcript, max offset = %d", prevMax)
+	}
+
+	const manualOffset = 5
+	sess.chatScrollOffset = manualOffset
+	sess.streamPending = strings.Repeat("- new line\n", 5)
+
+	m.applyEventToSession(0, protocol.SessionEvent{Type: "event.stream_done", Data: protocol.EventStreamDone{}})
+
+	nextMax := m.sessionMaxScrollOffset(sess)
+	want := manualOffset + nextMax - prevMax
+	if want < 0 {
+		want = 0
+	}
+	if want > nextMax {
+		want = nextMax
+	}
+	if sess.chatScrollOffset != want {
+		t.Fatalf("chatScrollOffset = %d, want %d", sess.chatScrollOffset, want)
+	}
+	if sess.chatScrollOffset == 0 {
+		t.Fatal("stream_done forced chat to bottom while manually scrolled up")
+	}
+}
+
+func TestAgentDonePreservesManualChatScroll(t *testing.T) {
+	setupPersistDir(t)
+	m := NewModel(&config.Config{}, cortexconfig.Default(), nil, false, "", false, false)
+	m.width = 80
+	m.height = 20
+	m.updateChatWidth()
+
+	sess := m.currentSession()
+	sess.agentState = StateStreaming
+	sess.assistantBuf = strings.Repeat("- old line\n", 40)
+	updateStreamingDisplay(sess)
+
+	prevMax := m.sessionMaxScrollOffset(sess)
+	if prevMax <= 0 {
+		t.Fatalf("expected scrollable transcript, max offset = %d", prevMax)
+	}
+
+	const manualOffset = 5
+	sess.chatScrollOffset = manualOffset
+
+	m.applyEventToSession(0, protocol.SessionEvent{Type: "event.agent_done"})
+
+	nextMax := m.sessionMaxScrollOffset(sess)
+	want := manualOffset + nextMax - prevMax
+	if want < 0 {
+		want = 0
+	}
+	if want > nextMax {
+		want = nextMax
+	}
+	if sess.chatScrollOffset != want {
+		t.Fatalf("chatScrollOffset = %d, want %d", sess.chatScrollOffset, want)
+	}
+	if sess.chatScrollOffset == 0 {
+		t.Fatal("agent_done forced chat to bottom while manually scrolled up")
 	}
 }

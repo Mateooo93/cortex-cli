@@ -382,4 +382,3 @@ func (s *SessionState) FinishTurn() time.Duration {
 	return d
 }
 
-

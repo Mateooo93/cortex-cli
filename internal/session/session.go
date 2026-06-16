@@ -46,6 +46,7 @@ type Session struct {
 	// Events
 	events           chan protocol.SessionEvent
 	llmCallStartedAt time.Time
+	streamFilter     streamFilterState
 
 	// userAnswerCh carries the user's response to a question
 	// the model raised via the ask_user_question tool. The
@@ -838,6 +839,14 @@ func (s *Session) emitStreamChunk(text string) {
 	}
 }
 
+func (s *Session) emitThinkingChunk(text string) {
+	defer func() { _ = recover() }()
+	s.events <- protocol.SessionEvent{
+		Type: "thinking_chunk",
+		Data: protocol.EventThinkingChunk{Text: text},
+	}
+}
+
 func (s *Session) emitAgentDone() {
 	s.safeEmit(protocol.SessionEvent{Type: "agent_done"})
 }
@@ -874,6 +883,127 @@ func extractInlineToolCalls(content string) []provider.ToolCall {
 
 func stripToolCallBlocks(content string) string {
 	return inlineToolCallRE.ReplaceAllString(content, "")
+}
+
+const (
+	streamThinkOpenTag      = "<think>"
+	streamThinkCloseTag     = "</think>"
+	streamInlineToolMarker  = "```tool_call"
+	streamInlineFenceMarker = "\n```"
+)
+
+type streamFilterState struct {
+	pending          string
+	inThink          bool
+	inInlineToolCall bool
+}
+
+func (f *streamFilterState) reset() {
+	*f = streamFilterState{}
+}
+
+func (f *streamFilterState) process(delta string, emitVisible, emitThinking func(string)) {
+	if delta == "" {
+		return
+	}
+	f.pending += delta
+	for {
+		if f.inThink {
+			lower := strings.ToLower(f.pending)
+			if idx := strings.Index(lower, streamThinkCloseTag); idx >= 0 {
+				if idx > 0 {
+					emitThinking(f.pending[:idx])
+				}
+				f.pending = f.pending[idx+len(streamThinkCloseTag):]
+				f.inThink = false
+				continue
+			}
+			keep := markerSuffixLen(f.pending, streamThinkCloseTag)
+			if len(f.pending) > keep {
+				emitThinking(f.pending[:len(f.pending)-keep])
+				f.pending = f.pending[len(f.pending)-keep:]
+			}
+			return
+		}
+
+		if f.inInlineToolCall {
+			if idx := strings.Index(f.pending, streamInlineFenceMarker); idx >= 0 {
+				f.pending = f.pending[idx+len(streamInlineFenceMarker):]
+				f.inInlineToolCall = false
+				continue
+			}
+			keep := markerSuffixLen(f.pending, streamInlineFenceMarker)
+			if len(f.pending) > keep {
+				f.pending = f.pending[len(f.pending)-keep:]
+			}
+			return
+		}
+
+		lower := strings.ToLower(f.pending)
+		thinkIdx := strings.Index(lower, streamThinkOpenTag)
+		toolIdx := strings.Index(lower, streamInlineToolMarker)
+		switch {
+		case thinkIdx >= 0 && (toolIdx < 0 || thinkIdx < toolIdx):
+			if thinkIdx > 0 {
+				emitVisible(f.pending[:thinkIdx])
+			}
+			f.pending = f.pending[thinkIdx+len(streamThinkOpenTag):]
+			f.inThink = true
+		case toolIdx >= 0:
+			if toolIdx > 0 {
+				emitVisible(f.pending[:toolIdx])
+			}
+			f.pending = f.pending[toolIdx+len(streamInlineToolMarker):]
+			f.inInlineToolCall = true
+		default:
+			keep := longestMarkerSuffixLen(f.pending, streamThinkOpenTag, streamInlineToolMarker)
+			if len(f.pending) > keep {
+				emitVisible(f.pending[:len(f.pending)-keep])
+				f.pending = f.pending[len(f.pending)-keep:]
+			}
+			return
+		}
+	}
+}
+
+func (f *streamFilterState) flush(emitVisible, emitThinking func(string)) {
+	if f.pending != "" {
+		switch {
+		case f.inThink:
+			emitThinking(f.pending)
+		case f.inInlineToolCall:
+			// Hidden inline tool call JSON is still available in the provider
+			// response for execution; it should never be shown as chat text.
+		default:
+			emitVisible(f.pending)
+		}
+	}
+	f.reset()
+}
+
+func longestMarkerSuffixLen(s string, markers ...string) int {
+	best := 0
+	for _, marker := range markers {
+		if n := markerSuffixLen(s, marker); n > best {
+			best = n
+		}
+	}
+	return best
+}
+
+func markerSuffixLen(s, marker string) int {
+	s = strings.ToLower(s)
+	marker = strings.ToLower(marker)
+	max := len(marker) - 1
+	if len(s) < max {
+		max = len(s)
+	}
+	for n := max; n > 0; n-- {
+		if strings.HasPrefix(marker, s[len(s)-n:]) {
+			return n
+		}
+	}
+	return 0
 }
 
 // executeToolCalls runs one or more tool calls from a single assistant
@@ -1826,12 +1956,13 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 	// won't see a tool result for a tool call
 	// it didn't see.
 	req.Messages = stripOrphanToolResults(req.Messages)
+	s.streamFilter.reset()
 	return prov.Stream(ctx, req, s.onChunk)
 }
 
 func (s *Session) onChunk(c provider.Chunk) {
 	if c.Content != "" {
-		s.emitStreamChunk(c.Content)
+		s.streamFilter.process(c.Content, s.emitStreamChunk, s.emitThinkingChunk)
 	}
 	if c.Usage.TotalTokens > 0 || c.Usage.PromptTokens > 0 || c.FinishReason != "" {
 		s.emitStreamDone(c.Usage, c.FinishReason)
@@ -1839,6 +1970,7 @@ func (s *Session) onChunk(c provider.Chunk) {
 }
 
 func (s *Session) emitStreamDone(u provider.Usage, finish provider.FinishReason) {
+	s.streamFilter.flush(s.emitStreamChunk, s.emitThinkingChunk)
 	var elapsedMs int64
 	if !s.llmCallStartedAt.IsZero() {
 		elapsedMs = time.Since(s.llmCallStartedAt).Milliseconds()

@@ -55,13 +55,15 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var done protocol.EventStreamDone
 		json.Unmarshal(data, &done)
+		wasAtBottom := sess.chatScrollOffset == 0
+		prevMax := m.sessionMaxScrollOffset(sess)
 		flushStreamPlayback(sess)
 		sess.streamPlayback.Stop()
-		sess.chatScrollOffset = 0
 		if sess.assistantBuf != "" {
 			sess.assistantRendered = strings.TrimLeft(m.mdRenderer.Render(sess.assistantBuf), "\n")
 			sess.streamCache.reset()
 		}
+		m.preserveChatScrollAfterContentChange(sess, prevMax, wasAtBottom)
 		// Context-window counting fix. The streaming API
 		// reports `InputTokens` as the prompt size of the
 		// CURRENT turn (which includes the entire
@@ -326,6 +328,8 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 
 	case "event.agent_done":
 		sess.thinkingAnim.Stop()
+		wasAtBottom := sess.chatScrollOffset == 0
+		prevMax := m.sessionMaxScrollOffset(sess)
 		m.flushSessionBuf(sess)
 		if idx != m.selectedSession || m.activeTab != TabKindChat {
 			sess.unreadCount++
@@ -354,6 +358,7 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		}
 		cost := protocol.CalculateCost(pricingSpec, turnInput, turnOutput, turnCacheCreation, turnCacheRead)
 		sess.chatMessages = append(sess.chatMessages, renderTurnInfo(sess.modelName, sess.elapsed, cost, m.mdRenderer.width+4, m.styles))
+		m.preserveChatScrollAfterContentChange(sess, prevMax, wasAtBottom)
 		sess.turnStartInputTokens = sess.inputTokens
 		sess.turnStartOutputTokens = sess.outputTokens
 		sess.turnStartCacheCreationTokens = sess.cacheCreationTokens

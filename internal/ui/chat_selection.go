@@ -354,9 +354,12 @@ func styleWidthRange(line string, x0, x1 int, style lipgloss.Style) string {
 // selectionBackgroundPrefix returns an ANSI sequence that applies only the
 // selection background so existing foreground styles stay visible underneath.
 func selectionBackgroundPrefix(style lipgloss.Style) string {
-	bg := lipgloss.NewStyle().Background(style.GetBackground()).Render("")
+	bg := lipgloss.NewStyle().Background(style.GetBackground()).Render(" ")
+	if idx := strings.Index(bg, " "); idx >= 0 {
+		return bg[:idx]
+	}
 	if idx := strings.Index(bg, "\x1b[0m"); idx >= 0 {
-		bg = bg[:idx]
+		return bg[:idx]
 	}
 	return bg
 }

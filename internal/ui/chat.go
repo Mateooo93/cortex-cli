@@ -258,7 +258,7 @@ func renderWriteFileSuccess(lineCount int, preview string, prefix string) string
 				sb.WriteString("\n")
 				continue
 			}
-			sb.WriteString(writeFilePreviewStyle.Render("      " + line))
+			sb.WriteString(writeFilePreviewStyle.Render("      " + sanitizePreviewLineForDisplay(line)))
 			sb.WriteString("\n")
 		}
 	}
@@ -272,6 +272,31 @@ func renderWriteFileSuccess(lineCount int, preview string, prefix string) string
 		sb.WriteString("\n")
 	}
 	return sb.String()
+}
+
+func sanitizePreviewLineForDisplay(line string) string {
+	var b strings.Builder
+	seen := 0
+	for _, r := range line {
+		if seen >= 160 {
+			b.WriteString("...")
+			break
+		}
+		seen++
+		switch {
+		case r == '\t':
+			b.WriteRune(r)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\x1b':
+			b.WriteString(`\x1b`)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, `\x%02x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // isShellTool reports whether name is a shell execution tool.

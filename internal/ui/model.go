@@ -2523,9 +2523,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				continue
 			}
 			if released := releaseStreamPlayback(&sess.streamPending); released != "" {
+				wasAtBottom := sess.chatScrollOffset == 0
+				prevMax := m.sessionMaxScrollOffset(sess)
 				sess.assistantBuf += released
 				updateStreamingDisplay(sess)
-				sess.chatScrollOffset = 0
+				m.preserveChatScrollAfterContentChange(sess, prevMax, wasAtBottom)
 			}
 			if sess.streamPending == "" {
 				sess.streamPlayback.Stop()
@@ -3305,6 +3307,18 @@ func (m *Model) clampScrollOffset(sess *SessionState) {
 	if max := m.sessionMaxScrollOffset(sess); sess.chatScrollOffset > max {
 		sess.chatScrollOffset = max
 	}
+}
+
+func (m *Model) preserveChatScrollAfterContentChange(sess *SessionState, prevMax int, wasAtBottom bool) {
+	if wasAtBottom {
+		sess.chatScrollOffset = 0
+		return
+	}
+	// Offsets are measured from the bottom. When content grows while the user
+	// is scrolled up, grow the offset by the new rows so the viewport stays put.
+	nextMax := m.sessionMaxScrollOffset(sess)
+	sess.chatScrollOffset += nextMax - prevMax
+	m.clampScrollOffset(sess)
 }
 
 // sessionActiveForkSep returns the topmost visible turn separator when scrolled up.

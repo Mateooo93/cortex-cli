@@ -322,7 +322,37 @@ func firstNLines(s string, n int) string {
 	if len(lines) > n {
 		lines = lines[:n]
 	}
+	for i := range lines {
+		lines[i] = sanitizePreviewLine(lines[i])
+	}
 	return strings.Join(lines, "\n")
+}
+
+const maxWritePreviewLineRunes = 160
+
+func sanitizePreviewLine(line string) string {
+	var b strings.Builder
+	seen := 0
+	for _, r := range line {
+		if seen >= maxWritePreviewLineRunes {
+			b.WriteString("...")
+			break
+		}
+		seen++
+		switch {
+		case r == '\t':
+			b.WriteRune(r)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\x1b':
+			b.WriteString(`\x1b`)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, `\x%02x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 type EditFileTool struct{}
