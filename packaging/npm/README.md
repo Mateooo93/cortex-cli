@@ -1,18 +1,24 @@
-# @mateooo93/cortex (npm)
+# mateooo93-cortex (npm)
 
 npm wrapper that downloads the native `cortex` binary for your OS on `postinstall`.
 
-> **Note:** The package `cortex-cli` on npmjs.org is a different product (CognitiveScale). Use `@mateooo93/cortex`.
+> **Note:** The package `cortex-cli` on npmjs.org is a different product (CognitiveScale). Use `mateooo93-cortex`.
 
 ## Install
 
-**Recommended when npm auth fails:** use the install script (downloads the native binary, no registry token):
+**Recommended npm install** (npmjs.org, no registry token):
+
+```bash
+npm install -g mateooo93-cortex@latest
+```
+
+**curl installer** (also no registry token):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.sh | bash
 ```
 
-**npm** (GitHub Packages):
+**GitHub Packages** (requires GitHub Packages auth in many npm setups):
 
 ```bash
 npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com
@@ -36,7 +42,7 @@ If you see `E401 Unauthorized`, the package may still be private — use the ins
 //npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
 ```
 
-The global `cortex` command must point at `.../node_modules/@mateooo93/cortex/shims/cortex.js` (or your package manager's global bin shim).
+The global `cortex` command must point at `.../node_modules/mateooo93-cortex/shims/cortex.js` or `.../node_modules/@mateooo93/cortex/shims/cortex.js` depending on which package you installed.
 
 ## Publish (maintainers)
 
@@ -46,7 +52,7 @@ The global `cortex` command must point at `.../node_modules/@mateooo93/cortex/sh
 ./script/publish-npm.sh v0.25.25 --yes
 ```
 
-**npmjs.org** (optional legacy `mateooo93-cortex` — requires npm Automation token):
+**npmjs.org** (public `mateooo93-cortex` — requires npm Automation token):
 
 ```bash
 ./script/publish-npm.sh v0.25.25 --yes --registry npmjs

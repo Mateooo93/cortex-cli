@@ -43,14 +43,14 @@ func TestInputSelection_MouseDrag(t *testing.T) {
 	}
 }
 
-func TestCtrlCCopiesInputSelection(t *testing.T) {
+func TestCtrlCQuickQuitsWithActiveInputSelection(t *testing.T) {
 	in := newInput()
 	in.SetWidth(76)
 	in.SetValue("hello world")
 	m := Model{
-		width:     80,
-		height:    30,
-		activeTab: TabKindChat,
+		width:      80,
+		height:     30,
+		activeTab:  TabKindChat,
 		mdRenderer: NewMarkdownRenderer(74, true, lipgloss.NewStyle()),
 		sessions: []*SessionState{{
 			input: in,
@@ -64,10 +64,14 @@ func TestCtrlCCopiesInputSelection(t *testing.T) {
 		}},
 	}
 
-	updated, _ := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-	out := updated.(Model)
-	if out.state == StateQuitConfirm {
-		t.Fatal("ctrl+c with input selection should copy, not open quit confirm")
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("ctrl+c with input selection should quit immediately")
+	}
+	if msg := cmd(); msg == nil {
+		t.Fatal("quit command returned nil message")
+	} else if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Fatalf("ctrl+c should return quit command, got %#v", msg)
 	}
 }
 

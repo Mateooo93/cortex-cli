@@ -11,7 +11,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="AGPL-3.0" /></a>
   <a href="https://github.com/Mateooo93/cortex-cli/stargazers"><img src="https://img.shields.io/github/stars/Mateooo93/cortex-cli?style=flat-square" alt="Stars" /></a>
   <a href="https://github.com/Mateooo93/cortex-cli/releases/latest"><img src="https://img.shields.io/github/v/release/Mateooo93/cortex-cli?style=flat-square" alt="Release" /></a>
-  <a href="#installation"><img src="https://img.shields.io/badge/npm-@mateooo93%2Fcortex-CB3837?style=flat-square&logo=npm&logoColor=white" alt="npm" /></a>
+  <a href="#installation"><img src="https://img.shields.io/badge/npm-mateooo93--cortex-CB3837?style=flat-square&logo=npm&logoColor=white" alt="npm" /></a>
 </p>
 
 ---
@@ -19,7 +19,7 @@
 <h2 align="center">Install</h2>
 
 ```bash
-npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com
+npm install -g mateooo93-cortex@latest
 cortex
 ```
 
@@ -68,15 +68,21 @@ cortex
 macOS, Linux, and Windows:
 
 ```bash
-npm install -g @mateooo93/cortex@latest --registry=https://npm.pkg.github.com
+npm install -g mateooo93-cortex@latest
 cortex
 ```
 
-If npm returns `E401 Unauthorized`, use the curl installer below, or add to `~/.npmrc`:
+If you specifically need the GitHub Packages build, configure the GitHub registry and use a token with `read:packages`:
 
 ```
 @mateooo93:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
+```
+
+Then install:
+
+```bash
+npm install -g @mateooo93/cortex@latest
 ```
 
 ### curl
@@ -105,7 +111,7 @@ irm https://raw.githubusercontent.com/Mateooo93/cortex-cli/main/script/install.p
 
 Other platforms and tarballs are on the [latest release](https://github.com/Mateooo93/cortex-cli/releases/latest). Build from source: `git clone`, `go build -o cortex ./cmd/cortex`, `./cortex`.
 
-> **npm note:** Install `@mateooo93/cortex@latest` from GitHub Packages (command above). The package `cortex-cli` on npmjs.org is a different product. If `cortex` opens the wrong CLI, run `npm uninstall -g cortex-cli`, remove stale binaries like `~/.local/bin/cortex`, then `hash -r` and check `which -a cortex`.
+> **npm note:** Install `mateooo93-cortex@latest` from npmjs.org. The package `cortex-cli` on npmjs.org is a different product. If `cortex` opens the wrong CLI, run `npm uninstall -g cortex-cli`, remove stale binaries like `~/.local/bin/cortex`, then `hash -r` and check `which -a cortex`.
 
 ## Quick start
 

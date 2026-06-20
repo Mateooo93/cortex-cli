@@ -17,7 +17,7 @@ async function main() {
 
   if (!binaryPath || !fs.existsSync(binaryPath)) {
     console.error(
-      `cortex-cli: native binary not installed. Re-run: npm install -g ${packageName} --registry=https://npm.pkg.github.com`
+      `cortex-cli: native binary not installed. Re-run: npm install -g ${packageName}`
     );
     process.exit(1);
   }

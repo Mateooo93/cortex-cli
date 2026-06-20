@@ -249,7 +249,7 @@ func (s *Session) RestoreHistory(history []provider.Message) {
 	// format, not from an untrusted source.
 	out := []provider.Message{{Role: "system", Content: systemMsg}}
 	out = append(out, history...)
-	s.history = out
+	s.history = stripOrphanToolResults(out)
 	s.mu.Unlock()
 }
 
@@ -546,6 +546,7 @@ func (s *Session) runTurn(parent context.Context, text string, attachments []pro
 
 	// Push the user message
 	s.mu.Lock()
+	s.history = stripOrphanToolResults(s.history)
 	s.history = append(s.history, provider.Message{Role: "user", Content: text})
 	s.mu.Unlock()
 
@@ -2195,52 +2196,62 @@ func convertToolsToProvider(reg *tools.Registry) []provider.Tool {
 	return out
 }
 
-// stripOrphanToolResults walks the outgoing
-// conversation history and drops any `role: tool`
-// message whose tool_call_id doesn't appear in the
-// previous assistant message's tool_calls array.
-// Strict providers (MiniMax, certain OpenRouter
-// backends) reject the request with HTTP 400
-// "tool result's tool id() not found" otherwise.
-// The fix is defensive: we don't trust the history
-// to be perfectly consistent (session restore,
-// inline-vs-provider tool call duplication, etc.
-// can leave dangling tool results), and we'd
-// rather drop a result than fail the whole turn.
+// stripOrphanToolResults walks the outgoing conversation history and fixes
+// malformed assistant/tool-result groups before they reach strict providers.
+// OpenAI-compatible providers require every assistant message with tool_calls
+// to be immediately followed by the matching role=tool messages. If a turn was
+// restored from UI history, cancelled mid-tool batch, or otherwise partially
+// recorded, MiniMax/OpenRouter-style gateways reject the whole request with
+// HTTP 400 "tool call and result not match". Preserve the text context, but
+// strip invalid tool metadata/results so the next user prompt can proceed.
 func stripOrphanToolResults(msgs []provider.Message) []provider.Message {
 	if len(msgs) == 0 {
 		return msgs
 	}
 	out := make([]provider.Message, 0, len(msgs))
-	// Set of valid tool_call_ids from the most
-	// recent assistant message that has
-	// tool_calls. A `role: tool` message is only
-	// valid if its tool_call_id is in this set.
-	validIDs := map[string]bool{}
-	for _, m := range msgs {
-		switch m.Role {
-		case "assistant":
-			// Reset: a new assistant message
-			// means previous tool_call_ids are
-			// no longer valid for following
-			// messages. Each assistant turn
-			// owns its own tool_call_ids.
-			validIDs = map[string]bool{}
+	for i := 0; i < len(msgs); i++ {
+		m := msgs[i]
+		switch {
+		case m.Role == "assistant" && len(m.ToolCalls) > 0:
+			required := make(map[string]provider.ToolCall, len(m.ToolCalls))
 			for _, tc := range m.ToolCalls {
 				if tc.ID != "" {
-					validIDs[tc.ID] = true
+					required[tc.ID] = tc
 				}
 			}
-			out = append(out, m)
-		case "tool":
-			if validIDs[m.ToolCallID] {
+			if len(required) == 0 {
+				m.ToolCalls = nil
+				out = append(out, m)
+				continue
+			}
+
+			j := i + 1
+			matched := make(map[string]bool, len(required))
+			toolResults := make([]provider.Message, 0, len(required))
+			for j < len(msgs) && msgs[j].Role == "tool" {
+				toolMsg := msgs[j]
+				if _, ok := required[toolMsg.ToolCallID]; ok && !matched[toolMsg.ToolCallID] {
+					matched[toolMsg.ToolCallID] = true
+					toolResults = append(toolResults, toolMsg)
+				}
+				j++
+			}
+
+			if len(matched) == len(required) {
+				out = append(out, m)
+				out = append(out, toolResults...)
+			} else {
+				m.ToolCalls = nil
 				out = append(out, m)
 			}
-			// else: orphan — drop silently.
+			i = j - 1
+
+		case m.Role == "tool":
+			// A tool result is only valid in the contiguous block handled
+			// above. Anything that reaches this branch is orphaned.
+			continue
+
 		default:
-			// system / user messages: pass
-			// through, they don't reference
-			// tool_call_ids.
 			out = append(out, m)
 		}
 	}

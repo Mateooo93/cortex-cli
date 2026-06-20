@@ -13,7 +13,9 @@ import (
 // message is dropped from the outgoing history.
 // Strict providers (MiniMax, some OpenRouter
 // backends) reject the request with
-//   tool result's tool id() not found
+//
+//	tool result's tool id() not found
+//
 // otherwise.
 func TestStripOrphanToolResults_DropsMatching(t *testing.T) {
 	in := []provider.Message{
@@ -107,6 +109,53 @@ func TestStripOrphanToolResults_NoAssistantPrefix(t *testing.T) {
 	}
 	if out[0].Role != "assistant" {
 		t.Errorf("expected only assistant message to survive, got %+v", out[0])
+	}
+}
+
+func TestStripOrphanToolResults_ClearsAssistantCallsWhenResultMissing(t *testing.T) {
+	in := []provider.Message{
+		{Role: "user", Content: "run checks"},
+		{Role: "assistant", Content: "I'll run that.",
+			ToolCalls: []provider.ToolCall{
+				{ID: "X", Name: "run_shell"},
+				{ID: "Y", Name: "read_file"},
+			}},
+		{Role: "tool", ToolCallID: "X", ToolName: "run_shell", Content: "ok"},
+		{Role: "user", Content: "try something else"},
+	}
+	out := stripOrphanToolResults(in)
+	if len(out) != 3 {
+		t.Fatalf("expected missing tool result group to drop tool rows, got %d: %+v", len(out), out)
+	}
+	if out[1].Role != "assistant" {
+		t.Fatalf("expected assistant at index 1, got %+v", out[1])
+	}
+	if len(out[1].ToolCalls) != 0 {
+		t.Fatalf("assistant tool calls should be cleared when not fully matched: %+v", out[1].ToolCalls)
+	}
+	for _, m := range out {
+		if m.Role == "tool" {
+			t.Fatalf("partial tool result should have been dropped: %+v", m)
+		}
+	}
+}
+
+func TestStripOrphanToolResults_DropsNonContiguousToolResult(t *testing.T) {
+	in := []provider.Message{
+		{Role: "assistant", Content: "I'll inspect it.",
+			ToolCalls: []provider.ToolCall{{ID: "X", Name: "read_file"}}},
+		{Role: "user", Content: "actually do this instead"},
+		{Role: "tool", ToolCallID: "X", ToolName: "read_file", Content: "late result"},
+	}
+	out := stripOrphanToolResults(in)
+	if len(out) != 2 {
+		t.Fatalf("expected assistant+user only, got %d: %+v", len(out), out)
+	}
+	if len(out[0].ToolCalls) != 0 {
+		t.Fatalf("assistant tool calls should be cleared when result is not contiguous: %+v", out[0].ToolCalls)
+	}
+	if out[1].Role != "user" {
+		t.Fatalf("expected user message to survive, got %+v", out[1])
 	}
 }
 

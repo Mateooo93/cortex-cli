@@ -1110,10 +1110,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		// Copy chat drag-selection before global quit handling.
+		// Copy chat drag-selection on the explicit copy shortcuts
+		// before global quit handling.
 		if m.activeTab == TabKindChat {
 			switch msg.String() {
-			case "ctrl+c", "ctrl+shift+c", "ctrl+insert":
+			case "ctrl+shift+c", "ctrl+insert":
 				if sess := m.currentSession(); sess != nil && (sess.chatSel.active || sess.inputSel.active) {
 					if cmd := m.copyActiveSelectionCmd(); cmd != nil {
 						return m, cmd
@@ -1125,20 +1126,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// --- Global quit confirm overlay ---
 		if msg.String() == "ctrl+c" || msg.String() == "ctrl+d" {
-			if m.state == StateQuitConfirm {
-				sess := m.currentSession()
-				if sess != nil && sess.client != nil {
-					sess.client.SendCancel()
-					sess.client.SendClose()
-				}
-				// Flush the latest chat scrollback to disk so the
-				// user does not lose unsaved messages on quit.
-				m.persistSessions()
-				return m, tea.Quit
+			sess := m.currentSession()
+			if sess != nil && sess.client != nil {
+				sess.client.SendCancel()
+				sess.client.SendClose()
 			}
-			m.state = StateQuitConfirm
-			m.quitSelected = 0
-			return m, nil
+			// Flush the latest chat scrollback to disk so the user
+			// does not lose unsaved messages on quit.
+			m.persistSessions()
+			return m, tea.Quit
 		}
 
 		// --- Quit / SessionClose / Trim dialogs intercept all keys ---

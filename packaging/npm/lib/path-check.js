@@ -102,7 +102,7 @@ function warnIfShadowed() {
   console.warn("");
   console.warn("cortex-cli: another `cortex` command comes first on your PATH:");
   console.warn(`  ${firstOnPath}`);
-  console.warn(`@mateooo93/cortex shim: ${shimPath}`);
+  console.warn(`cortex npm shim: ${shimPath}`);
   console.warn("");
   if (looksLikeCognitiveScale(firstOnPath)) {
     console.warn("Remove the conflicting CognitiveScale CLI, then open a new terminal:");

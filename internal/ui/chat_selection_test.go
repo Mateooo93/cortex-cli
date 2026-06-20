@@ -50,11 +50,11 @@ func TestDisplayChatLinesMatchMouseLineIndex(t *testing.T) {
 	}
 }
 
-func TestCtrlCCopiesChatSelection(t *testing.T) {
+func TestCtrlCCQuickQuitsWithActiveChatSelection(t *testing.T) {
 	m := Model{
-		width:     80,
-		height:    30,
-		activeTab: TabKindChat,
+		width:      80,
+		height:     30,
+		activeTab:  TabKindChat,
 		mdRenderer: NewMarkdownRenderer(74, true, lipgloss.NewStyle()),
 		sessions: []*SessionState{{
 			chatMessages: []ChatMessage{
@@ -69,9 +69,13 @@ func TestCtrlCCopiesChatSelection(t *testing.T) {
 			},
 		}},
 	}
-	updated, _ := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-	out := updated.(Model)
-	if out.state == StateQuitConfirm {
-		t.Fatal("ctrl+c with active chat selection should copy, not open quit confirm")
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("ctrl+c with active chat selection should quit immediately")
+	}
+	if msg := cmd(); msg == nil {
+		t.Fatal("quit command returned nil message")
+	} else if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Fatalf("ctrl+c should return quit command, got %#v", msg)
 	}
 }

@@ -6,7 +6,7 @@ usage() {
   echo "  e.g. $0 v0.25.3"
   echo ""
   echo "  Publishes @mateooo93/cortex to GitHub Packages (default)."
-  echo "  Use --registry npmjs to publish legacy mateooo93-cortex to registry.npmjs.org."
+  echo "  Use --registry npmjs to publish public mateooo93-cortex to registry.npmjs.org."
   echo ""
   echo "  Auth (GitHub Packages — default):"
   echo "    CI:  GITHUB_TOKEN (auto in Actions; needs packages: write)"
