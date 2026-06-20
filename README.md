@@ -72,6 +72,16 @@ npm install -g mateooo93-cortex@latest
 cortex
 ```
 
+If npm returns `EACCES` for `/usr/lib/node_modules`, use a user-owned global prefix:
+
+```bash
+mkdir -p ~/.npm-global
+npm config set prefix ~/.npm-global
+echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.profile
+. ~/.profile
+npm install -g mateooo93-cortex@latest
+```
+
 If you specifically need the GitHub Packages build, configure the GitHub registry and use a token with `read:packages`:
 
 ```
