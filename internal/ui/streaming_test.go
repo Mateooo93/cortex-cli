@@ -35,6 +35,32 @@ func TestUpdateStreamingDisplay_IncrementalAppend(t *testing.T) {
 	_ = first
 }
 
+func TestStreamChunkUpdatesDisplayBeforeStreamDone(t *testing.T) {
+	setupPersistDir(t)
+	m := NewModel(&config.Config{}, cortexconfig.Default(), nil, false, "", false, false)
+	m.width = 80
+	m.height = 20
+	m.updateChatWidth()
+
+	sess := m.currentSession()
+	sess.agentState = StateStreaming
+
+	m.applyEventToSession(0, protocol.SessionEvent{
+		Type: "event.stream_chunk",
+		Data: protocol.EventStreamChunk{Text: "hello"},
+	})
+
+	if sess.assistantBuf != "hello" {
+		t.Fatalf("assistantBuf = %q, want hello", sess.assistantBuf)
+	}
+	if !strings.Contains(stripANSI(sess.assistantRendered), "hello") {
+		t.Fatalf("expected streaming preview before stream_done, got %q", sess.assistantRendered)
+	}
+	if sess.streamPending != "" {
+		t.Fatalf("streamPending should stay empty, got %q", sess.streamPending)
+	}
+}
+
 func TestCoalesceStreamChunkEvents(t *testing.T) {
 	ch := make(chan protocol.SessionEvent, 4)
 	ch <- protocol.SessionEvent{Type: "event.stream_chunk", Data: protocol.EventStreamChunk{Text: "lo"}}

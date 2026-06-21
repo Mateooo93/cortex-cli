@@ -39,8 +39,11 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		if chunk.Text == "" {
 			break
 		}
-		sess.streamPending += chunk.Text
-		cmds = append(cmds, sess.streamPlayback.EnsureTick())
+		wasAtBottom := sess.chatScrollOffset == 0
+		prevMax := m.sessionMaxScrollOffset(sess)
+		sess.assistantBuf += chunk.Text
+		updateStreamingDisplay(sess)
+		m.preserveChatScrollAfterContentChange(sess, prevMax, wasAtBottom)
 
 	case "event.thinking_chunk":
 		data := marshalData(event.Data)
