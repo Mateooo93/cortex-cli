@@ -63,8 +63,7 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		flushStreamPlayback(sess)
 		sess.streamPlayback.Stop()
 		if sess.assistantBuf != "" {
-			sess.assistantRendered = strings.TrimLeft(m.mdRenderer.Render(sess.assistantBuf), "\n")
-			sess.streamCache.reset()
+			finalizeStreamingDisplay(sess)
 		}
 		m.preserveChatScrollAfterContentChange(sess, prevMax, wasAtBottom)
 		// Context-window counting fix. The streaming API

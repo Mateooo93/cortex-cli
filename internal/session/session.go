@@ -48,6 +48,7 @@ type Session struct {
 	events           chan protocol.SessionEvent
 	llmCallStartedAt time.Time
 	streamFilter     streamFilterState
+	streamDoneEmitted bool
 
 	// userAnswerCh carries the user's response to a question
 	// the model raised via the ask_user_question tool. The
@@ -1962,6 +1963,7 @@ func (s *Session) callProvider(ctx context.Context) (provider.Response, error) {
 	// it didn't see.
 	req.Messages = stripOrphanToolResults(req.Messages)
 	s.streamFilter.reset()
+	s.streamDoneEmitted = false
 	return prov.Stream(ctx, req, s.onChunk)
 }
 
@@ -1975,6 +1977,10 @@ func (s *Session) onChunk(c provider.Chunk) {
 }
 
 func (s *Session) emitStreamDone(u provider.Usage, finish provider.FinishReason) {
+	if s.streamDoneEmitted {
+		return
+	}
+	s.streamDoneEmitted = true
 	s.streamFilter.flush(s.emitStreamChunk, s.emitThinkingChunk)
 	var elapsedMs int64
 	if !s.llmCallStartedAt.IsZero() {

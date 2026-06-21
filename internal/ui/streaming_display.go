@@ -9,7 +9,7 @@ import (
 // streamDisplayCache holds incrementally rendered assistant streaming output.
 // Only new complete lines and the active tail are processed on each chunk.
 type streamDisplayCache struct {
-	stableTextLen int
+	stableTextLen  int
 	stableRendered string
 }
 
@@ -40,7 +40,7 @@ func renderStreamTail(line string) string {
 }
 
 // updateStreamingDisplay incrementally extends the streaming preview as
-// assistantBuf grows. Full markdown formatting still runs on stream_done.
+// assistantBuf grows. Full markdown formatting runs on agent_done flush.
 func updateStreamingDisplay(sess *SessionState) {
 	buf := sess.assistantBuf
 	if len(buf) < sess.streamCache.stableTextLen {
@@ -63,4 +63,28 @@ func updateStreamingDisplay(sess *SessionState) {
 		tail = renderStreamTail(pending)
 	}
 	sess.assistantRendered = sess.streamCache.stableRendered + tail
+}
+
+// finalizeStreamingDisplay keeps the plain streaming preview after the model
+// finishes but before agent_done moves the turn into scrollback.
+func finalizeStreamingDisplay(sess *SessionState) {
+	updateStreamingDisplay(sess)
+	if sess.assistantBuf == "" {
+		return
+	}
+	pending := sess.assistantBuf[sess.streamCache.stableTextLen:]
+	for {
+		idx := strings.IndexByte(pending, '\n')
+		if idx < 0 {
+			break
+		}
+		sess.streamCache.stableRendered += renderStreamLine(pending[:idx])
+		pending = pending[idx+1:]
+		sess.streamCache.stableTextLen = len(sess.assistantBuf) - len(pending)
+	}
+	if pending != "" {
+		sess.streamCache.stableRendered += renderStreamLine(pending)
+		sess.streamCache.stableTextLen = len(sess.assistantBuf)
+	}
+	sess.assistantRendered = sess.streamCache.stableRendered
 }

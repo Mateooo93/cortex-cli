@@ -123,25 +123,13 @@ func startSessionEventLoop(client *daemon.SessionClient) tea.Cmd {
 				teaProgram.Send(sessionDisconnectedMsg{daemonSessionID: daemonSessionID})
 				return
 			}
-			var held *protocol.SessionEvent
 			for {
-				var event protocol.SessionEvent
-				if held != nil {
-					event = *held
-					held = nil
-				} else {
-					ev, ok := <-ch
-					if !ok {
-						teaProgram.Send(sessionDisconnectedMsg{daemonSessionID: daemonSessionID})
-						return
-					}
-					event = normalizeSessionEvent(ev)
+				ev, ok := <-ch
+				if !ok {
+					teaProgram.Send(sessionDisconnectedMsg{daemonSessionID: daemonSessionID})
+					return
 				}
-
-				if isStreamChunkEvent(event) {
-					event = coalesceStreamChunkEvents(ch, event, &held)
-				}
-
+				event := normalizeSessionEvent(ev)
 				teaProgram.Send(sessionEventMsg{daemonSessionID: daemonSessionID, event: event})
 			}
 		}()
