@@ -161,6 +161,9 @@ type SessionState struct {
 	streamCache       streamDisplayCache
 	streamPending     string
 	streamPlayback    StreamPlayback
+	streamFinalize    bool
+	streamDoneAtBottom bool
+	streamDonePrevMax int
 	// Per-turn stats captured from the latest stream_done for the footer line.
 	lastTurnInputTokens  int64
 	lastTurnOutputTokens int64

@@ -417,9 +417,19 @@ func (p *OpenAICompat) deliverChatAsStream(ctx context.Context, req Request, onC
 	if err != nil {
 		return resp, err
 	}
-	if resp.Content != "" || resp.FinishReason != "" || resp.Usage.TotalTokens > 0 || resp.Usage.PromptTokens > 0 || len(resp.ToolCalls) > 0 {
+	const step = 48
+	content := resp.Content
+	if content != "" {
+		for i := 0; i < len(content); i += step {
+			end := i + step
+			if end > len(content) {
+				end = len(content)
+			}
+			onChunk(Chunk{Content: content[i:end]})
+		}
+	}
+	if resp.FinishReason != "" || resp.Usage.TotalTokens > 0 || resp.Usage.PromptTokens > 0 || len(resp.ToolCalls) > 0 {
 		onChunk(Chunk{
-			Content:      resp.Content,
 			ToolCalls:    resp.ToolCalls,
 			Usage:        resp.Usage,
 			FinishReason: resp.FinishReason,

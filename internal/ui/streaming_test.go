@@ -35,7 +35,7 @@ func TestUpdateStreamingDisplay_IncrementalAppend(t *testing.T) {
 	_ = first
 }
 
-func TestStreamChunkUpdatesDisplayBeforeStreamDone(t *testing.T) {
+func TestStreamChunkBuffersForPlayback(t *testing.T) {
 	setupPersistDir(t)
 	m := NewModel(&config.Config{}, cortexconfig.Default(), nil, false, "", false, false)
 	m.width = 80
@@ -45,19 +45,28 @@ func TestStreamChunkUpdatesDisplayBeforeStreamDone(t *testing.T) {
 	sess := m.currentSession()
 	sess.agentState = StateStreaming
 
-	m.applyEventToSession(0, protocol.SessionEvent{
+	cmds := m.applyEventToSession(0, protocol.SessionEvent{
 		Type: "event.stream_chunk",
 		Data: protocol.EventStreamChunk{Text: "hello"},
 	})
 
-	if sess.assistantBuf != "hello" {
-		t.Fatalf("assistantBuf = %q, want hello", sess.assistantBuf)
+	if sess.streamPending != "hello" {
+		t.Fatalf("streamPending = %q, want hello", sess.streamPending)
 	}
-	if !strings.Contains(stripANSI(sess.assistantRendered), "hello") {
-		t.Fatalf("expected streaming preview before stream_done, got %q", sess.assistantRendered)
+	if sess.assistantBuf != "" {
+		t.Fatalf("assistantBuf should stay empty until playback tick, got %q", sess.assistantBuf)
 	}
-	if sess.streamPending != "" {
-		t.Fatalf("streamPending should stay empty, got %q", sess.streamPending)
+	if len(cmds) == 0 {
+		t.Fatal("expected playback tick cmd")
+	}
+
+	sess.streamPlayback.active = true
+	_, _ = m.Update(streamPlaybackMsg{gen: sess.streamPlayback.gen, anim: &sess.streamPlayback})
+	if sess.assistantBuf == "" {
+		t.Fatal("expected playback tick to release text into assistantBuf")
+	}
+	if !strings.Contains(stripANSI(sess.assistantRendered), "he") {
+		t.Fatalf("expected streaming preview after tick, got %q", sess.assistantRendered)
 	}
 }
 
@@ -108,8 +117,12 @@ func TestStreamDonePreservesManualChatScroll(t *testing.T) {
 	const manualOffset = 5
 	sess.chatScrollOffset = manualOffset
 	sess.streamPending = strings.Repeat("- new line\n", 5)
+	sess.streamPlayback.active = true
 
 	m.applyEventToSession(0, protocol.SessionEvent{Type: "event.stream_done", Data: protocol.EventStreamDone{}})
+	for sess.streamPending != "" {
+		_, _ = m.Update(streamPlaybackMsg{gen: sess.streamPlayback.gen, anim: &sess.streamPlayback})
+	}
 
 	nextMax := m.sessionMaxScrollOffset(sess)
 	want := manualOffset + nextMax - prevMax

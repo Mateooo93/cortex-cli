@@ -2507,14 +2507,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				continue
 			}
 			if released := releaseStreamPlayback(&sess.streamPending); released != "" {
+				var prevMax int
 				wasAtBottom := sess.chatScrollOffset == 0
-				prevMax := m.sessionMaxScrollOffset(sess)
+				if !sess.streamFinalize {
+					prevMax = m.sessionMaxScrollOffset(sess)
+				}
 				sess.assistantBuf += released
 				updateStreamingDisplay(sess)
-				m.preserveChatScrollAfterContentChange(sess, prevMax, wasAtBottom)
+				if !sess.streamFinalize {
+					m.preserveChatScrollAfterContentChange(sess, prevMax, wasAtBottom)
+				}
 			}
 			if sess.streamPending == "" {
 				sess.streamPlayback.Stop()
+				if sess.streamFinalize {
+					m.completeStreamFinalize(sess)
+				}
 				continue
 			}
 			if cmd := sess.streamPlayback.Advance(msg); cmd != nil {
@@ -3197,7 +3205,20 @@ func (m Model) View() tea.View {
 
 // handleCommandAction executes the command identified by action and returns any
 // resulting tea.Cmd values. It is shared by the command palette and slash menu.
+func (m *Model) completeStreamFinalize(sess *SessionState) {
+	if !sess.streamFinalize {
+		return
+	}
+	if sess.assistantBuf != "" {
+		finalizeStreamingDisplay(sess)
+	}
+	m.preserveChatScrollAfterContentChange(sess, sess.streamDonePrevMax, sess.streamDoneAtBottom)
+	sess.streamFinalize = false
+}
+
 func (m *Model) flushSessionBuf(sess *SessionState) {
+	flushStreamPlayback(sess)
+	sess.streamFinalize = false
 	if sess.showThinking && sess.thinkingBuf != "" {
 		sess.chatMessages = append(sess.chatMessages, renderThinkingMessage(sess.thinkingBuf, m.styles, m.mdRenderer.width+4))
 	}

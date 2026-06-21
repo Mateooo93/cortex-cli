@@ -836,9 +836,18 @@ func (s *Session) safeEmit(ev protocol.SessionEvent) {
 // via backpressure instead of losing text.
 func (s *Session) emitStreamChunk(text string) {
 	defer func() { _ = recover() }()
-	s.events <- protocol.SessionEvent{
-		Type: "stream_chunk",
-		Data: protocol.EventStreamChunk{Text: text},
+	const maxEmit = 64
+	for len(text) > 0 {
+		n := maxEmit
+		if n > len(text) {
+			n = len(text)
+		}
+		part := text[:n]
+		text = text[n:]
+		s.events <- protocol.SessionEvent{
+			Type: "stream_chunk",
+			Data: protocol.EventStreamChunk{Text: part},
+		}
 	}
 }
 

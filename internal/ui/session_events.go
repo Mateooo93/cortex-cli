@@ -39,11 +39,8 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		if chunk.Text == "" {
 			break
 		}
-		wasAtBottom := sess.chatScrollOffset == 0
-		prevMax := m.sessionMaxScrollOffset(sess)
-		sess.assistantBuf += chunk.Text
-		updateStreamingDisplay(sess)
-		m.preserveChatScrollAfterContentChange(sess, prevMax, wasAtBottom)
+		sess.streamPending += chunk.Text
+		cmds = append(cmds, sess.streamPlayback.EnsureTick())
 
 	case "event.thinking_chunk":
 		data := marshalData(event.Data)
@@ -58,14 +55,15 @@ func (m *Model) applyEventToSession(idx int, event protocol.SessionEvent) []tea.
 		data := marshalData(event.Data)
 		var done protocol.EventStreamDone
 		json.Unmarshal(data, &done)
-		wasAtBottom := sess.chatScrollOffset == 0
-		prevMax := m.sessionMaxScrollOffset(sess)
-		flushStreamPlayback(sess)
-		sess.streamPlayback.Stop()
-		if sess.assistantBuf != "" {
-			finalizeStreamingDisplay(sess)
+		sess.streamFinalize = true
+		sess.streamDoneAtBottom = sess.chatScrollOffset == 0
+		sess.streamDonePrevMax = m.sessionMaxScrollOffset(sess)
+		if cmd := sess.streamPlayback.EnsureTick(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
-		m.preserveChatScrollAfterContentChange(sess, prevMax, wasAtBottom)
+		if sess.streamPending == "" {
+			m.completeStreamFinalize(sess)
+		}
 		// Context-window counting fix. The streaming API
 		// reports `InputTokens` as the prompt size of the
 		// CURRENT turn (which includes the entire
