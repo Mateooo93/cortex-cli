@@ -351,9 +351,6 @@ func inferOpenGatewayUpstream(model string) string {
 }
 
 func (p *OpenAICompat) shouldUseNonStreaming(model string) bool {
-	if p.isOpenGateway() {
-		return true
-	}
 	model = strings.ToLower(strings.TrimSpace(model))
 	// Free / overloaded routes often 502 on SSE; non-streaming is more stable.
 	if strings.Contains(model, "-free") || strings.Contains(model, "/free") {
