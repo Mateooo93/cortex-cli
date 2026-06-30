@@ -10,9 +10,8 @@ a Bubble Tea TUI (`internal/ui/`) with an in-process session
 (`internal/provider/`), a tool set (`internal/tools/`), and an
 optional multi-agent swarm orchestrator (`internal/swarm/`).
 
-The TUI client, daemon-stub, and protocol types are derived from
-upstream vix but are not exposed to users — cortex-cli is shipped
-as a single binary with no separate `vixd` daemon.
+The TUI client, daemon-stub, and protocol types live in-process —
+cortex-cli is shipped as a single binary with no separate daemon.
 
 ## Architecture
 

@@ -67,5 +67,4 @@ cortex-cli is shipped as a single Go binary with no separate
 daemon. The TUI starts a chat session in-process, talks to the
 configured LLM provider over the network, and writes session state
 to `~/.cortex/`. This keeps the install trivial (one binary, one
-config file) and avoids the Unix-socket coordination the original
-vix design needed.
+config file) and keeps the install simple.

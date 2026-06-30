@@ -1,11 +1,7 @@
-Copyright (C) 2025 vix
 Copyright (C) 2026 The cortex-cli contributors
 
-cortex-cli is a fork of vix (https://github.com/get-vix/vix) with
-cortex-specific provider and session changes. Both the original vix
-work and the cortex-cli modifications are licensed under the GNU
-Affero General Public License v3.0, the terms of which are set out
-in full below.
+cortex-cli is licensed under the GNU Affero General Public License
+v3.0, the terms of which are set out in full below.
 
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007

@@ -3,11 +3,10 @@
 Thank you for your interest in contributing to cortex-cli! This guide will
 help you get started.
 
-cortex-cli is a fork of [vix](https://github.com/get-vix/vix). Most
-contributions happen in the cortex-specific packages (`internal/cortexconfig`,
-`internal/provider`, `internal/session`, `internal/swarm`, `internal/tools`,
-and the `main.go` entry point). Changes to `internal/ui/` should be minimal
-and sync-friendly with vix upstream.
+Most contributions happen in the cortex-specific packages
+(`internal/cortexconfig`, `internal/provider`, `internal/session`,
+`internal/swarm`, `internal/tools`, and the `main.go` entry point).
+Changes to `internal/ui/` should stay minimal and focused.
 
 ## Priority Areas
 
@@ -101,13 +100,11 @@ Co-authored-by: cortex-cli <Mateooo93@users.noreply.github.com>
 - **No unnecessary dependencies** — prefer the standard library when
   reasonable.
 
-## Sync strategy with vix upstream
+## UI changes
 
-When vix ships improvements to `internal/ui/`, port them in with a focused
-merge. Avoid making non-essential changes in `internal/ui/` so future
-upstream syncs stay small. Cortex-specific behaviour belongs in
-`internal/cortexconfig/`, `internal/provider/`, `internal/session/`,
-`internal/swarm/`, or `internal/tools/`.
+Avoid making non-essential changes in `internal/ui/`. Cortex-specific
+behaviour belongs in `internal/cortexconfig/`, `internal/provider/`,
+`internal/session/`, `internal/swarm/`, or `internal/tools/`.
 
 ## Pull Request Process
 

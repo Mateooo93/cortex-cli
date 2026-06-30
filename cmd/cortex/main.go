@@ -1,10 +1,7 @@
 // cortex-cli — main entry point.
 //
-// cortex-cli is a fork of vix (https://github.com/get-vix/vix). We keep
-// the entire `internal/ui/` tree (bubbletea + lipgloss + glamour) so the
-// TUI is identical to vix's, then replace vix's `vixd` daemon with an
-// in-process session and a cortex-aware provider layer that talks to
-// Cortex, OpenAI, Anthropic, or Ollama.
+// Single-binary AI coding agent: Bubble Tea TUI, in-process session,
+// and a multi-provider LLM layer (Cortex, OpenAI, Anthropic, Ollama, …).
 //
 // The entrypoint lives under cmd/cortex/ following standard Go layout.
 // This makes it easier to add future subcommands (e.g. `cortex config`)
