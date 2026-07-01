@@ -81,6 +81,8 @@ func providerEnvVar(provider string) string {
 		return "MINIMAX_API_KEY"
 	case "mimo":
 		return "MIMO_API_KEY"
+	case "opencode-zen", "opencode":
+		return "OPENCODE_ZEN_API_KEY"
 	default:
 		return ""
 	}

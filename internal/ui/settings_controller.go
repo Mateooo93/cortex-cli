@@ -649,10 +649,7 @@ func (m *Model) providerAPIKey(providerName string) string {
 			return pc.APIKey
 		}
 	}
-	if envVar := cortexconfig.ProviderEnvVar(providerName); envVar != "" {
-		return os.Getenv(envVar)
-	}
-	return ""
+	return cortexconfig.ResolveProviderAPIKey(m.cortexCfg, providerName, nil)
 }
 
 func (m *Model) providerBaseURL(providerName string) string {

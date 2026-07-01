@@ -77,6 +77,7 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+	cortexCfg.ApplyBuiltinZenFallback()
 
 	if *listModels {
 		fmt.Println("Available models:")
@@ -127,8 +128,8 @@ func run(args []string) error {
 	}
 	defer client.SendClose()
 
-	// Pre-flight: if no API key, prompt for one
-	if !hasUsableKey(cortexCfg) {
+	// Pre-flight: if no API key, prompt for one (unless bundled Zen key works).
+	if !cortexCfg.HasUsableCredentials() {
 		if isatty.IsTerminal(os.Stdin.Fd()) {
 			key := promptAPIKey()
 			if key != "" {
@@ -223,32 +224,6 @@ func runHeadless(cortexCfg *cortexconfig.Config, cwd, prompt, modelName string) 
 		}
 	}
 	return nil
-}
-
-// hasUsableKey reports whether the selected provider can be used without
-// prompting for a key.
-func hasUsableKey(cfg *cortexconfig.Config) bool {
-	if cfg == nil {
-		return false
-	}
-	_, mc, err := cfg.GetModel(cfg.DefaultModel)
-	if err != nil || mc == nil {
-		return false
-	}
-	providerName := cortexconfig.NormalizeProviderName(mc.Provider)
-	if !cortexconfig.ProviderNeedsAPIKey(providerName) {
-		return true
-	}
-	if mc.APIKey != "" {
-		return true
-	}
-	if pc, ok := cfg.ProviderConfig(providerName); ok && pc.APIKey != "" {
-		return true
-	}
-	if envVar := cortexconfig.ProviderEnvVar(providerName); envVar != "" && os.Getenv(envVar) != "" {
-		return true
-	}
-	return false
 }
 
 func promptAPIKey() string {

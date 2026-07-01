@@ -674,12 +674,7 @@ func (s *Session) callProviderWithMessages(ctx context.Context, messages []provi
 	if err != nil {
 		return provider.Response{}, err
 	}
-	apiKey := mc.APIKey
-	if apiKey == "" {
-		if env := cortexconfig.ProviderEnvVar(mc.Provider); env != "" {
-			apiKey = os.Getenv(env)
-		}
-	}
+	apiKey := s.resolveAPIKey(mc)
 	if apiKey == "" {
 		return provider.Response{}, fmt.Errorf("no API key for evaluator")
 	}
@@ -2155,13 +2150,10 @@ func toolHistoryMessage(id, name, output string, isErr bool, errMsg string) *pro
 // resolveAPIKey returns the API key for the model, falling back to
 // environment variables.
 func (s *Session) resolveAPIKey(mc *cortexconfig.ModelConfig) string {
-	if mc.APIKey != "" {
-		return mc.APIKey
+	if mc == nil {
+		return ""
 	}
-	if envVar := cortexconfig.ProviderEnvVar(mc.Provider); envVar != "" {
-		return osGetenv(envVar)
-	}
-	return ""
+	return cortexconfig.ResolveProviderAPIKey(s.cfg, mc.Provider, mc)
 }
 
 // convertParams adapts the schema from tools.ProviderSchema → provider.ToolParam.

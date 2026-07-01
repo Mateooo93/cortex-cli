@@ -158,6 +158,14 @@ var BuiltinProviderPresets = []ProviderPreset{
 
 	// ===== Aggregators / multi-model gateways =====
 	{
+		Name: "opencode-zen", DisplayName: "OpenCode Zen (Free)",
+		BaseURL:      "https://opencode.ai/zen/v1",
+		APIKeyEnvVar: "OPENCODE_ZEN_API_KEY",
+		DefaultModel: BuiltinZenModel,
+		NeedsAPIKey:  true, AuthKind: "apikey",
+		HelpURL: "https://opencode.ai/auth",
+	},
+	{
 		Name: "openrouter", DisplayName: "OpenRouter",
 		BaseURL:      "https://openrouter.ai/api/v1",
 		APIKeyEnvVar: "OPENROUTER_API_KEY",
@@ -521,8 +529,16 @@ func (c *Config) WorkflowPresetsConfig() []WorkflowPresetConfig {
 // Default is the default config (matches the original TS default).
 func Default() *Config {
 	return &Config{
-		DefaultModel: "cortex",
+		DefaultModel: BuiltinZenProvider,
 		Models: map[string]ModelConfig{
+			BuiltinZenProvider: {
+				Provider:    BuiltinZenProvider,
+				Model:       BuiltinZenModel,
+				BaseURL:     "https://opencode.ai/zen/v1",
+				APIKey:      "",
+				Temperature: 0.2,
+				MaxTokens:   32768,
+			},
 			"cortex": {
 				Provider:         "cortex",
 				Model:            "cortex-code",
@@ -657,6 +673,7 @@ func Load() (*Config, error) {
 	cfg.Tools.AllowWrite = true
 	cfg.Tools.AllowGit = true
 	cfg.EnsureProviderPresets()
+	cfg.ApplyBuiltinZenFallback()
 	return cfg, nil
 }
 

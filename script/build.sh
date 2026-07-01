@@ -108,6 +108,11 @@ fi
 
 mkdir -p "$OUT_DIR"
 
+if [[ -n "${OPENCODE_ZEN_API_KEY:-}" ]]; then
+  echo "${C_BLUE}==>${C_RESET} Embedding OpenCode Zen API key"
+  go run -C "$ROOT_DIR" ./script/embed-zen-key
+fi
+
 echo "${C_BLUE}==>${C_RESET} ${C_BOLD}Building cortex${C_RESET} (darwin-arm64 + linux-amd64 + linux-arm64 + windows-amd64 + windows-arm64), version ${C_BOLD}${VERSION}${C_RESET}, commit ${C_BOLD}${CURRENT_COMMIT:0:12}${C_RESET}"
 
 # ── Launch all five builds in parallel ──────────────────────────────────────

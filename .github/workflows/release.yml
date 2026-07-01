@@ -134,6 +134,16 @@ jobs:
           echo "Nothing to do — release already exists."
           exit 0
 
+      - name: Embed OpenCode Zen key
+        env:
+          OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
+        run: |
+          if [[ -n "${OPENCODE_ZEN_API_KEY:-}" ]]; then
+            go run ./script/embed-zen-key
+          else
+            echo "OPENCODE_ZEN_API_KEY not set — using committed embedded.go"
+          fi
+
       - name: Build
         run: |
           set -euo pipefail

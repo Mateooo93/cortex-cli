@@ -27,7 +27,7 @@ func registerCustomProvider(name string, fn func(ctx context.Context) (Provider,
 		return false
 	}
 	switch strings.ToLower(name) {
-	case "cortex", "openai", "anthropic", "ollama", "openrouter", "minimax", "mimo", "opengateway":
+	case "cortex", "openai", "anthropic", "ollama", "openrouter", "minimax", "mimo", "opengateway", "opencode-zen":
 		return false
 	}
 	customProviders[strings.ToLower(name)] = fn
@@ -111,6 +111,11 @@ func New(cfg ModelConfig) (Provider, error) {
 			baseURL = "https://api.xiaomimimo.com/v1"
 		}
 		return NewOpenAICompat("mimo", apiKey, baseURL), nil
+	case "opencode-zen":
+		if baseURL == "" {
+			baseURL = "https://opencode.ai/zen/v1"
+		}
+		return NewOpenAICompat("opencode-zen", apiKey, baseURL), nil
 	default:
 		// Custom-registered provider (e.g. "codex")?
 		if p, err := newCustomProvider(context.Background(), cfg.Provider); err != nil {
