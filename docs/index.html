@@ -4,21 +4,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>cortex-cli</title>
-  <meta name="description" content="cortex-cli TUI preview">
+  <meta name="description" content="Interactive cortex-cli TUI demo">
   <meta property="og:title" content="cortex-cli">
   <meta property="og:image" content="https://mateooo93.github.io/cortex-cli/assets/cortex-cli-screenshot.png">
   <link rel="icon" href="assets/cortex.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg: #0a0e17;
-      --border: #2a3348;
-      --text-muted: #8b949e;
-      --terminal-bg: #0d1117;
-      --terminal-title: #21262d;
-      --accent: #58a6ff;
+      --panel: #0d1117;
+      --border: #30363d;
+      --border-active: #3b82f6;
+      --text: #e6edf3;
+      --dim: #8b949e;
+      --primary: #3b82f6;
+      --secondary: #60a5fa;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -30,90 +36,485 @@
       align-items: center;
       justify-content: center;
       background: var(--bg);
-      color: var(--text-muted);
-      font-family: "IBM Plex Mono", ui-monospace, monospace;
-      padding: 24px 16px 32px;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--text);
+      padding: 20px 12px 28px;
     }
 
-    .terminal {
-      width: min(960px, 100%);
-      border-radius: 12px;
-      overflow: hidden;
+    .shell {
+      width: min(920px, 100%);
       border: 1px solid var(--border);
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
-      background: var(--terminal-bg);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+      background: var(--panel);
     }
 
-    .terminal-bar {
+    .titlebar {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 12px 16px;
-      background: var(--terminal-title);
+      padding: 8px 12px;
+      background: #161b22;
       border-bottom: 1px solid var(--border);
+      font-size: 10px;
+      color: var(--dim);
     }
 
-    .dots { display: flex; gap: 7px; }
-    .dots span { width: 12px; height: 12px; border-radius: 50%; }
-    .dots span:nth-child(1) { background: #ff5f57; }
-    .dots span:nth-child(2) { background: #febc2e; }
-    .dots span:nth-child(3) { background: #28c840; }
+    .dots { display: flex; gap: 6px; margin-right: 10px; }
+    .dots i { width: 10px; height: 10px; border-radius: 50%; display: block; }
+    .dots i:nth-child(1) { background: #ff5f57; }
+    .dots i:nth-child(2) { background: #febc2e; }
+    .dots i:nth-child(3) { background: #28c840; }
 
-    .terminal-title {
-      flex: 1;
+    .tabs {
+      display: flex;
+      gap: 2px;
+      padding: 6px 8px 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+
+    .tab {
+      padding: 4px 10px;
+      color: var(--dim);
+      border: 1px solid transparent;
+      border-bottom: none;
+      border-radius: 6px 6px 0 0;
+      font-size: 10px;
+    }
+
+    .tab.active {
+      color: var(--primary);
+      font-weight: 600;
+      border-color: var(--border);
+      border-bottom: 1px solid var(--panel);
+      margin-bottom: -1px;
+      background: var(--panel);
+    }
+
+    .main {
+      display: grid;
+      grid-template-columns: 1fr 220px;
+      min-height: 340px;
+      max-height: 420px;
+    }
+
+    .chat {
+      border-right: 1px solid var(--border);
+      padding: 8px 10px;
+      overflow-y: auto;
+      position: relative;
+    }
+
+    .sidebar {
+      padding: 8px 10px;
+      overflow-y: auto;
+      font-size: 10px;
+    }
+
+    .sidebar h4 {
+      color: var(--primary);
+      font-size: 10px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .sidebar .label { color: var(--dim); margin-top: 6px; }
+    .sidebar .value { color: var(--text); }
+
+    .ctx-bar {
+      height: 4px;
+      background: #21262d;
+      border-radius: 2px;
+      margin: 4px 0;
+      overflow: hidden;
+    }
+
+    .ctx-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--primary);
+      border-radius: 2px;
+      transition: width .4s ease;
+    }
+
+    .todo { display: flex; gap: 6px; margin: 3px 0; color: var(--dim); align-items: flex-start; }
+    .todo.done { color: var(--green); }
+    .todo.active { color: var(--primary); }
+    .todo .icon { flex-shrink: 0; width: 12px; }
+
+    .welcome {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--panel);
       text-align: center;
-      font-size: 0.78rem;
-      user-select: none;
+      padding: 20px;
+      z-index: 2;
+      transition: opacity .35s;
     }
 
-    .terminal-body { line-height: 0; background: var(--terminal-bg); }
+    .welcome.hidden { opacity: 0; pointer-events: none; }
 
-    .terminal-body video,
-    .terminal-body img {
-      display: block;
-      width: 100%;
-      height: auto;
-      aspect-ratio: 16 / 9;
-      object-fit: contain;
-      background: #0d1117;
+    .banner {
+      color: var(--primary);
+      font-size: 9px;
+      line-height: 1.1;
+      white-space: pre;
+      margin-bottom: 8px;
+      text-shadow: 0 0 20px rgba(59,130,246,.3);
     }
 
-    footer {
-      margin-top: 20px;
-      font-size: 0.78rem;
+    .banner-sm {
+      color: var(--primary);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: .15em;
+      margin-bottom: 8px;
     }
 
-    footer a {
-      color: var(--accent);
-      text-decoration: none;
+    .welcome .ver { color: var(--dim); font-size: 10px; margin-bottom: 4px; }
+    .welcome .sub { color: var(--text); font-style: italic; font-size: 10px; margin-bottom: 20px; }
+
+    .play-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border: 1px solid var(--primary);
+      border-radius: 8px;
+      background: rgba(59,130,246,.12);
+      color: var(--primary);
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, transform .15s;
     }
 
-    footer a:hover { text-decoration: underline; }
+    .play-btn:hover { background: rgba(59,130,246,.22); transform: scale(1.02); }
+    .play-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    .play-btn svg { width: 14px; height: 14px; fill: currentColor; }
+
+    .msg { margin-bottom: 10px; animation: fadeIn .25s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+    .user .head { color: var(--primary); font-weight: 600; }
+    .user .body { color: var(--text); margin-top: 2px; white-space: pre-wrap; }
+
+    .assistant .body { color: var(--text); white-space: pre-wrap; }
+    .assistant .cursor {
+      display: inline-block;
+      width: 7px;
+      height: 13px;
+      background: var(--primary);
+      vertical-align: text-bottom;
+      animation: blink .8s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .tool {
+      margin: 8px 0;
+      padding: 6px 8px;
+      border-left: 2px solid var(--secondary);
+      color: var(--secondary);
+      font-size: 10px;
+    }
+
+    .tool .name { font-weight: 600; }
+    .tool .detail { color: var(--dim); margin-top: 2px; }
+    .tool .ok { color: var(--green); margin-top: 2px; }
+
+    .tool pre {
+      margin-top: 4px;
+      padding: 4px 6px;
+      background: #161b22;
+      border-radius: 4px;
+      color: var(--dim);
+      font-size: 9px;
+      overflow-x: auto;
+    }
+
+    .input-row {
+      border-top: 1px solid var(--border);
+      padding: 6px 10px;
+    }
+
+    .input-box {
+      border: 1px solid var(--border-active);
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: var(--dim);
+      min-height: 28px;
+    }
+
+    .input-box.typing { color: var(--text); }
+    .input-box .caret {
+      display: inline-block;
+      width: 7px;
+      height: 13px;
+      background: var(--primary);
+      vertical-align: text-bottom;
+      animation: blink .8s step-end infinite;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 10px 8px;
+      font-size: 9px;
+      color: var(--dim);
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .footer kbd { color: var(--primary); }
+    .footer .model { color: var(--dim); }
+
+    .page-footer { margin-top: 16px; font-size: 10px; color: var(--dim); }
+    .page-footer a { color: var(--primary); text-decoration: none; }
+    .page-footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 640px) {
+      .main { grid-template-columns: 1fr; max-height: none; }
+      .sidebar { border-top: 1px solid var(--border); max-height: 140px; }
+      .chat { min-height: 260px; border-right: none; }
+      .banner { display: none; }
+    }
   </style>
 </head>
 <body>
-  <div class="terminal">
-    <div class="terminal-bar">
-      <div class="dots"><span></span><span></span><span></span></div>
-      <div class="terminal-title">cortex — ~/project</div>
-      <div style="width:52px"></div>
+  <div class="shell" id="app">
+    <div class="titlebar">
+      <div class="dots"><i></i><i></i><i></i></div>
+      cortex — ~/hello-cli
     </div>
-    <div class="terminal-body">
-      <video
-        autoplay
-        loop
-        muted
-        playsinline
-        poster="assets/cortex-cli-welcome.png"
-        aria-label="cortex-cli TUI preview">
-        <source src="assets/cortex-cli-promo.mp4" type="video/mp4">
-        <img src="assets/cortex-cli-screenshot.png" alt="cortex-cli TUI">
-      </video>
+
+    <div class="tabs">
+      <div class="tab"> Sessions (F1) </div>
+      <div class="tab active"> Chat (F2) </div>
+      <div class="tab"> Settings (F3) </div>
+    </div>
+
+    <div class="main">
+      <div class="chat" id="chat">
+        <div class="welcome" id="welcome">
+          <pre class="banner" aria-hidden="true"> ██████╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗
+██╔════╝██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝
+██║     ██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝
+██║     ██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗
+╚██████╗╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗
+ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝</pre>
+          <div class="banner-sm" aria-hidden="true">CORTEX</div>
+          <div class="ver">v0.25.39</div>
+          <div class="sub">AI coding assistant</div>
+          <button class="play-btn" id="play" type="button">
+            <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            Play demo
+          </button>
+        </div>
+        <div id="messages"></div>
+      </div>
+
+      <aside class="sidebar">
+        <h4>Status</h4>
+        <div class="label">Model</div>
+        <div class="value" id="model">claude-opus-4 · anthropic</div>
+        <div class="label">Context</div>
+        <div class="ctx-bar"><div class="ctx-fill" id="ctx"></div></div>
+        <div class="value" id="ctx-label">0 / 200k (0%)</div>
+        <div class="label">Session</div>
+        <div class="value" id="timer">⏱ 0:00 · 1 session</div>
+        <div class="label" style="margin-top:10px">Todos</div>
+        <div id="todos">
+          <div class="todo"><span class="icon">○</span><span>Waiting…</span></div>
+        </div>
+        <div class="label" style="margin-top:10px">Keys</div>
+        <div class="value" style="color:var(--dim);font-size:9px;line-height:1.5">
+          Ctrl+T new session<br>
+          Ctrl+B toggle panel<br>
+          Ctrl+C quit<br>
+          / slash menu
+        </div>
+      </aside>
+    </div>
+
+    <div class="input-row">
+      <div class="input-box" id="input">&gt; Ask the agent anything…</div>
+    </div>
+    <div class="footer">
+      <span><kbd>Enter</kbd> send · <kbd>Tab</kbd> queue · <kbd>Esc</kbd> cancel</span>
+      <span class="model" id="footer-model">claude-opus-4 · anthropic</span>
     </div>
   </div>
 
-  <footer>
+  <p class="page-footer">
     <a href="https://github.com/Mateooo93/cortex-cli">github</a>
-  </footer>
+    · <button type="button" id="replay" style="background:none;border:none;color:var(--primary);font:inherit;cursor:pointer;font-size:10px">replay demo</button>
+    · interactive simulation
+  </p>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    const todos = [
+      "Create hello-cli directory",
+      "Create main.go with Hello from cortex",
+      "Create README.md",
+      "Create Makefile with build targets",
+      "Verify the project builds and runs",
+    ];
+
+    function renderTodos(activeIdx, doneBefore) {
+      $("todos").innerHTML = todos.map((t, i) => {
+        let cls = "todo", icon = "○";
+        if (i < doneBefore) { cls += " done"; icon = "✓"; }
+        else if (i === activeIdx) { cls += " active"; icon = "▸"; }
+        return `<div class="${cls}"><span class="icon">${icon}</span><span>${t}</span></div>`;
+      }).join("");
+    }
+
+    function setCtx(pct, label) {
+      $("ctx").style.width = pct + "%";
+      $("ctx-label").textContent = label;
+    }
+
+    function addMsg(html) {
+      const el = document.createElement("div");
+      el.innerHTML = html;
+      $("messages").appendChild(el.firstElementChild || el);
+      $("chat").scrollTop = $("chat").scrollHeight;
+    }
+
+    async function typeInput(text) {
+      const box = $("input");
+      box.classList.add("typing");
+      box.textContent = "> ";
+      for (const ch of text) {
+        box.textContent += ch;
+        await sleep(28 + Math.random() * 22);
+      }
+      box.innerHTML = "> " + text;
+      await sleep(400);
+    }
+
+    async function streamAssistant(text, speed = 18) {
+      const wrap = document.createElement("div");
+      wrap.className = "msg assistant";
+      const body = document.createElement("div");
+      body.className = "body";
+      const cursor = document.createElement("span");
+      cursor.className = "cursor";
+      wrap.appendChild(body);
+      body.appendChild(cursor);
+      $("messages").appendChild(wrap);
+
+      for (let i = 0; i < text.length; i++) {
+        body.textContent = text.slice(0, i + 1);
+        body.appendChild(cursor);
+        $("chat").scrollTop = $("chat").scrollHeight;
+        await sleep(speed + Math.random() * 12);
+      }
+      cursor.remove();
+    }
+
+    let timerSec = 0;
+    let timerId = null;
+    function startTimer() {
+      timerId = setInterval(() => {
+        timerSec++;
+        const m = Math.floor(timerSec / 60);
+        const s = String(timerSec % 60).padStart(2, "0");
+        $("timer").textContent = `⏱ ${m}:${s} · 1 session`;
+      }, 1000);
+    }
+
+    let played = false;
+
+    async function runDemo() {
+      const play = $("play");
+      play.disabled = true;
+      play.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> Running…';
+
+      if (!played) {
+        played = true;
+        $("welcome").classList.add("hidden");
+      }
+      $("messages").innerHTML = "";
+      renderTodos(-1, 0);
+      startTimer();
+
+      const prompt = "Create a small Go CLI project called hello-cli with a README, main.go, and Makefile. Show me a plan first.";
+      await typeInput(prompt);
+      $("input").textContent = "> Ask the agent anything…";
+      $("input").classList.remove("typing");
+
+      addMsg(`<div class="msg user"><div class="head">You</div><div class="body">${prompt}</div></div>`);
+      await sleep(500);
+
+      await streamAssistant("I'll create a plan first, then execute it step by step.");
+      await sleep(400);
+
+      renderTodos(0, 0);
+      setCtx(2, "3.2k / 200k (2%)");
+      addMsg(`<div class="tool"><div class="name">● todo_write</div><div class="detail">Updating task list (5 items)</div></div>`);
+      await sleep(700);
+
+      renderTodos(0, 0);
+      addMsg(`<div class="tool"><div class="name">● shell</div><div class="detail">$ mkdir -p hello-cli</div><div class="ok">✓ succeeded</div></div>`);
+      await sleep(600);
+      renderTodos(1, 1);
+
+      setCtx(4, "7.4k / 200k (4%)");
+      addMsg(`<div class="tool"><div class="name">● write_file</div><div class="detail">hello-cli/main.go</div><pre>package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello from cortex!")
+}</pre></div>`);
+      await sleep(500);
+      renderTodos(2, 2);
+
+      await streamAssistant("Created the directory and main.go. Next I'll add README.md and a Makefile.");
+      await sleep(300);
+
+      addMsg(`<div class="tool"><div class="name">● write_file</div><div class="detail">hello-cli/README.md</div><div class="ok">✓ wrote 412 bytes</div></div>`);
+      await sleep(400);
+      renderTodos(3, 3);
+
+      addMsg(`<div class="tool"><div class="name">● shell</div><div class="detail">$ cd hello-cli && go build -o hello . && ./hello</div><div class="ok">✓ Hello from cortex!</div></div>`);
+      await sleep(500);
+      renderTodos(-1, 5);
+      setCtx(5, "9.1k / 200k (5%)");
+
+      await streamAssistant("All done — hello-cli builds and runs. Try `cd hello-cli && make run` locally.");
+
+      play.disabled = false;
+      play.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Play demo';
+    }
+
+    $("play").addEventListener("click", resetAndRun);
+    $("replay").addEventListener("click", resetAndRun);
+
+    function resetAndRun() {
+      if (timerId) clearInterval(timerId);
+      timerSec = 0;
+      $("timer").textContent = "⏱ 0:00 · 1 session";
+      setCtx(0, "0 / 200k (0%)");
+      renderTodos(-1, 0);
+      $("messages").innerHTML = "";
+      $("input").textContent = "> Ask the agent anything…";
+      $("input").classList.remove("typing");
+      runDemo();
+    }
+  </script>
 </body>
 </html>
