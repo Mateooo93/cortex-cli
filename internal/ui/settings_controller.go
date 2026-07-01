@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"os"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
